@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+.venv/
+
+# 本地配置（包含密钥）
+.env
+.env.local
+
+# 日志
+logs/*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 凭据存储（credentials.py 降级文件）
+credentials.json
+
+# 技能草案/审核（用户生成内容，不提交）
+skills/approved/
+skills/drafts/

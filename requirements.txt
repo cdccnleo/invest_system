@@ -1,0 +1,37 @@
+# InvestPilot 系统依赖（独立虚拟环境，不依赖 Hermes）
+# Python >= 3.11
+# 创建: python3.11 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# 数据处理
+pandas==3.0.3
+numpy==2.4.4
+
+# HTTP / 解析
+requests==2.33.0
+beautifulsoup4==4.14.3
+
+# LLM API
+openai==2.24.0
+
+# 数据库
+psycopg2-binary==2.9.12
+
+# 调度
+APScheduler==3.11.2
+pytz==2026.2
+
+# 环境变量
+python-dotenv==1.2.1
+
+# Web 仪表盘
+streamlit==1.57.0
+plotly==6.7.0
+
+# ── 核心脚本无其他外部依赖 ────────────────────────────────────────────────
+# 以下本地脚本直接 import，不需独立安装：
+#   agent_interface, apscheduler, audit_analytics, backtest_engine,
+#   circuit_breaker, corporate_actions, dashboard, data_sanitizer,
+#   data_validator, embedding_service, fetch_*, fund_manager,
+#   intraday_monitor, llm_caller, model_router, notification,
+#   prompt_builder, reflection_engine, run_analysis, schedule_runner,
+#   skill_library, storage_factory, user_memory

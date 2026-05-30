@@ -255,6 +255,21 @@ def detect_manual_edit(content: str) -> tuple[str, list[str]]:
     return cleaned, protected
 
 
+def is_section_manually_edited(content: str, section_heading: str) -> bool:
+    """
+    检查指定章节（通过 ### Agent 标题定位）是否被手动编辑过。
+    检查该章节块内是否有 <!-- MANUAL EDIT --> 标记。
+    """
+    idx = content.find(section_heading)
+    if idx < 0:
+        return False
+    # 取该章节下一个 ## 标题之前的内容
+    after = content[idx + len(section_heading):]
+    next_section = after.find('\n## ')
+    block = after[:next_section] if next_section > 0 else after
+    return bool(re.search(r'<!--\s*MANUAL\s*EDIT:', block, re.IGNORECASE))
+
+
 def detect_affected_sections(new_data: dict) -> list[str]:
     """根据新数据判断需要更新哪些章节"""
     affected = []
@@ -754,6 +769,19 @@ def incremental_update(code: str) -> dict:
     
     write_tamf(code, new_content)
     
+    # 触发Agent段落生成（技术面/基本面/消息面 — 异步并行）
+    # 仅当有行情数据时调用，避免无数据下LLM幻觉
+    if quotes:
+        try:
+            agent_updated = update_agent_sections_in_tamf(
+                code, name, quotes, financials, anns, reports
+            )
+            if agent_updated:
+                write_tamf(code, agent_updated)
+        except Exception as e:
+            import logging
+            logging.getLogger("tamf_updater").warning(f"Agent段落更新失败 {code}: {e}")
+    
     # 更新元数据
     meta = get_tamf_metadata(code)
     vmaj = (meta["version_major"] + 1) if meta else 1
@@ -1195,28 +1223,40 @@ def update_agent_sections_in_tamf(code: str, name: str,
     # 更新第五章消息面
     news_section = generate_agent_section(code, "news_assessment", ctx)
 
-    # 正则定位并替换各Agent段落
+    # 正则定位并替换各Agent段落（已手动编辑的章节跳过）
     import re
 
-    # 技术面Agent段落
-    tech_pattern = re.compile(
-        r'(### Agent 技术面简评\n)\n```\n.*?\n```',
-        re.DOTALL
-    )
-    content = tech_pattern.sub(f'\n### Agent 技术面简评\n{tech_section}', content, count=1)
+    # 技术面Agent段落（手动编辑保护）
+    if not is_section_manually_edited(content, "### Agent 技术面简评"):
+        tech_pattern = re.compile(
+            r'(### Agent 技术面简评\n)\n```\n.*?\n```',
+            re.DOTALL
+        )
+        content = tech_pattern.sub(f'\n### Agent 技术面简评\n{tech_section}', content, count=1)
+    else:
+        import logging
+        logging.getLogger("tamf_updater").debug(f"{code} 技术面章节已手动编辑，跳过覆盖")
 
-    # 基本面Agent段落
-    fund_pattern = re.compile(
-        r'(### Agent 基本面综合评估\n)\n```\n.*?\n```',
-        re.DOTALL
-    )
-    content = fund_pattern.sub(f'\n### Agent 基本面综合评估\n{fund_section}', content, count=1)
+    # 基本面Agent段落（手动编辑保护）
+    if not is_section_manually_edited(content, "### Agent 基本面综合评估"):
+        fund_pattern = re.compile(
+            r'(### Agent 基本面综合评估\n)\n```\n.*?\n```',
+            re.DOTALL
+        )
+        content = fund_pattern.sub(f'\n### Agent 基本面综合评估\n{fund_section}', content, count=1)
+    else:
+        import logging
+        logging.getLogger("tamf_updater").debug(f"{code} 基本面章节已手动编辑，跳过覆盖")
 
-    # 消息面Agent段落
-    news_pattern = re.compile(
-        r'(### Agent 消息面综合判断\n)\n```\n.*?\n```',
-        re.DOTALL
-    )
-    content = news_pattern.sub(f'\n### Agent 消息面综合判断\n{news_section}', content, count=1)
+    # 消息面Agent段落（手动编辑保护）
+    if not is_section_manually_edited(content, "### Agent 消息面综合判断"):
+        news_pattern = re.compile(
+            r'(### Agent 消息面综合判断\n)\n```\n.*?\n```',
+            re.DOTALL
+        )
+        content = news_pattern.sub(f'\n### Agent 消息面综合判断\n{news_section}', content, count=1)
+    else:
+        import logging
+        logging.getLogger("tamf_updater").debug(f"{code} 消息面章节已手动编辑，跳过覆盖")
 
     return content

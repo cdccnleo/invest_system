@@ -273,6 +273,16 @@ def job_tamf_update():
         from tamf_updater import scheduled_update_all_holdings
         result = scheduled_update_all_holdings()
         logger.info(f"TAMF更新完成: 更新{result['updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")
+        # 自动提交TAMF文件变更
+        try:
+            from tamf_git_commit import commit_tamf_changes
+            commit_result = commit_tamf_changes()
+            if commit_result["committed"]:
+                logger.info(f"✅ TAMF Git提交: {commit_result['message']}")
+            else:
+                logger.debug(f"TAMF Git: {commit_result['message']}")
+        except Exception as e:
+            logger.warning(f"TAMF Git提交跳过: {e}")
         # 推送结果
         if result["failed"] > 0:
             _safe_error_alert("⚠️ TAMF更新部分失败",

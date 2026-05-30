@@ -36,6 +36,3 @@ credentials.json
 # 技能草案/审核（用户生成内容，不提交）
 skills/approved/
 skills/drafts/
-[TAMF体系]
-data/target_memories/*.md
-data/target_memories/

@@ -211,6 +211,18 @@ def build_analysis_prompt(
         news_lines.append(f"{sev_icon} {n['title'][:50]}")
     news_section = "## 近15条重要新闻（按严重程度排序）\n" + "\n".join(news_lines)
 
+    # ── 近期重要新闻（向量检索补充）───────────────────────────────────────
+    news_vector_section = ""
+    try:
+        from embedding_service import get_news_context_for_prompt as _get_news_ctx
+        pos_names = [p.get("name", "") for p in (sanitized_positions or [])[:5]]
+        _query = " ".join(pos_names) + " 市场分析 投资策略"
+        news_vector_section = _get_news_ctx(_query, top_k=5)
+        if news_vector_section:
+            news_vector_section = f"\n\n## 近7日高度相关新闻（向量检索）\n{news_vector_section}"
+    except Exception:
+        pass
+
     # ── 持仓相关研报 ─────────────────────────────────────────────────────
     reports_section = ""
     if research_reports:
@@ -342,6 +354,7 @@ def build_analysis_prompt(
 {sector_section}
 
 {news_section}
+{news_vector_section}
 
 {reports_section}
 

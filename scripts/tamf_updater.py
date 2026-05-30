@@ -189,6 +189,15 @@ def read_tamf(code: str) -> Optional[str]:
 def write_tamf(code: str, content: str) -> None:
     p = get_tamf_path(code)
     p.parent.mkdir(parents=True, exist_ok=True)
+
+    # ── 影子模式：写入前备份旧版本 ────────────────────────────────
+    import shutil, datetime as _dt
+    if p.exists():
+        backup_dir = TAMF_DIR.parent / "target_memories_shadow"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(p, backup_dir / f"{code}_{ts}.md")
+
     p.write_text(content, encoding="utf-8")
 
 

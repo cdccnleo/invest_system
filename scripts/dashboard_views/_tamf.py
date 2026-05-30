@@ -5,6 +5,7 @@ Each function accesses streamlit via st (passed through from main module).
 """
 
 from datetime import datetime
+import sys
 import streamlit as st
 import pandas as pd
 from ._shared import get_db_connection

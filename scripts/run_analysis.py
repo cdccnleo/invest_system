@@ -40,7 +40,7 @@ from data_sanitizer import (
 )
 from fetch_quotes import collect_quotes, fetch_fund_nav
 from fetch_news import collect_news
-from prompt_builder import build_analysis_prompt, simple_position_analysis
+from prompt_builder import build_analysis_prompt, build_tamf_summaries_for_prompt, simple_position_analysis
 from llm_caller import estimate_cost, _parse_llm_response
 from agent_interface import get_agent
 from circuit_breaker import get_circuit_breaker, CircuitBreakerStatus
@@ -264,6 +264,15 @@ def run_analysis():
     sanitized, id_mapping = sanitize_snapshot(total_mv, enriched_for_sanit)
     print_sanitized_report(sanitized, total_mv)
 
+    # ── Step 6.4: 构建 TAMF 摘要 ───────────────────────────────────────────
+    print("\n📌 Step 6.4: 读取持仓TAMF记忆文件...")
+    try:
+        tamf_summaries = build_tamf_summaries_for_prompt(positions, max_chars_per_stock=400)
+        print(f"  TAMF摘要: {len(tamf_summaries)} 只标的已读取")
+    except Exception as e:
+        logger.warning(f"TAMF摘要构建异常: {e}")
+        tamf_summaries = []
+
     # ── Step 6.5: 采集持仓相关研报 ────────────────────────────────────────
     print("\n📌 Step 6.5: 采集持仓相关研报...")
     position_codes = []
@@ -378,6 +387,7 @@ def run_analysis():
         financial_data=_get_position_financials(position_codes),
         international_research=intl_research[:6],
         announcements=announcements_for_prompt,
+        tamf_summaries=tamf_summaries,
     )
 
     from prompt_builder import count_tokens, truncate_prompt, MAX_TOKENS

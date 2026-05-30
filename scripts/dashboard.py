@@ -178,8 +178,8 @@ def render_sidebar():
     # URL 参数优先（?page=calendar）
     import streamlit as st_caller
     query_params = st_caller.query_params
-    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "⚙️ 设置"}
-    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "⚙️ 设置"]
+    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "⚙️ 设置"}
+    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "⚙️ 设置"]
 
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "📋 持仓仪表板"
@@ -193,6 +193,7 @@ def render_sidebar():
             "reports": "📋 研报",
             "announcements": "📢 公告",
             "calendar": "📅 决策日历",
+            "tamf": "📊 TAMF分析记忆",
             "settings": "⚙️ 设置",
         }
         mapped = page_map.get(url_page)
@@ -357,7 +358,7 @@ def render_sidebar():
                         writer.writeheader()
                         writer.writerows(positions)
 
-                    # UPSERT 到 PostgreSQL trading.positions
+                    # UPSERT 到 holdings.encrypted_positions（追加表，is_current 标记当前）
                     import psycopg2
                     from credentials import get_credential
                     enc_key_path = Path.home()/".hermes"/"invest_credentials"/"store.json"
@@ -365,20 +366,14 @@ def render_sidebar():
                     enc_key = store["DB_ENCRYPTION_KEY"]
                     conn = psycopg2.connect(host='localhost', database='investpilot', user='invest_admin', password=get_credential("DB_PASSWORD"))
                     cur = conn.cursor()
-                    cur.execute("SET app.encryption_key = %s", (enc_key,))
                     added = 0
                     for p in positions:
-                        code = p['code']; name = p['name']; shares = p['shares']; avg_cost = p['cost']; mv = p['market_value']; wt = p['weight']; ptype = p['type']
+                        code = p['code']; name = p['name']; shares = float(p['shares']); avg_cost = float(p['cost']); mv = float(p['market_value']); wt = float(p['weight']); ptype = p['type']
                         profit_loss = mv - avg_cost * shares
-                        # profit_pct: NUMERIC(10,4) → clamp to ±9999.9999 (DB precision/scale)
                         profit_pct = min(max((mv/avg_cost - 1)*100, -9999.9999), 9999.9999) if avg_cost > 0 else 0
-                        # 加密由数据库触发器自动完成（trading.encrypt_position_cols）
-                        # 只写明文列，触发器拦截并加密后置 NULL
-                        cur.execute("""
-                            INSERT INTO trading.positions (code,name,shares,avg_cost,profit_loss,profit_pct,market_value,close_price,weight_pct,position_type)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name,shares=EXCLUDED.shares,avg_cost=EXCLUDED.avg_cost,profit_loss=EXCLUDED.profit_loss,profit_pct=EXCLUDED.profit_pct,market_value=EXCLUDED.market_value,close_price=EXCLUDED.close_price,weight_pct=EXCLUDED.weight_pct,updated_at=NOW()
-                        """, (code,name,shares,avg_cost,profit_loss,profit_pct,mv,avg_cost,wt,ptype))
+                        # 使用 upsert_positions 函数：自动标记旧记录 is_current=FALSE + 插入新记录
+                        cur.execute("SELECT holdings.upsert_positions(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                                    (code, name, ptype, shares, avg_cost, profit_loss, mv, avg_cost, wt, profit_pct, enc_key, enc_key, enc_key, enc_key))
                         added += 1
                     conn.commit()
                     conn.close()
@@ -538,7 +533,7 @@ def render_portfolio_dashboard():
 
             # 提交模拟记录
             if st.button("📝 提交模拟记录到审核日志", key="submit_simulation"):
-                from scripts.storage_factory import StorageFactory
+                from storage_factory import StorageFactory
                 storage = StorageFactory()
                 storage.write_audit(
                     event_type="SIMULATION_SUBMITTED",
@@ -1243,7 +1238,7 @@ def render_history():
     col_ai1, col_ai2 = st.columns(2)
     with col_ai1:
         if st.button("📊 近7天行为分析"):
-            from scripts.audit_analytics import analyze_trading_behavior
+            from audit_analytics import analyze_trading_behavior
             result = analyze_trading_behavior(7)
             st.success(f"运行次数: {result['total_analysis_runs']} | AI采纳率: {result['analysis_success_rate']}%")
             for p in result.get("behavior_patterns", []):
@@ -1253,7 +1248,7 @@ def render_history():
 
     with col_ai2:
         if st.button("📅 月度报告"):
-            from scripts.audit_analytics import monthly_report
+            from audit_analytics import monthly_report
             result = monthly_report()
             st.metric("活跃天数", result["active_days"])
             st.metric("定时运行", result["scheduled_runs"])
@@ -1282,6 +1277,122 @@ def ensure_plan_review_table(conn):
         )
     """)
     conn.commit()
+
+
+def render_tamf_memory():
+    """📊 TAMF分析记忆视图 — 标的级分析记忆文件浏览器"""
+    import streamlit as st
+    from pathlib import Path
+
+    TAMF_DIR = Path("/home/aileo/invest_system/data/target_memories")
+
+    st.markdown("## 📊 TAMF 投资标的分析记忆")
+
+    # 加载持仓列表
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from pgcrypto_migration import load_positions_from_db
+        positions = load_positions_from_db()
+        codes = [p["code"] for p in positions]
+        names = {p["code"]: p["name"] for p in positions}
+        anon_map = {p["code"]: p.get("code", p["code"]) for p in positions}
+    except Exception as e:
+        st.error(f"加载持仓失败: {e}")
+        return
+
+    col_sel, col_view = st.columns([1, 3])
+
+    with col_sel:
+        st.markdown("### 选择标的")
+        code_options = [f"{c} {names.get(c, '')}" for c in codes]
+        selected_label = st.selectbox("持仓标的", code_options)
+        selected_code = selected_label.split(" ")[0].strip()
+
+        # 元数据卡片
+        meta_q = """
+            SELECT version_major, version_minor, analysis_status, last_updated, data_snapshot
+            FROM memory.target_memory_files WHERE ts_code = %s
+        """
+        try:
+            from storage_factory import get_db_conn
+            conn = get_db_conn()
+            cur = conn.cursor()
+            cur.execute(meta_q, (selected_code,))
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                vmaj, vmin, status, lupdated, snapshot = row
+                snap = json.loads(snapshot) if snapshot else {}
+                st.markdown(f"**{names.get(selected_code, selected_code)}**（{selected_code}）")
+                st.caption(f"版本 v{vmaj}.{vmin} | 状态 {status} | 更新 {str(lupdated)[:16]}")
+                if snap:
+                    st.caption(f"行情: {snap.get('last_quote_date','—')} | 公告: {snap.get('last_ann_date','—')}")
+            else:
+                st.warning("无TAMF元数据")
+        except Exception as e:
+            st.error(f"查询元数据失败: {e}")
+
+    with col_view:
+        tamf_path = TAMF_DIR / f"{selected_code}.md"
+        if not tamf_path.exists():
+            st.warning(f"TAMF文件不存在: {tamf_path}")
+            return
+
+        content = tamf_path.read_text(encoding="utf-8")
+
+        # 子Tab视图
+        tabs = st.tabs(["📋 完整文件", "📊 基本面", "📈 技术面", "📰 消息面", "🧠 监控"])
+
+        with tabs[0]:
+            st.markdown(content)
+
+        with tabs[1]:
+            import re
+            # 提取章节一和三
+            m = re.search(r"(## 一、标的基本画像.*?)(?=^## |$)", content, re.DOTALL | re.MULTILINE)
+            st.markdown(m.group(1) if m else "无数据")
+            m = re.search(r"(## 三、基本面趋势.*?)(?=^## 四|$$)", content, re.DOTALL | re.MULTILINE)
+            st.markdown(m.group(1) if m else "无数据")
+
+        with tabs[2]:
+            m = re.search(r"(## 四、技术面与市场表现.*?)(?=^## 五|$$)", content, re.DOTALL | re.MULTILINE)
+            st.markdown(m.group(1) if m else "无数据")
+
+        with tabs[3]:
+            m = re.search(r"(## 五、消息面追踪.*?)(?=^## 六|$$)", content, re.DOTALL | re.MULTILINE)
+            st.markdown(m.group(1) if m else "无数据")
+
+        with tabs[4]:
+            m = re.search(r"(## 七、跟踪状态与预警.*?)(?=^## 八|$$)", content, re.DOTALL | re.MULTILINE)
+            st.markdown(m.group(1) if m else "无数据")
+
+    # 底部时间线
+    st.divider()
+    st.markdown("### 📅 时间线事件（近30条）")
+    tl_q = """
+        SELECT event_time, event_type, severity, title, description
+        FROM memory.target_timeline_events
+        WHERE ts_code = %s
+        ORDER BY event_time DESC
+        LIMIT 30
+    """
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute(tl_q, (selected_code,))
+        rows = cur.fetchall()
+        conn.close()
+        if not rows:
+            st.info("暂无时间线事件")
+        else:
+            for r in rows:
+                evt_time, evt_type, sev, title, desc = r
+                icon = {"CRITICAL": "🔴", "WARNING": "🟡", "INFO": "🔵"}.get(sev, "⚪")
+                st.markdown(f"{icon} **{evt_type}** `{str(evt_time)[:16]}` {title or ''}")
+                if desc:
+                    st.caption(f"  {str(desc)[:100]}")
+    except Exception as e:
+        st.error(f"加载时间线失败: {e}")
 
 
 def render_plan_review():
@@ -1441,7 +1552,7 @@ def render_plan_review():
         if not pending_approvals:
             st.warning("暂无待提交的审核")
         else:
-            from scripts.storage_factory import StorageFactory
+            from storage_factory import StorageFactory
             storage = StorageFactory()
 
             # 汇总写入 audit_log
@@ -1513,13 +1624,13 @@ def render_settings():
 
     if st.button("🔄 手动触发盘前分析"):
         with st.spinner("运行中..."):
-            from scripts.schedule_runner import job_morning
+            from schedule_runner import job_morning
             job_morning()
         st.success("盘前分析完成！")
 
     if st.button("📊 手动触发向量化"):
         with st.spinner("向量化新闻..."):
-            from scripts.embedding_service import daily_embedding_job
+            from embedding_service import daily_embedding_job
             daily_embedding_job()
         st.success("向量化完成！")
 
@@ -1541,6 +1652,8 @@ def main():
         render_history()
     elif page == "📝 计划审核":
         render_plan_review()
+    elif page == "📊 TAMF分析记忆":
+        render_tamf_memory()
     elif page == "⚙️ 设置":
         render_settings()
 

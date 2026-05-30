@@ -289,14 +289,57 @@ def format_anomaly_message(anomalies: list[dict]) -> str:
 class IntradayMonitor:
     """盘中异动监控器"""
 
+    # 冷却状态持久化文件（进程重启后仍保留30分钟冷却）
+    _COOLDOWN_FILE = Path("/home/aileo/invest_system/logs/alert_cooldown.json")
+
     def __init__(self):
         self.positions = load_positions_codes()
         self.baseline = load_baseline_volumes()
         self.last_alert_time: Optional[datetime] = None
         self.alert_cooldown_sec = 1800  # 同一标的30分钟内不重复告警
-        self.alerted_stocks: dict = {}  # {ts_code: last_alert_time}
+        self.alerted_stocks: dict = self._load_cooldown()  # {ts_code: last_alert_time_iso}
         self._running = False
         self._thread: Optional[threading.Thread] = None
+
+    # ── 冷却状态持久化（进程间共享）─────────────────────────────────────
+
+    def _load_cooldown(self) -> dict:
+        """从文件加载冷却状态，过期条目自动清除"""
+        if not self._COOLDOWN_FILE.exists():
+            return {}
+        try:
+            import json
+            data = json.loads(self._COOLDOWN_FILE.read_text())
+            now = datetime.now()
+            valid = {}
+            for ts, iso in data.items():
+                last = datetime.fromisoformat(iso)
+                if (now - last).total_seconds() < self.alert_cooldown_sec:
+                    valid[ts] = iso  # 保留未过期的
+                # else: 自动丢弃已过期条目
+            return valid
+        except Exception:
+            return {}
+
+    def _parse_last_time(self, val) -> Optional[datetime]:
+        """解析冷却记录：支持 datetime 对象或 ISO 字符串"""
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            return val
+        try:
+            return datetime.fromisoformat(str(val))
+        except Exception:
+            return None
+
+    def _save_cooldown(self):
+        """持久化冷却状态到文件"""
+        try:
+            self._COOLDOWN_FILE.parent.mkdir(parents=True, exist_ok=True)
+            import json
+            self._COOLDOWN_FILE.write_text(json.dumps(self.alerted_stocks))
+        except Exception as e:
+            logger.debug(f"冷却状态保存失败: {e}")
 
     def build_symbols(self) -> list[str]:
         """构建监控代码列表"""
@@ -374,7 +417,7 @@ class IntradayMonitor:
                 for evt in cross_events:
                     # 避免重复告警（同标的冷却期内跳过）
                     now = datetime.now()
-                    last_time = self.alerted_stocks.get(ts)
+                    last_time = self._parse_last_time(self.alerted_stocks.get(ts))
                     if last_time and (now - last_time).total_seconds() < self.alert_cooldown_sec:
                         continue
                     display_name = name_map.get(ts, ts.split(".")[0])
@@ -391,15 +434,18 @@ class IntradayMonitor:
                         "detected_at": datetime.now().strftime("%H:%M"),
                     })
 
-        # 过滤冷却期内标的
+        # 过滤冷却期内标的，并通过时立即写入冷却状态
         now = datetime.now()
         filtered = []
         for a in anomalies:
             ts = a["ts_code"]
-            last_time = self.alerted_stocks.get(ts)
+            last_time = self._parse_last_time(self.alerted_stocks.get(ts))
             if last_time and (now - last_time).total_seconds() < self.alert_cooldown_sec:
                 logger.debug(f"{ts} 在冷却期内，跳过告警")
                 continue
+            # 记录冷却（从现在起30分钟内同标的不重复告警）
+            self.alerted_stocks[ts] = now.isoformat()
+            self._save_cooldown()
             filtered.append(a)
 
         return filtered
@@ -414,12 +460,7 @@ class IntradayMonitor:
             msg = format_anomaly_message(anomalies)
             logger.warning(f"检测到 {len(anomalies)} 个异动")
 
-            # 更新冷却记录
-            now = datetime.now()
-            for a in anomalies:
-                self.alerted_stocks[a["ts_code"]] = now
-
-            # 推送告警
+            # 推送告警（冷却状态已在 scan() 中记录）
             send_notification("⚠️ 盘中异动告警", msg, level="WARNING")
 
         except Exception as e:

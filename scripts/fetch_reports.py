@@ -283,7 +283,7 @@ def embed_reports(report_ids: list[int] = None):
         report_ids: 指定研报 ID 列表；None 时对所有未向量化的研报处理
     """
     try:
-        from scripts.embedding_service import embed_research_report
+        from embedding_service import embed_research_report
         conn = get_db_conn()
         cur = conn.cursor()
         try:

@@ -27,10 +27,47 @@ load_dotenv(str(ROOT / ".env"))
 from run_analysis import run_analysis, enrich_positions_with_quotes
 from embedding_service import daily_embedding_job
 from storage_factory import get_storage
-from notification import send_notification, send_error_alert
+def _safe_error_alert(title: str, detail: str):
+    """发送错误告警，失败时不抛异常"""
+    try:
+        send_error_alert(title, detail)
+    except Exception as e:
+        logger.error(f"推送错误告警失败: {e}")
+
+# ── 交易日判断 ────────────────────────────────────────────────────────────
+
+_trading_dates_cache: set = set()
+_cache_loaded_date: str = ""  # YYYYMMDD
+
+def is_trading_day() -> bool:
+    """
+    判断今天是否为 A 股交易日。
+    先排除周末，再用 chinese_calendar 确认（节假日调休自动处理）。
+    保守策略：任何异常都返回 True（不误杀正常任务）。
+    """
+    global _trading_dates_cache, _cache_loaded_date
+
+    try:
+        from chinese_calendar import is_holiday
+        from datetime import date
+        today = date.today()
+        return not is_holiday(today)
+    except Exception as e:
+        logger.warning(f"交易日判断失败 ({e})，保守返回 True")
+        return True
+
+def _guard_trading_day(job_name: str):
+    """交易日守卫：非交易日记录调试日志并跳过"""
+    if not is_trading_day():
+        logger.debug(f"[{job_name}] 今日非交易日，跳过")
+        return False
+    return True
+
+# ── 工作流定义 ────────────────────────────────────────────────────────────
 from fetch_reports import collect_reports
 from skill_library import check_skill_triggers, generate_skill_draft, SkillLifecycle
 from skill_library import DRAFT_DIR, APPROVED_DIR, TRIGGER_DAYS, TRIGGER_MIN_CALLS
+from notification import send_notification, send_error_alert
 from intraday_monitor import IntradayMonitor, format_anomaly_message
 from fetch_financial import collect_financial_for_positions
 from fetch_announcements import fetch_all_positions_announcements
@@ -123,6 +160,8 @@ def _build_closing_report() -> str:
 
 def job_morning():
     """08:30 盘前工作流"""
+    if not _guard_trading_day("job_morning"):
+        return
     logger.info("=" * 50)
     logger.info("08:30 盘前工作流启动")
     try:
@@ -150,11 +189,13 @@ def job_morning():
         logger.info("盘前工作流完成")
     except Exception as e:
         logger.error(f"盘前工作流异常: {e}")
-        send_error_alert("🔴 盘前工作流异常", f"错误: {e}")
+        _safe_error_alert("🔴 盘前工作流异常", f"错误: {e}")
 
 
 def job_closing():
     """15:30 盘后工作流"""
+    if not _guard_trading_day("job_closing"):
+        return
     logger.info("=" * 50)
     logger.info("15:30 盘后工作流启动")
     try:
@@ -186,6 +227,12 @@ def job_closing():
         try:
             anns = fetch_all_positions_announcements(days_window=30, max_pages=3)
             logger.info(f"公告采集: {len(anns)} 条")
+            # 持久化到数据库
+            if anns:
+                ann_storage = get_storage()
+                stored = ann_storage.write_announcements(anns)
+                ann_storage.close()
+                logger.info(f"公告写入 DB: {stored} 条")
             # 公司行为成本调整（分红除权、送股）
             if anns:
                 from pgcrypto_migration import process_corp_actions
@@ -213,11 +260,34 @@ def job_closing():
         logger.info("盘后工作流完成")
     except Exception as e:
         logger.error(f"盘后工作流异常: {e}")
-        send_error_alert("🔴 盘后工作流异常", f"错误: {e}")
+        _safe_error_alert("🔴 盘后工作流异常", f"错误: {e}")
+
+
+def job_tamf_update():
+    """15:35 TAMF增量更新 — 盘后数据到达后更新所有持仓标的分析记忆文件"""
+    if not _guard_trading_day("job_tamf_update"):
+        return
+    logger.info("=" * 50)
+    logger.info("15:35 TAMF增量更新启动")
+    try:
+        from tamf_updater import scheduled_update_all_holdings
+        result = scheduled_update_all_holdings()
+        logger.info(f"TAMF更新完成: 更新{result['updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")
+        # 推送结果
+        if result["failed"] > 0:
+            _safe_error_alert("⚠️ TAMF更新部分失败",
+                f"更新{result['updated']}个, 失败{result['failed']}个")
+        elif result["updated"] > 0:
+            logger.info(f"✅ TAMF更新成功({result['updated']}个标的)")
+    except Exception as e:
+        logger.error(f"TAMF更新异常: {e}")
+        _safe_error_alert("🔴 TAMF更新异常", f"错误: {e}")
 
 
 def job_reports_collection():
     """16:00 研报复盘工作流 — 采集当日研报"""
+    if not _guard_trading_day("job_reports_collection"):
+        return
     logger.info("=" * 50)
     logger.info("16:00 研报采集工作流启动")
     try:
@@ -252,11 +322,13 @@ def job_reports_collection():
         logger.info("研报采集工作流完成")
     except Exception as e:
         logger.error(f"研报采集工作流异常: {e}")
-        send_error_alert("🔴 研报采集工作流异常", f"错误: {e}")
+        _safe_error_alert("🔴 研报采集工作流异常", f"错误: {e}")
 
 
 def job_evening():
     """21:00 晚间工作流"""
+    if not _guard_trading_day("job_evening"):
+        return
     logger.info("=" * 50)
     logger.info("21:00 晚间工作流启动")
     try:
@@ -284,11 +356,16 @@ def job_evening():
         logger.info("晚间工作流完成")
     except Exception as e:
         logger.error(f"晚间工作流异常: {e}")
-        send_error_alert("🔴 晚间工作流异常", f"错误: {e}")
+        try:
+            _safe_error_alert("🔴 晚间工作流异常", f"错误: {e}")
+        except Exception as push_err:
+            logger.error(f"推送错误告警失败: {push_err}")
 
 
 def job_midday():
     """11:30 午间快讯工作流 — 持仓股上午涨跌排行 + 下午关注点"""
+    if not _guard_trading_day("job_midday"):
+        return
     logger.info("=" * 50)
     logger.info("11:30 午间快讯工作流启动")
     try:
@@ -372,16 +449,28 @@ def job_midday():
 
     except Exception as e:
         logger.error(f"午间快讯工作流异常: {e}")
-        send_error_alert("🔴 午间快讯异常", f"错误: {e}")
+        _safe_error_alert("🔴 午间快讯异常", f"错误: {e}")
 
 
 def job_announcements_collection():
     """20:50 公告采集工作流 — 采集持仓股近30天公告（晚间集中发布后采集，21:00前完成供复盘使用）"""
+    if not _guard_trading_day("job_announcements_collection"):
+        return
     logger.info("=" * 50)
     logger.info("20:50 公告采集工作流启动")
     try:
         anns = fetch_all_positions_announcements(days_window=30, max_pages=3)
         logger.info(f"公告采集完成: {len(anns)} 条")
+
+        # ── 持久化到数据库 ──────────────────────────────────────────────────
+        if anns:
+            from storage_factory import get_storage
+            storage = get_storage()
+            stored = storage.write_announcements(anns)
+            storage.close()
+            logger.info(f"公告写入 DB: {stored} 条")
+        else:
+            stored = 0
 
         # 按类型统计
         if anns:
@@ -409,16 +498,18 @@ def job_announcements_collection():
         logger.info("公告采集工作流完成")
     except Exception as e:
         logger.error(f"公告采集工作流异常: {e}")
-        send_error_alert("🔴 公告采集工作流异常", f"错误: {e}")
+        _safe_error_alert("🔴 公告采集工作流异常", f"错误: {e}")
 
 
 def job_intraday_monitoring():
     """
     每5分钟盘中异动监控 job（同步模式）—
-    APScheduler 每5分钟触发，本函数内做交易时段守卫，
-    运行时段：9:30-11:30 / 13:00-14:55（非交易时段直接返回）
-    推送目标：Server酱(微信) + 飞书机器人，异动时 Hermes 主动推送
+    APScheduler 每5分钟触发，本函数内做交易日守卫 + 交易时段守卫，
+    非交易日或非交易时段直接返回，不产生无效扫描。
     """
+    # ── 交易日守卫（兜底）───────────────────────────────────────────────
+    if not _guard_trading_day("job_intraday_monitoring"):
+        return
     # ── 交易时段守卫 ────────────────────────────────────────────────────
     from datetime import time as dtime
     now = datetime.now()
@@ -454,7 +545,7 @@ def job_intraday_monitoring():
 
     except Exception as e:
         logger.error(f"异动监控异常: {e}")
-        send_error_alert("🔴 异动监控异常", str(e))
+        _safe_error_alert("🔴 异动监控异常", str(e))
 
 
 def job_skill_solidification():
@@ -548,7 +639,7 @@ def job_skill_solidification():
         logger.info("技能固化工作流完成")
     except Exception as e:
         logger.error(f"技能固化工作流异常: {e}")
-        send_error_alert("🔴 技能固化工作流异常", f"错误: {e}")
+        _safe_error_alert("🔴 技能固化工作流异常", f"错误: {e}")
 
 
 def job_skill_spot_check():
@@ -632,7 +723,7 @@ def job_skill_spot_check():
 
     except Exception as e:
         logger.error(f"技能抽查异常: {e}")
-        send_error_alert("🔴 技能抽查异常", f"错误: {e}")
+        _safe_error_alert("🔴 技能抽查异常", f"错误: {e}")
 
 
 def _get_recent_skill_calls(task_pattern: str, limit: int = 10) -> list[dict]:
@@ -736,6 +827,16 @@ def start_scheduler():
         id="closing_routine",
         name="盘后工作流 (15:30)",
         replace_existing=True,
+    )
+
+    # 15:35 TAMF增量更新
+    _scheduler.add_job(
+        job_tamf_update,
+        CronTrigger(hour=15, minute=35, timezone="Asia/Shanghai"),
+        id="tamf_daily_update",
+        name="TAMF增量更新 (15:35)",
+        replace_existing=True,
+        misfire_grace_time=300,
     )
 
     # 21:00 晚间

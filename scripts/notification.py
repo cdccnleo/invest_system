@@ -3,10 +3,13 @@ notification.py — 消息推送模块
 支持多通道：Server酱(微信) / 飞书机器人 / Bark(iOS)
 """
 
-import os, json, logging, urllib.request
+import os, json, logging, urllib.request, urllib.error, time
 from typing import Optional
 
 logger = logging.getLogger("invest_system.notification")
+
+# ── 内容长度限制 ───────────────────────────────────────────────────────────
+MAX_CONTENT_LEN =  1800  # 飞书卡片限制约2000字符，Server酱限制更严
 
 # ── 配置读取 ───────────────────────────────────────────────────────────────
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
@@ -35,38 +38,50 @@ def send_via_serverchan(title: str, content: str, level: str = "INFO") -> bool:
         logger.debug("Server酱未配置，跳过")
         return False
 
-    try:
-        text = _format_report_text(title, content, level)
-        url = f"https://www.feishu.cn/flow/trigger/placeholder"
-        # Server酱官方API
-        api_url = f"https://sctapi.ftqq.com/{SERVERCHAN_SENDKEY}.send"
+    text = _format_report_text(title, content, level)
+    api_url = f"https://sctapi.ftqq.com/{SERVERCHAN_SENDKEY}.send"
 
-        payload = json.dumps({
-            "title": f"[InvestPilot] {title}",
-            "desp": text.replace("\n", "\n\n"),
-        }).encode("utf-8")
+    for attempt in range(3):
+        try:
+            payload = json.dumps({
+                "title": f"[InvestPilot] {title}",
+                "desp": text.replace("\n", "\n\n")[:MAX_CONTENT_LEN],
+            }).encode("utf-8")
 
-        req = urllib.request.Request(
-            api_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read()
-            if not raw:
-                logger.warning(f"Server酱返回空响应")
-                return False
-            result = json.loads(raw)
-            if result and (result.get("code") == 0 or result.get("errno") == 0):
-                logger.info(f"Server酱推送成功: {title}")
-                return True
+            # 禁用连接池复用，防止服务器关闭连接后 urllib 误用已损坏连接
+            req = urllib.request.Request(
+                api_url,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Connection": "close",  # 关键：禁用 keep-alive，每次新建连接
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+                if not raw:
+                    logger.warning(f"Server酱返回空响应")
+                    return False
+                result = json.loads(raw)
+                if result and (result.get("code") == 0 or result.get("errno") == 0):
+                    logger.info(f"Server酱推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"Server酱推送失败: {result}")
+                    return False
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            if attempt < 2:
+                wait = 2 ** attempt
+                logger.warning(f"Server酱推送异常 (attempt {attempt+1}): {e}，{wait}s后重试")
+                time.sleep(wait)
             else:
-                logger.warning(f"Server酱推送失败: {result}")
+                logger.warning(f"Server酱推送异常 (已重试): {e}")
                 return False
-    except Exception as e:
-        logger.warning(f"Server酱推送异常: {e}")
-        return False
+        except Exception as e:
+            logger.warning(f"Server酱推送异常: {e}")
+            return False
+    return False
 
 
 # ── 通道 2：飞书（Lark/Feishu）群机器人 ─────────────────────────────────
@@ -81,61 +96,73 @@ def send_via_feishu(title: str, content: str, level: str = "INFO") -> bool:
         logger.debug("飞书未配置，跳过")
         return False
 
-    try:
-        # 颜色映射
-        color_map = {
-            "INFO": "#4CAF50",
-            "WARNING": "#FF9800",
-            "ERROR": "#F44336",
-            "SUCCESS": "#2196F3",
-        }
-        color = color_map.get(level, "#4CAF50")
+    color_map = {
+        "INFO": "#4CAF50",
+        "WARNING": "#FF9800",
+        "ERROR": "#F44336",
+        "SUCCESS": "#2196F3",
+    }
+    color = color_map.get(level, "#4CAF50")
+    text = _format_report_text(title, content, level)
 
-        text = _format_report_text(title, content, level)
-
-        payload = {
-            "msg_type": "interactive",
-            "card": {
-                "header": {
-                    "title": {"tag": "plain_text", "content": f"📊 {title}"},
-                    "template": color,
-                },
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": text.replace("**", "").replace("\n", "\n"),
-                    },
-                    {
-                        "tag": "note",
-                        "elements": [
-                            {"tag": "plain_text", "content": f"InvestPilot · {level} · {__import__('datetime').datetime.now().strftime('%H:%M:%S')}"}
-                        ],
-                    },
-                ],
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"📊 {title}"},
+                "template": color,
             },
-        }
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": text.replace("**", "").replace("\n", "\n")[:MAX_CONTENT_LEN],
+                },
+                {
+                    "tag": "note",
+                    "elements": [
+                        {"tag": "plain_text", "content": f"InvestPilot · {level} · {__import__('datetime').datetime.now().strftime('%H:%M:%S')}"}
+                    ],
+                },
+            ],
+        },
+    }
 
-        req = urllib.request.Request(
-            FEISHU_WEBHOOK,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = resp.read()
-            if not raw:
-                logger.warning(f"飞书返回空响应")
-                return False
-            result = json.loads(raw)
-            if result and (result.get("code") == 0 or result.get("StatusCode") == 0):
-                logger.info(f"飞书推送成功: {title}")
-                return True
+    for attempt in range(3):
+        try:
+            # 禁用连接池复用
+            req = urllib.request.Request(
+                FEISHU_WEBHOOK,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Connection": "close",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+                if not raw:
+                    logger.warning(f"飞书返回空响应")
+                    return False
+                result = json.loads(raw)
+                if result and (result.get("code") == 0 or result.get("StatusCode") == 0):
+                    logger.info(f"飞书推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"飞书推送失败: {result}")
+                    return False
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            if attempt < 2:
+                wait = 2 ** attempt
+                logger.warning(f"飞书推送异常 (attempt {attempt+1}): {e}，{wait}s后重试")
+                time.sleep(wait)
             else:
-                logger.warning(f"飞书推送失败: {result}")
+                logger.warning(f"飞书推送异常 (已重试): {e}")
                 return False
-    except Exception as e:
-        logger.warning(f"飞书推送异常: {e}")
-        return False
+        except Exception as e:
+            logger.warning(f"飞书推送异常: {e}")
+            return False
+    return False
 
 
 # ── 通道 3：PushPlus（微信公众号）───────────────────────────────────────────
@@ -150,35 +177,39 @@ def send_via_pushplus(title: str, content: str) -> bool:
         logger.debug("PushPlus未配置，跳过")
         return False
 
-    try:
-        url = "http://www.pushover.net/pushover/api/push"
-        # PushPlus 官方接口
-        api_url = "https://www.pushplus.plus/send"
+    api_url = "https://www.pushplus.plus/send"
+    for attempt in range(3):
+        try:
+            payload = json.dumps({
+                "token": PUSHPLUS_TOKEN,
+                "title": f"[InvestPilot] {title}",
+                "content": content[:MAX_CONTENT_LEN],
+                "type": "html",
+            }).encode("utf-8")
 
-        payload = json.dumps({
-            "token": PUSHPLUS_TOKEN,
-            "title": f"[InvestPilot] {title}",
-            "content": content,
-            "type": "html",
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            api_url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read())
-            if result.get("code") == 0:
-                logger.info(f"PushPlus推送成功: {title}")
-                return True
+            req = urllib.request.Request(
+                api_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "Connection": "close"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read())
+                if result.get("code") == 0:
+                    logger.info(f"PushPlus推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"PushPlus推送失败: {result}")
+                    return False
+        except Exception as e:
+            if attempt < 2:
+                wait = 2 ** attempt
+                logger.warning(f"PushPlus推送异常 (attempt {attempt+1}): {e}，{wait}s后重试")
+                time.sleep(wait)
             else:
-                logger.warning(f"PushPlus推送失败: {result}")
+                logger.warning(f"PushPlus推送异常 (已重试): {e}")
                 return False
-    except Exception as e:
-        logger.warning(f"PushPlus推送异常: {e}")
-        return False
+    return False
 
 
 # ── 通道 4：Bark (iOS) ────────────────────────────────────────────────────
@@ -192,26 +223,34 @@ def send_via_bark(title: str, content: str, level: str = "INFO") -> bool:
         logger.debug("Bark未配置，跳过")
         return False
 
-    try:
-        # Bark URL format: https://api.day.app/{KEY}/{标题}/{内容}
-        # 内容需要 URL 编码
-        import urllib.parse
+    import urllib.parse
+    encoded_content = urllib.parse.quote(content[:500])
+    bark_url = f"{BARK_URL}/{urllib.parse.quote(title)}/{encoded_content}"
 
-        encoded_content = urllib.parse.quote(content[:500])  # Bark 内容限制
-        bark_url = f"{BARK_URL}/{urllib.parse.quote(title)}/{encoded_content}"
-
-        req = urllib.request.Request(bark_url, method="GET")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read())
-            if result.get("code") == 200:
-                logger.info(f"Bark推送成功: {title}")
-                return True
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                bark_url,
+                headers={"Connection": "close"},
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read())
+                if result.get("code") == 200:
+                    logger.info(f"Bark推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"Bark推送失败: {result}")
+                    return False
+        except Exception as e:
+            if attempt < 2:
+                wait = 2 ** attempt
+                logger.warning(f"Bark推送异常 (attempt {attempt+1}): {e}，{wait}s后重试")
+                time.sleep(wait)
             else:
-                logger.warning(f"Bark推送失败: {result}")
+                logger.warning(f"Bark推送异常 (已重试): {e}")
                 return False
-    except Exception as e:
-        logger.warning(f"Bark推送异常: {e}")
-        return False
+    return False
 
 
 # ── 主推送入口 ────────────────────────────────────────────────────────────

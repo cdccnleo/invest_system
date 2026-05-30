@@ -259,7 +259,7 @@ if __name__ == '__main__':
     import sys
     sys.path.insert(0, '/home/aileo/invest_system')
     
-    from scripts.context_compressor import compress_news, compress_reports, compress_context
+    from context_compressor import compress_news, compress_reports, compress_context
     
     # 测试新闻压缩
     test_news = [

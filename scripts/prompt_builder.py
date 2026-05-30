@@ -4,7 +4,108 @@ prompt_builder.py — 增强版 Prompt 组装器
 """
 
 import json
+import re
 from datetime import datetime
+from pathlib import Path
+
+PROJECT_ROOT = Path("/home/aileo/invest_system")
+TAMF_DIR = PROJECT_ROOT / "data" / "target_memories"
+
+
+def build_tamf_summaries_for_prompt(
+    positions: list[dict],
+    max_chars_per_stock: int = 400
+) -> list[dict]:
+    """
+    为持仓列表构建 TAMF 摘要，供 prompt_builder 注入。
+    每个持仓标的上读取对应的 TAMF 文件，提取关键段落：
+      - 技术面简评（Agent段落）
+      - 消息面判断（Agent段落）
+      - 监控状态
+    返回: [{anon_id, status_emoji, tech_summary, news_summary, monitoring_summary}]
+    """
+    if not TAMF_DIR.exists():
+        return []
+
+    summaries = []
+    for pos in positions:
+        code = str(pos.get("code", "")).zfill(6)
+        anon = pos.get("anon_id", code)
+        name = pos.get("name", code)
+        status_emoji = "🟢"  # 持有中
+
+        tamf_path = TAMF_DIR / f"{code}.md"
+        if not tamf_path.exists():
+            summaries.append({
+                "anon_id": anon,
+                "status_emoji": "⚪",
+                "tech_summary": "无TAMF记录",
+                "news_summary": "无TAMF记录",
+                "monitoring_summary": "",
+            })
+            continue
+
+        content = tamf_path.read_text(encoding="utf-8")
+
+        # 提取技术面Agent段落（### Agent 技术面简评 后的代码块）
+        tech_summary = _extract_agent_block(content, "技术面简评")
+        # 提取消息面Agent段落
+        news_summary = _extract_agent_block(content, "消息面综合判断")
+
+        # 提取监控状态（第七章）
+        mon = _extract_section(content, "七、跟踪状态")
+        monitoring_summary = _extract_table_rows(mon) if mon else ""
+
+        # 截断防超限
+        tech_summary = tech_summary[:max_chars_per_stock]
+        news_summary = news_summary[:max_chars_per_stock]
+
+        summaries.append({
+            "anon_id": anon,
+            "name": name,
+            "status_emoji": status_emoji,
+            "tech_summary": tech_summary or "⚠️ 无技术面分析",
+            "news_summary": news_summary or "⚠️ 无消息面分析",
+            "monitoring_summary": monitoring_summary[:200] if monitoring_summary else "",
+        })
+
+    return summaries
+
+
+def _extract_agent_block(content: str, section_heading: str) -> str:
+    """从TAMF提取Agent生成的段落内容"""
+    # 匹配 "### Agent {section_heading}\n```\n内容\n```"
+    pattern = re.compile(
+        rf"### Agent {re.escape(section_heading)}\n```\s*(.*?)\s*```",
+        re.DOTALL
+    )
+    match = pattern.search(content)
+    return match.group(1).strip() if match else ""
+
+
+def _extract_section(content: str, section_heading: str) -> str:
+    """提取指定章节的完整内容"""
+    # 匹配从 ### {heading} 到下一个 ---
+
+    escaped = re.escape(section_heading)
+    pattern = re.compile(
+        rf"(?:^|\n)(## {escaped}.*?)((?=^## |\n## |\Z))",
+        re.DOTALL | re.MULTILINE
+    )
+    match = pattern.search(content)
+    return match.group(1) if match else ""
+
+
+def _extract_table_rows(section_text: str) -> str:
+    """从markdown表格中提取关键行（状态为🟡/🔴的行）"""
+    rows = []
+    for line in section_text.split("\n"):
+        if "| 🟡" in line or "| 🔴" in line:
+            # 提取标的+状态
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 3:
+                rows.append(f"{parts[1]}: {parts[2]}")
+    return "; ".join(rows)
 
 
 
@@ -48,6 +149,7 @@ def build_analysis_prompt(
     financial_data: list[dict] = None,
     international_research: list[dict] = None,
     announcements: list[dict] = None,  # 持仓股公告
+    tamf_summaries: list[dict] = None,  # TAMF文件摘要（新增）
 ) -> str:
     """
     组装完整的分析 Prompt
@@ -202,10 +304,32 @@ def build_analysis_prompt(
 可用仓位：{100 - used_pct:.1f}%
 """
 
+    # ── TAMF 投资记忆摘要（节省 token）───────────────────────────────────
+    tamf_section = ""
+    if tamf_summaries:
+        tamf_lines = []
+        for s in tamf_summaries[:15]:  # 最多15只持仓
+            anon = s.get("anon_id", "?")
+            status = s.get("status_emoji", "⚪")
+            tech = s.get("tech_summary", "数据不足")
+            news = s.get("news_summary", "数据不足")
+            mon = s.get("monitoring_summary", "")
+            tamf_lines.append(
+                f"**{anon}** {status}\n"
+                f"  技术面: {tech}\n"
+                f"  消息面: {news}"
+                + (f"\n  预警: {mon}" if mon else "")
+            )
+        tamf_section = "## 持仓标的分析记忆摘要（TAMF）\n" + "\n\n".join(tamf_lines)
+    else:
+        tamf_section = "## 持仓标的分析记忆摘要（TAMF）\n⚠️ 暂无TAMF数据，将基于原始数据生成建议"
+
     # ── 完整 Prompt ─────────────────────────────────────────────────────────
     prompt = f"""{SYSTEM_PROMPT}
 
 {profile_section}
+
+{tamf_section}
 
 {positions_section}
 

@@ -243,6 +243,7 @@ def load_positions_from_db() -> list[dict]:
     cur = conn.cursor()
 
     # 批量解密所有行（单次 SQL，无循环建连）
+    # is_current = TRUE 确保只读当前有效持仓（去重）
     sql = """
         SELECT code, name, type,
                pgp_sym_decrypt(shares_enc, %s::text)::float  AS shares,
@@ -250,6 +251,7 @@ def load_positions_from_db() -> list[dict]:
                pgp_sym_decrypt(profit_enc,%s::text)::float  AS profit,
                market_value, close_price, weight_pct, profit_pct
         FROM holdings.encrypted_positions
+        WHERE is_current = TRUE
         ORDER BY weight_pct DESC NULLS LAST, code
     """
     cur.execute(sql, (enc_key, enc_key, enc_key))

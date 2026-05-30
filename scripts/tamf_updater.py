@@ -13,6 +13,7 @@ import os
 import re
 import json
 import hashlib
+import logging
 import subprocess
 from math import floor
 from datetime import datetime, date, timedelta
@@ -947,43 +948,25 @@ if __name__ == "__main__":
 
 # ─── 第6层：Agent智能段落生成 ─────────────────────────────────
 
-# DeepSeek API调用
-try:
-    from llm_caller import get_llm_client
-    _LLM_AVAILABLE = True
-except ImportError:
-    _LLM_AVAILABLE = False
-
-
 def _call_deepseek(system: str, prompt: str, max_tokens: int = 1500) -> str:
-    """强制走DeepSeek API，失败返空字符串"""
-    if not _LLM_AVAILABLE:
-        return ""
+    """强制走 RouterAgent + force_model=deepseek"""
     try:
-        client = get_llm_client()
-        if hasattr(client, 'client'):  # DeepSeekClient
-            result = client.chat(prompt, system=system)
-        else:  # Ollama fallback
-            result = client.chat(prompt, system=system)
+        from agent_interface import get_agent
+        result = get_agent().chat(prompt, system=system, force_model="deepseek")
         return result.get("content", "")[:max_tokens]
     except Exception as e:
-        import logging
         logging.getLogger("tamf_updater").warning(f"DeepSeek调用失败: {e}")
         return ""
 
 
 def _call_ollama(system: str, prompt: str, max_tokens: int = 800) -> str:
-    """走Ollama本地模型，失败返空字符串"""
-    if not _LLM_AVAILABLE:
-        return ""
+    """走 RouterAgent + force_model=ollama"""
     try:
-        from llm_caller import OllamaClient
-        client = OllamaClient()
-        if not client.is_available():
-            return ""
-        result = client.chat(prompt, system=system)
+        from agent_interface import get_agent
+        result = get_agent().chat(prompt, system=system, force_model="ollama")
         return result.get("content", "")[:max_tokens]
-    except Exception:
+    except Exception as e:
+        logging.getLogger("tamf_updater").warning(f"Ollama调用失败: {e}")
         return ""
 
 

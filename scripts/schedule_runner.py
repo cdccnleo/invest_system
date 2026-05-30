@@ -755,6 +755,91 @@ def job_skill_spot_check():
         _safe_error_alert("🔴 技能抽查异常", f"错误: {e}")
 
 
+def job_weekly_backtest():
+    """
+    每周五 22:00 周线回测报告
+    - 对重点持仓股运行均线交叉策略回测
+    - 仅在累计数据 ≥30 天时执行（否则跳过）
+    - 结果推送至飞书/Server酱
+    """
+    logger.info("=" * 50)
+    logger.info("22:00 周线回测报告启动")
+    try:
+        from backtester import (
+            load_quotes, BacktestEngine, MAcrossStrategy, BacktestConfig,
+        )
+        from datetime import timedelta
+        from storage_factory import get_storage
+
+        # 获取数据库最新交易日
+        storage = get_storage()
+        try:
+            conn_cfg = storage._conn_params
+        except Exception:
+            conn_cfg = {}
+        storage.close()
+
+        # 获取市场最新日期（从 daily_quotes）
+        from backtester import get_db_conn as bt_conn
+        conn = bt_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT MAX(trade_date) FROM market.daily_quotes")
+        max_date_row = cur.fetchone()
+        conn.close()
+        if not max_date_row or not max_date_row[0]:
+            logger.warning("市场行情表无数据，跳过回测")
+            return
+        max_date = max_date_row[0]
+        start_date = max_date - timedelta(days=90)
+
+        # 重点持仓股列表
+        HOLDINGS = [
+            ("300059", "东方财富"),
+            ("300033", "同花顺"),
+            ("512880", "证券ETF"),
+            ("515050", "芯片ETF"),
+        ]
+
+        reports = []
+        for code, name in HOLDINGS:
+            ts_code = f"{code}.XSHE"
+            try:
+                quotes = load_quotes(ts_code, start_date, max_date)
+                if len(quotes) < 30:
+                    continue  # 数据不足则跳过
+
+                cfg = BacktestConfig()
+                strategy = MAcrossStrategy(cfg.default_params["ma_cross"])
+                engine = BacktestEngine(cfg)
+                result = engine.run(quotes, strategy, start_date, max_date)
+
+                s = result.get("summary", {})
+                if "error" not in result:
+                    reports.append(
+                        f"**{name}（{ts_code}）**\n"
+                        f"  收益率: {s['total_return_pct']:+.2f}% | "
+                        f"年化: {s['annual_return_pct']:+.2f}% | "
+                        f"最大回撤: {s['max_drawdown_pct']:.2f}%\n"
+                        f"  买{s['buy_count']}次/卖{s['sell_count']}次 | "
+                        f"胜率: {s['win_rate_pct']:.0f}% | "
+                        f"Sharpe: {s['sharpe_ratio']:.3f}"
+                    )
+            except Exception as e:
+                logger.warning(f"回测 {ts_code} 失败: {e}")
+
+        if not reports:
+            logger.info("无足够数据生成回测报告（需要≥30天数据）")
+            return
+
+        msg = "📊 **周线回测报告**（MA5/MA20 策略）\n\n" + "\n\n".join(reports)
+        msg += f"\n\n_数据范围: {start_date} ~ {max_date}_"
+        send_notification("📊 周线回测报告", msg)
+
+    except Exception as e:
+        logger.error(f"回测报告异常: {e}")
+        _safe_error_alert("🔴 回测报告异常", f"错误: {e}")
+
+
 def _get_recent_skill_calls(task_pattern: str, limit: int = 10) -> list[dict]:
     """获取近期技能调用记录（用于生成草案上下文）"""
     try:
@@ -920,6 +1005,15 @@ def start_scheduler():
         CronTrigger(hour=22, minute=0, timezone="Asia/Shanghai"),
         id="skill_solidification",
         name="技能固化工作流 (22:00)",
+        replace_existing=True,
+    )
+
+    # 每周五 22:00 周线回测报告（上周策略表现，仅在数据≥30天时运行）
+    _scheduler.add_job(
+        job_weekly_backtest,
+        CronTrigger(day_of_week='fri', hour=22, minute=0, timezone="Asia/Shanghai"),
+        id="weekly_backtest",
+        name="周线回测报告 (每周五 22:00)",
         replace_existing=True,
     )
 

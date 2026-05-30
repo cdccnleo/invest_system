@@ -68,7 +68,7 @@ def generate_skill_draft(
     recent_calls: [{"task": str, "result": dict, "timestamp": datetime}, ...]
     user_corrections: [{"original": dict, "modified": dict, "reason": str}, ...]
     """
-    from llm_caller import get_llm_client
+    from agent_interface import get_agent
 
     # 提取共同模式
     task_type = _classify_task_type(task_pattern)
@@ -109,8 +109,8 @@ def generate_skill_draft(
 请用 JSON 格式输出。
 """
 
-    client = get_llm_client()
-    result = client.chat(prompt, system="你是一个严谨的技能工程师，输出必须是有效JSON。")
+    agent = get_agent()
+    result = agent.chat(prompt, system="你是一个严谨的技能工程师，输出必须是有效JSON。", force_model="deepseek")
     raw_content = result.get("content", "")
 
     # 解析 JSON

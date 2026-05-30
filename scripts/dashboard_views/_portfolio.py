@@ -7,6 +7,8 @@ Each function accesses streamlit via st (passed through from main module).
 from ._shared import get_db_connection, get_latest_quotes_from_db
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))

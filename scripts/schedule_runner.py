@@ -284,6 +284,25 @@ def job_tamf_update():
         _safe_error_alert("🔴 TAMF更新异常", f"错误: {e}")
 
 
+def job_deep_analysis_weekly():
+    """周日22:00 周频深度分析 — 强制重生成所有持仓标的的Agent段落"""
+    logger.info("=" * 50)
+    logger.info("周日22:00 周频深度分析启动")
+    try:
+        from tamf_updater import scheduled_deep_analysis_weekly
+        result = scheduled_deep_analysis_weekly()
+        logger.info(f"深度分析完成: 深度更新{result['deep_updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")
+        if result["failed"] > 0:
+            _safe_error_alert("⚠️ 周频深度分析部分失败",
+                f"深度更新{result['deep_updated']}个, 失败{result['failed']}个\n" +
+                "\n".join(result["errors"][:3]))
+        elif result["deep_updated"] > 0:
+            logger.info(f"✅ 周频深度分析成功({result['deep_updated']}个标的)")
+    except Exception as e:
+        logger.error(f"周频深度分析异常: {e}")
+        _safe_error_alert("🔴 周频深度分析异常", f"错误: {e}")
+
+
 def job_reports_collection():
     """16:00 研报复盘工作流 — 采集当日研报"""
     if not _guard_trading_day("job_reports_collection"):
@@ -837,6 +856,16 @@ def start_scheduler():
         name="TAMF增量更新 (15:35)",
         replace_existing=True,
         misfire_grace_time=300,
+    )
+
+    # 每周日 22:00 周频深度分析（Agent段落全量重生成）
+    _scheduler.add_job(
+        job_deep_analysis_weekly,
+        CronTrigger(day_of_week='sun', hour=22, minute=0, timezone="Asia/Shanghai"),
+        id="deep_analysis_weekly",
+        name="周频深度分析 (每周日 22:00)",
+        replace_existing=True,
+        misfire_grace_time=600,
     )
 
     # 21:00 晚间

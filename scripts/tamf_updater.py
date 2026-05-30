@@ -804,6 +804,89 @@ def scheduled_update_all_holdings() -> dict:
     return results
 
 
+def scheduled_deep_analysis_weekly() -> dict:
+    """
+    周频深度分析 — 每周日22:00运行，对所有持仓标的进行全面的Agent段落重生成。
+    
+    与 daily incremental_update 的区别：
+      - 数据窗口更长（行情60日/财务12季/公告30条/研报10篇）
+      - 全部标的强制重生成 Agent 段落（第4/5/6章）
+      - 在 target_timeline_events 记录 DEEP_ANALYSIS_WEEKLY 事件
+    
+    注册到 APScheduler: 每周日 22:00
+    """
+    positions = load_positions()
+    results = {
+        "total": len(positions),
+        "deep_updated": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+    }
+    today = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    for pos in positions:
+        code = pos["code"]
+        name = pos.get("name", "")
+        try:
+            # 最长回溯窗口
+            ts_code = normalize_ts_code(code, name)
+            quotes = load_recent_quotes(ts_code, days=60)
+            financials = load_financial_trend(ts_code, quarters=12)
+            anns = load_recent_announcements(code, limit=30)
+            reports = load_recent_reports(code, limit=10)
+
+            # 重生成 Agent 段落
+            updated = update_agent_sections_in_tamf(
+                code, name, quotes, financials, anns, reports
+            )
+            if not updated:
+                results["skipped"] += 1
+                continue
+
+            # 写回文件
+            write_tamf(code, updated)
+
+            # 记录时间线事件
+            _record_timeline_event(
+                code,
+                "DEEP_ANALYSIS_WEEKLY",
+                "INFO",
+                f"周频深度分析完成 ({today})",
+                f"更新 {len(quotes)}日行情 / {len(financials)}季财务 / {len(anns)}条公告 / {len(reports)}篇研报",
+            )
+
+            results["deep_updated"] += 1
+
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append(f"{code}: {e}")
+
+    return results
+
+
+def _record_timeline_event(
+    ts_code: str,
+    event_type: str,
+    severity: str,
+    title: str,
+    description: str = "",
+) -> None:
+    """将事件写入 memory.target_timeline_events"""
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO memory.target_timeline_events
+                (ts_code, event_type, severity, title, description)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (ts_code, event_type, severity, title, description))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # 不因时线写入失败中断主流程
+
+
 # ─── 主入口 ─────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys

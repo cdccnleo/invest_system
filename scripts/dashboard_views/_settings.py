@@ -4,6 +4,7 @@ Generated from dashboard.py (1397-1636 lines)
 Each function accesses streamlit via st (passed through from main module).
 """
 
+import streamlit as st
 from ._shared import get_db_connection
 
 def render_plan_review():

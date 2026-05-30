@@ -4,8 +4,9 @@ Generated from dashboard.py (928-1396 lines)
 Each function accesses streamlit via st (passed through from main module).
 """
 
-from ._shared import get_db_connection
+import streamlit as st
 import pandas as pd
+from ._shared import get_db_connection
 
 # ── 视图 3：历史决策日历 ────────────────────────────────────────────────────
 

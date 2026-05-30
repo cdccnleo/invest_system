@@ -4,6 +4,7 @@ Generated from dashboard.py (624-928 lines)
 Each function accesses streamlit via st (passed through from main module).
 """
 
+import streamlit as st
 from ._shared import get_news_count, load_positions
 
 # ── 视图 2：新闻摘要 ────────────────────────────────────────────────────────

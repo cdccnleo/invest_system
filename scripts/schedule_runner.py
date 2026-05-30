@@ -766,6 +766,7 @@ def job_behavior_profile_update():
     logger.info("15:40 行为画像更新启动")
     try:
         from audit_analytics import analyze_trading_behavior
+        from datetime import date
         import json as _json
         from storage_factory import get_pg_connection
         from pgcrypto_migration import get_credential
@@ -774,23 +775,35 @@ def job_behavior_profile_update():
         profile = analyze_trading_behavior(days=30)
         logger.info(f"行为画像: {profile.get('behavior_patterns', [])}")
 
-        # 写入 l3.behavior_profile
+        # 写入 l3.behavior_profile（使用 SQL 迁移脚本定义的标准表结构）
+        # 表结构：l3_phase_a.sql 定义的 behavior_profile
         pg_conn = get_pg_connection()
         if pg_conn:
             cur = pg_conn.cursor()
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS l3.behavior_profile (
-                    id          SERIAL PRIMARY KEY,
-                    period_days INTEGER NOT NULL DEFAULT 30,
-                    profile     JSONB NOT NULL,
-                    written_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-            """)
-            cur.execute("""
-                INSERT INTO l3.behavior_profile (period_days, profile)
-                VALUES (%s, %s)
-                RETURNING id
-            """, (profile["period_days"], _json.dumps(profile)))
+            profile_date = date.today().isoformat()
+            dimensions = {
+                "trade_freq": {
+                    "metric": "trade_freq_7d",
+                    "value": profile.get("total_analysis_runs", 0),
+                    "alert": "critical" if any("激进" in p for p in profile.get("behavior_patterns", [])) else "normal",
+                },
+                "overtrading": {
+                    "metric": "max_consecutive_mod_days",
+                    "value": profile.get("max_consecutive_mod_days", 0),
+                    "alert": "warning" if profile.get("max_consecutive_mod_days", 0) >= 3 else "normal",
+                },
+            }
+            for dim, info in dimensions.items():
+                cur.execute("""
+                    INSERT INTO l3.behavior_profile
+                        (profile_date, dimension, metric_name, metric_value, alert_level)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (profile_date, dimension, metric_name)
+                    DO UPDATE SET
+                        metric_value = EXCLUDED.metric_value,
+                        alert_level = EXCLUDED.alert_level,
+                        updated_at = NOW()
+                """, (profile_date, dim, info["metric"], info["value"], info["alert"]))
             pg_conn.commit()
             cur.close()
             pg_conn.close()
@@ -981,6 +994,62 @@ def _get_recent_corrections(task_pattern: str, limit: int = 5) -> list[dict]:
         return []
 
 
+def job_weekly_stress_test():
+    """
+    每周一 07:00 盘前压力测试
+    - 调用 L3DialogEngine.run_stress_test() 执行5种极端情景分析
+    - 结果写入 l3.stress_test_results
+    - 推送最坏情景告警至飞书/Server酱
+    """
+    logger.info("=" * 50)
+    logger.info("07:00 周压力测试启动")
+    try:
+        from l3_dialog_engine import L3DialogEngine
+
+        engine = L3DialogEngine()
+        run_id = engine.run_stress_test()
+        if run_id:
+            status = engine.get_l3_status()
+            worst_test = status["stress_tests"][0] if status.get("stress_tests") else None
+            if worst_test:
+                msg = (
+                    f"📊 **周压力测试完成**\n\n"
+                    f"最坏情景: {worst_test['scenario']}\n"
+                    f"最大损失: {worst_test['loss_pct']:.2f}%\n"
+                    f"风险评分: {worst_test['risk_score']}/10\n"
+                    f"运行编号: {run_id[:8]}..."
+                )
+                send_notification("📊 周压力测试完成", msg)
+            logger.info(f"压力测试完成: run_id={run_id}")
+        else:
+            logger.info("压力测试跳过（无持仓数据）")
+    except Exception as e:
+        logger.error(f"压力测试异常: {e}")
+        _safe_error_alert("🔴 压力测试异常", f"错误: {e}")
+
+
+def job_behavior_insights():
+    """
+    每周日 20:00 行为洞察周报推送
+    - 调用 audit_analytics.send_behavior_insights_report(7) 分析近7天行为
+    - 推送行为洞察至飞书/Server酱
+    """
+    logger.info("=" * 50)
+    logger.info("20:00 行为洞察周报启动")
+    try:
+        from audit_analytics import send_behavior_insights_report
+
+        report = send_behavior_insights_report(days=7)
+        if report:
+            send_notification("📊 周行为洞察报告", report)
+            logger.info("行为洞察周报已推送")
+        else:
+            logger.warning("行为洞察周报为空")
+    except Exception as e:
+        logger.error(f"行为洞察推送异常: {e}")
+        _safe_error_alert("🔴 行为洞察推送异常", f"错误: {e}")
+
+
 # ── 调度器 ────────────────────────────────────────────────────────────────
 
 _scheduler: BackgroundScheduler = None
@@ -1116,6 +1185,26 @@ def start_scheduler():
         CronTrigger(hour=15, minute=40, timezone="Asia/Shanghai"),
         id="behavior_profile_daily",
         name="每日行为画像更新 (15:40)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # 每周一 07:00 盘前压力测试（基于回测引擎的极端情景分析）
+    _scheduler.add_job(
+        job_weekly_stress_test,
+        CronTrigger(day_of_week='mon', hour=7, minute=0, timezone="Asia/Shanghai"),
+        id="weekly_stress_test",
+        name="周压力测试 (每周一 07:00)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # 每周日 20:00 行为洞察周报推送
+    _scheduler.add_job(
+        job_behavior_insights,
+        CronTrigger(day_of_week='sun', hour=20, minute=0, timezone="Asia/Shanghai"),
+        id="weekly_behavior_insights",
+        name="行为洞察周报 (每周日 20:00)",
         replace_existing=True,
         misfire_grace_time=600,
     )

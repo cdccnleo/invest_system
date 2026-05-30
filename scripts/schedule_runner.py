@@ -759,75 +759,105 @@ def job_behavior_profile_update():
     """
     每日 15:40 收盘后行为画像更新
     - 调用 analyze_trading_behavior(30) 分析近30天审计日志
-    - 将结果写入 l3.behavior_profile（upsert）
-    - 触发 l3_dialog_engine 做对话式风险提醒（如需）
+    - 将结果写入 l3.behavior_profile（行模型：profile_date/dimension/metric_name/metric_value）
+    - 行为异常时发送飞书 L3 主动预警
     """
+    from storage_factory import get_pg_connection
+
     logger.info("=" * 50)
     logger.info("15:40 行为画像更新启动")
     try:
         from audit_analytics import analyze_trading_behavior
-        import json as _json
-        from storage_factory import get_pg_connection
-        from pgcrypto_migration import get_credential
 
-        # 分析近30天行为
         profile = analyze_trading_behavior(days=30)
         logger.info(f"行为画像: {profile.get('behavior_patterns', [])}")
 
-        # 写入 l3.behavior_profile
+        # ── 写入 l3.behavior_profile（行模型，按 dimension/metric 分解）────────────────
         pg_conn = get_pg_connection()
-        if pg_conn:
-            cur = pg_conn.cursor()
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS l3.behavior_profile (
-                    id          SERIAL PRIMARY KEY,
-                    period_days INTEGER NOT NULL DEFAULT 30,
-                    profile     JSONB NOT NULL,
-                    written_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-            """)
-            cur.execute("""
-                INSERT INTO l3.behavior_profile (period_days, profile)
-                VALUES (%s, %s)
-                RETURNING id
-            """, (profile["period_days"], _json.dumps(profile)))
-            pg_conn.commit()
-            cur.close()
-            pg_conn.close()
-            logger.info("行为画像已写入 l3.behavior_profile")
-        else:
+        if not pg_conn:
             logger.warning("无法连接数据库，行为画像跳过写入")
+            return
 
-        # 触发 L3 主动提醒（如行为异常，通过飞书推送预警）
+        cur = pg_conn.cursor()
+        rows = _build_profile_rows(profile)
+        for row in rows:
+            cur.execute("""
+                INSERT INTO l3.behavior_profile
+                    (profile_date, dimension, metric_name, metric_value, alert_level)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (profile_date, dimension, metric_name) DO UPDATE SET
+                    metric_value  = EXCLUDED.metric_value,
+                    alert_level   = EXCLUDED.alert_level,
+                    updated_at    = NOW()
+            """, row)
+        pg_conn.commit()
+        cur.close()
+        pg_conn.close()
+        logger.info(f"行为画像已写入 {len(rows)} 条行记录")
+
+        # ── 异常检测 → 飞书预警 ───────────────────────────────────────────────────
         patterns = profile.get("behavior_patterns", [])
         if any("激进" in p for p in patterns):
             send_notification("⚠️ L3 行为预警",
-                f"检测到您近期频繁修改AI计划（连续{profile.get('max_consecutive_mod_days',0)}天修改），"
+                f"检测到您近期频繁修改AI计划（连续{profile.get('max_consecutive_mod_days', 0)}天修改），"
                 "建议适当减少干预，给AI计划更多信任空间。")
         elif profile.get("analysis_success_rate", 100) < 60:
             send_notification("⚠️ L3 行为预警",
                 f"近30天AI计划采纳率仅{profile['analysis_success_rate']:.0f}%，"
                 "建议复盘修改原因，减少过度干预。")
 
-        # 推送确认
-        try:
-            msg = f"📊 **每日行为画像**（近30天）\n\n"
-            msg += f"分析成功率: {profile.get('analysis_success_rate', 'N/A')}%\n"
-            msg += f"总分析次数: {profile.get('total_analysis_runs', 0)}\n"
-            msg += f"最大连续修改: {profile.get('max_consecutive_mod_days', 0)}天\n\n"
-            for p in patterns:
-                msg += f"• {p}\n"
-            if profile.get("recommendations"):
-                msg += "\n**建议:**\n"
-                for r in profile["recommendations"]:
-                    msg += f"• {r}\n"
-            send_notification("📊 每日行为画像已更新", msg)
-        except Exception as e:
-            logger.warning(f"行为画像推送异常: {e}")
+        # ── 推送确认报告 ──────────────────────────────────────────────────────────
+        msg = f"📊 **每日行为画像**（近30天）\n\n"
+        msg += f"分析成功率: {profile.get('analysis_success_rate', 'N/A')}%\n"
+        msg += f"总分析次数: {profile.get('total_analysis_runs', 0)}\n"
+        msg += f"最大连续修改: {profile.get('max_consecutive_mod_days', 0)}天\n\n"
+        for p in patterns:
+            msg += f"• {p}\n"
+        if profile.get("recommendations"):
+            msg += "\n**建议:**\n"
+            for r in profile["recommendations"]:
+                msg += f"• {r}\n"
+        send_notification("📊 每日行为画像已更新", msg)
 
     except Exception as e:
         logger.error(f"行为画像更新异常: {e}")
         _safe_error_alert("🔴 行为画像更新异常", f"错误: {e}")
+
+
+def _build_profile_rows(profile: dict) -> list[tuple]:
+    """
+    将 analyze_trading_behavior() 返回的 dict 按 l3.behavior_profile 行模型拆解。
+    每行: (profile_date, dimension, metric_name, metric_value, alert_level)
+    """
+    from datetime import date
+    from decimal import Decimal
+
+    today = date.today()
+    rows = []
+    ev = profile.get("event_counts", {})
+
+    # ── 维度1: overtrading（过度交易）────────────────────────────────────────
+    mod_days = profile.get("max_consecutive_mod_days", 0)
+    rows.append((today, "overtrading", "consecutive_mod_days", Decimal(mod_days),
+                 "critical" if mod_days >= 5 else "warning" if mod_days >= 3 else "normal"))
+
+    # ── 维度2: risk_taking（风险偏好）────────────────────────────────────────
+    success_rate = profile.get("analysis_success_rate", 100)
+    rows.append((today, "risk_taking", "ai_plan_accept_rate", Decimal(str(success_rate)),
+                 "critical" if success_rate < 40 else "warning" if success_rate < 60 else "normal"))
+
+    # ── 维度3: diversification（分散度）──────────────────────────────────────
+    total_events = sum(ev.values())
+    skill_cnt = ev.get("SKILL_EXECUTED", 0)
+    rows.append((today, "diversification", "skill_usage_count", Decimal(skill_cnt),
+                 "normal"))
+
+    # ── 维度4: holding_pattern（持仓习惯）───────────────────────────────────
+    morning_runs = ev.get("SCHEDULED_MORNING_RUN", 0)
+    rows.append((today, "holding_pattern", "scheduled_run_count", Decimal(morning_runs),
+                 "normal"))
+
+    return rows
 
 
 def job_weekly_backtest():

@@ -769,44 +769,50 @@ def job_weekly_backtest():
             load_quotes, BacktestEngine, MAcrossStrategy, BacktestConfig,
         )
         from datetime import timedelta
-        from storage_factory import get_storage
+        from tamf_updater import normalize_ts_code
 
-        # 获取数据库最新交易日
-        storage = get_storage()
-        try:
-            conn_cfg = storage._conn_params
-        except Exception:
-            conn_cfg = {}
-        storage.close()
-
-        # 获取市场最新日期（从 daily_quotes）
+        # ── 1. 从数据库加载当前持仓 ─────────────────────────────
         from backtester import get_db_conn as bt_conn
         conn = bt_conn()
         cur = conn.cursor()
+        cur.execute("""
+            SELECT code, name
+            FROM holdings.encrypted_positions
+            WHERE is_current = TRUE
+        """)
+        raw_holdings = cur.fetchall()
+
+        # 获取市场最新日期
         cur.execute("SELECT MAX(trade_date) FROM market.daily_quotes")
         max_date_row = cur.fetchone()
+        max_date = max_date_row[0] if max_date_row and max_date_row[0] else None
         conn.close()
-        if not max_date_row or not max_date_row[0]:
+
+        if not max_date:
             logger.warning("市场行情表无数据，跳过回测")
             return
-        max_date = max_date_row[0]
+
         start_date = max_date - timedelta(days=90)
 
-        # 重点持仓股列表
-        HOLDINGS = [
-            ("300059", "东方财富"),
-            ("300033", "同花顺"),
-            ("512880", "证券ETF"),
-            ("515050", "芯片ETF"),
-        ]
+        # 归一化：code → ts_code，基金/无法映射的跳过
+        holdings = []
+        for code, name in raw_holdings:
+            ts = normalize_ts_code(str(code), name or "")
+            if ts.endswith(".OF"):
+                logger.debug(f"跳过基金 {code}: {name} → {ts} (无股票行情)")
+                continue
+            holdings.append((ts, name or code))
 
+        logger.info(f"持仓回测候选: {len(holdings)} 只（不含基金，{start_date}~{max_date}）")
+
+        # ── 2. 逐只回测 ─────────────────────────────────────────
         reports = []
-        for code, name in HOLDINGS:
-            ts_code = f"{code}.XSHE"
+        for ts_code, name in holdings:
             try:
                 quotes = load_quotes(ts_code, start_date, max_date)
                 if len(quotes) < 30:
-                    continue  # 数据不足则跳过
+                    logger.debug(f"  {ts_code} {name}: 仅 {len(quotes)} 天数据，跳过")
+                    continue
 
                 cfg = BacktestConfig()
                 strategy = MAcrossStrategy(cfg.default_params["ma_cross"])
@@ -815,14 +821,14 @@ def job_weekly_backtest():
 
                 s = result.get("summary", {})
                 if "error" not in result:
+                    label = name if name != ts_code.split(".")[0] else ts_code
                     reports.append(
-                        f"**{name}（{ts_code}）**\n"
-                        f"  收益率: {s['total_return_pct']:+.2f}% | "
-                        f"年化: {s['annual_return_pct']:+.2f}% | "
-                        f"最大回撤: {s['max_drawdown_pct']:.2f}%\n"
-                        f"  买{s['buy_count']}次/卖{s['sell_count']}次 | "
-                        f"胜率: {s['win_rate_pct']:.0f}% | "
-                        f"Sharpe: {s['sharpe_ratio']:.3f}"
+                        f"**{label}**\n"
+                        f"  {s['total_return_pct']:+.2f}% | "
+                        f"年化{s['annual_return_pct']:+.2f}% | "
+                        f"回撤{s['max_drawdown_pct']:.1f}% | "
+                        f"胜率{s['win_rate_pct']:.0f}% | "
+                        f"Sharpe {s['sharpe_ratio']:.3f}"
                     )
             except Exception as e:
                 logger.warning(f"回测 {ts_code} 失败: {e}")
@@ -831,8 +837,10 @@ def job_weekly_backtest():
             logger.info("无足够数据生成回测报告（需要≥30天数据）")
             return
 
-        msg = "📊 **周线回测报告**（MA5/MA20 策略）\n\n" + "\n\n".join(reports)
-        msg += f"\n\n_数据范围: {start_date} ~ {max_date}_"
+        msg = f"📊 **周线回测报告**（MA5/MA20）{max_date}\n"
+        msg += f"覆盖 {len(reports)} 只标的\n\n"
+        msg += "\n\n".join(reports)
+        msg += f"\n\n_数据: {start_date} ~ {max_date}，≥30天有行情_"
         send_notification("📊 周线回测报告", msg)
 
     except Exception as e:

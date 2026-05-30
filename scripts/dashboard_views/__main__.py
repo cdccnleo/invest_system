@@ -333,6 +333,13 @@ from ._news      import render_news_summary, render_reports, render_announcement
 from ._tamf     import render_tamf_memory, render_history
 from ._settings import render_plan_review, render_settings
 
+# ── 共享数据函数（来自 dashboard.py）────────────────────────────────────────
+import sys as _sys
+from pathlib import Path as _Path
+# dashboard.py 在上一级目录
+sys.path.insert(0, str(_Path(__file__).parent.parent))
+from dashboard import load_positions, get_news_count
+
 # ── 主程序 ──────────────────────────────────────────────────────────────────
 
 def main():

@@ -860,6 +860,301 @@ def _build_profile_rows(profile: dict) -> list[tuple]:
     return rows
 
 
+def job_behavior_insights():
+    """
+    每周日 20:00 行为洞察周报
+    - 调用 send_behavior_insights_report(days=7) 生成本周行为洞察摘要
+    - 推送飞书 Feishu
+    """
+    logger.info("=" * 50)
+    logger.info("20:00 行为洞察周报启动")
+    try:
+        from audit_analytics import send_behavior_insights_report
+
+        report = send_behavior_insights_report(days=7)
+        send_notification("📊 每周行为洞察", report)
+        logger.info("行为洞察周报已推送")
+
+    except Exception as e:
+        logger.error(f"行为洞察周报异常: {e}")
+        _safe_error_alert("🔴 行为洞察周报异常", f"错误: {e}")
+
+
+def job_user_emotion_sensing():
+    """
+    每日 21:30 用户情绪感知（高频操作检测 → 情绪推断）
+    - 从 audit.audit_log 近1天数据推断用户情绪状态
+    - 检测信号：修改频率 / 持仓查看频率 / 分析运行次数 / 报告查阅 / 错误频率
+    - 情绪分类：焦虑 | 过度自信 | 恐慌 | 平静 | 兴奋
+    - 异常情绪时写入 l3.active_dialog_triggers 并推送飞书预警
+    """
+    from datetime import date, timedelta
+
+    logger.info("=" * 50)
+    logger.info("21:30 用户情绪感知启动")
+    try:
+        from storage_factory import get_pg_connection
+
+        pg_conn = get_pg_connection()
+        if not pg_conn:
+            logger.warning("无法连接数据库，跳过用户情绪感知")
+            return
+
+        cur = pg_conn.cursor()
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+
+        # 信号1: 修改计划频率
+        cur.execute("""
+            SELECT COUNT(*) FROM audit.audit_log
+            WHERE event_type = 'USER_MODIFY_PLAN' AND event_time >= %s
+        """, (yesterday,))
+        mod_count = cur.fetchone()[0] or 0
+
+        # 信号2: 查看持仓频率
+        cur.execute("""
+            SELECT COUNT(*) FROM audit.audit_log
+            WHERE event_type = 'VIEW_POSITIONS' AND event_time >= %s
+        """, (yesterday,))
+        view_pos_count = cur.fetchone()[0] or 0
+
+        # 信号3: 分析运行次数
+        cur.execute("""
+            SELECT COUNT(*) FROM audit.audit_log
+            WHERE event_type IN ('ANALYSIS_COMPLETE', 'SCHEDULED_MORNING_RUN')
+              AND event_time >= %s
+        """, (yesterday,))
+        analysis_count = cur.fetchone()[0] or 0
+
+        # 信号4: 查看报告频率
+        cur.execute("""
+            SELECT COUNT(*) FROM audit.audit_log
+            WHERE event_type = 'VIEW_REPORT' AND event_time >= %s
+        """, (yesterday,))
+        view_report_count = cur.fetchone()[0] or 0
+
+        # 信号5: 错误频率
+        cur.execute("""
+            SELECT COUNT(*) FROM audit.audit_log
+            WHERE result = 'FAILED' AND event_time >= %s
+        """, (yesterday,))
+        error_count = cur.fetchone()[0] or 0
+
+        # ── 情绪推断 ──────────────────────────────────────────────────────
+        emotion, emotion_desc, alert_level = _infer_emotion(
+            mod_count, view_pos_count, analysis_count, view_report_count, error_count
+        )
+        logger.info(
+            f"用户情绪: {emotion} | 修改:{mod_count} 查看持仓:{view_pos_count} "
+            f"分析:{analysis_count} 报告:{view_report_count} 错误:{error_count}"
+        )
+
+        # 异常情绪时写入触发器 + 推送
+        if alert_level != "normal":
+            cur.execute("""
+                INSERT INTO l3.active_dialog_triggers
+                    (trigger_type, trigger_name, condition_expr, condition_desc,
+                     cooldown_hours, message_template, priority, is_active)
+                VALUES ('emotion_alert', '用户情绪预警', %s, %s, 12, %s, 9, TRUE)
+                ON CONFLICT DO NOTHING
+            """, (
+                f'{{"type":"user_emotion","emotion":"{emotion}","alert_level":"{alert_level}"}}',
+                f'用户情绪: {emotion} — {emotion_desc}',
+                f'🧠 【情绪感知】检测到您目前"{emotion}"状态。{emotion_desc}。'
+                f'建议：{"适当休息" if emotion in ("焦虑","恐慌") else "信任AI计划，减少干预"}',
+            ))
+            pg_conn.commit()
+            send_notification(f"🧠 L3 情绪感知", f"当前情绪: **{emotion}**\n{emotion_desc}")
+
+        cur.close()
+        pg_conn.close()
+
+    except Exception as e:
+        logger.error(f"用户情绪感知异常: {e}")
+        _safe_error_alert("🔴 用户情绪感知异常", f"错误: {e}")
+
+
+def _infer_emotion(mod_count, view_pos_count, analysis_count,
+                   view_report_count, error_count) -> tuple[str, str, str]:
+    """
+    基于行为信号推断用户情绪。
+    返回: (emotion_label, description, alert_level)
+    """
+    if error_count >= 5:
+        return ("焦虑", f"当日{error_count}次操作失败，可能导致挫败感", "warning")
+    if mod_count >= 8 and view_pos_count >= 15:
+        return ("恐慌", f"高修改({mod_count}次)+高频看持仓({view_pos_count}次)，可能处于市场恐慌", "critical")
+    if mod_count >= 10:
+        return ("过度自信", f"当日{mod_count}次修改AI计划，可能过度交易", "warning")
+    if mod_count >= 5 and analysis_count >= 10:
+        return ("兴奋", f"高强度盯盘({analysis_count}次分析+{mod_count}次调整)", "normal")
+    if view_pos_count >= 20:
+        return ("焦虑", f"超高频查看持仓({view_pos_count}次)，建议适当休息", "warning")
+    return ("平静", "当前行为模式稳定，情绪平稳", "normal")
+
+
+def job_stress_test():
+    """
+    每周五 22:00 收盘后压力测试
+    - 加载当前持仓快照（市值 + 个股）
+    - 复用 StressTestEngine.run_stress_test() 对3种极端情景做压力测试
+    - 结果写入 l3.stress_test_results
+    - 推送飞书 Feishu（含情景摘要 + 最大损失率 + 建议）
+    """
+    import uuid as _uuid
+    import json as _json
+    from decimal import Decimal
+    from datetime import date
+
+    logger.info("=" * 50)
+    logger.info("22:00 每周压力测试启动")
+    try:
+        from backtest_engine import StressTestEngine, get_db_conn
+        from storage_factory import get_pg_connection
+
+        # ── 1. 加载持仓 ──────────────────────────────────────────────────────
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT code, name, shares, cost, market_value
+            FROM holdings.encrypted_positions
+            WHERE is_current = TRUE
+        """)
+        raw_positions = cur.fetchall()
+
+        cur.execute("""
+            SELECT COALESCE(SUM(market_value), 0) as total_mv
+            FROM holdings.encrypted_positions
+            WHERE is_current = TRUE
+        """)
+        total_mv_row = cur.fetchone()
+        total_mv = float(total_mv_row[0]) if total_mv_row else 0.0
+        conn.close()
+
+        if not raw_positions or total_mv <= 0:
+            logger.warning("无持仓数据，跳过压力测试")
+            return
+
+        positions = [
+            {
+                "code": str(r[0]),
+                "name": r[1],
+                "shares": float(r[2]),
+                "avg_cost": float(r[3]),
+                "current_price": float(r[4]) / float(r[2]) if float(r[2]) > 0 else 0,
+                "market_value": float(r[4]),
+            }
+            for r in raw_positions
+        ]
+
+        # ── 2. 执行压力测试 ───────────────────────────────────────────────────
+        engine = StressTestEngine(db_conn_func=get_db_conn)
+        result = engine.run_stress_test(total_mv, positions)
+
+        # ── 3. 写入 l3.stress_test_results ────────────────────────────────────
+        run_id = str(_uuid.uuid4())
+        holding_snapshot = _json.dumps({
+            "positions": [
+                {"code": p["code"], "name": p["name"],
+                 "market_value": p["market_value"]}
+                for p in positions
+            ],
+            "total_mv": total_mv,
+        }, ensure_ascii=False)
+
+        pg_conn = get_pg_connection()
+        if pg_conn:
+            cur2 = pg_conn.cursor()
+            for scenario_code, scenario_data in result["scenarios"].items():
+                # 风险评分：损失率≥15%→高风险(9-10)，≥8%→中风险(6-8)，<8%→低风险(1-5)
+                loss_pct = abs(scenario_data.get("loss_pct", 0))
+                risk_score = min(10, max(1, int(loss_pct / 1.5)))
+
+                # 建议逻辑
+                if loss_pct >= 15:
+                    recommendation = "建议减仓或启动对冲，风险极高"
+                elif loss_pct >= 8:
+                    recommendation = "建议密切关注，可考虑部分减仓"
+                else:
+                    recommendation = "风险可控，维持现状"
+
+                scenario_name_map = {
+                    "A_consecutive_limit_down": "情景A：连续跌停",
+                    "B_liquidity_crisis": "情景B：流动性枯竭",
+                    "C_high_volatility_5d": "情景C：大幅波动",
+                }
+                scenario_name = scenario_name_map.get(scenario_code, scenario_code)
+
+                shock_result = _json.dumps({
+                    "positions": [
+                        {
+                            "code": p["code"],
+                            "name": p["name"],
+                            "shock_pct": scenario_data.get("loss_pct", 0) / 100,
+                            "loss": round(p["market_value"] * scenario_data.get("loss_pct", 0) / 100, 2),
+                        }
+                        for p in positions
+                    ],
+                    "total_loss": scenario_data.get("absolute_loss", 0),
+                    "loss_rate": scenario_data.get("loss_pct", 0) / 100,
+                }, ensure_ascii=False)
+
+                cur2.execute("""
+                    INSERT INTO l3.stress_test_results
+                        (run_id, scenario_code, scenario_name, executed_at,
+                         holding_snapshot, portfolio_value,
+                         shock_result, max_loss_pct, max_loss_abs, risk_score, recommendation)
+                    VALUES (%s,%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    run_id,
+                    scenario_code,
+                    scenario_name,
+                    holding_snapshot,
+                    Decimal(str(total_mv)),
+                    shock_result,
+                    Decimal(str(scenario_data.get("loss_pct", 0))),
+                    Decimal(str(scenario_data.get("absolute_loss", 0))),
+                    risk_score,
+                    recommendation,
+                ))
+            pg_conn.commit()
+            cur2.close()
+            pg_conn.close()
+            logger.info(f"压力测试结果已写入 {len(result['scenarios'])} 条记录 (run_id={run_id})")
+        else:
+            logger.warning("无法连接数据库，跳过结果写入")
+
+        # ── 4. 推送飞书报告 ──────────────────────────────────────────────────
+        lines = [f"🧪 **每日压力测试报告**（{date.today()}）\n"]
+        lines.append(f"组合市值: ¥{total_mv:,.2f} | VaR(5日99%): ¥{result.get('var_5d_99', 0):,.2f}\n")
+
+        max_loss = 0
+        worst_scenario = ""
+        for code, data in result["scenarios"].items():
+            loss_pct = data.get("loss_pct", 0)
+            loss_abs = data.get("absolute_loss", 0)
+            risk_icon = "🔴" if loss_pct >= 15 else "🟡" if loss_pct >= 8 else "🟢"
+            lines.append(
+                f"{risk_icon} {code}: -{abs(loss_pct):.1f}%（¥{loss_abs:,.0f}）| "
+                f"{data.get('description', '')}"
+            )
+            if abs(loss_pct) > abs(max_loss):
+                max_loss = abs(loss_pct)
+                worst_scenario = code
+
+        lines.append(f"\n⚠️ 最悲观情景: {worst_scenario} -{max_loss:.1f}%")
+        if max_loss >= 15:
+            lines.append("建议减仓或启动对冲")
+        elif max_loss >= 8:
+            lines.append("建议密切关注，必要时部分减仓")
+
+        send_notification("🧪 压力测试报告", "\n".join(lines))
+
+    except Exception as e:
+        logger.error(f"压力测试异常: {e}")
+        _safe_error_alert("🔴 压力测试异常", f"错误: {e}")
+
+
 def job_weekly_backtest():
     """
     每周五 22:00 周线回测报告
@@ -1121,12 +1416,39 @@ def start_scheduler():
         replace_existing=True,
     )
 
-    # 每周五 22:00 周线回测报告（上周策略表现，仅在数据≥30天时运行）
+    # 每周五 22:00 压力测试（StressTestEngine 3情景 + VaR，写入 l3.stress_test_results）
+    _scheduler.add_job(
+        job_stress_test,
+        CronTrigger(day_of_week='fri', hour=22, minute=0, timezone="Asia/Shanghai"),
+        id="stress_test_weekly",
+        name="每周压力测试 (周五 22:00)",
+        replace_existing=True,
+    )
+
+    # 每周日 20:00 行为洞察周报
+    _scheduler.add_job(
+        job_behavior_insights,
+        CronTrigger(day_of_week='sun', hour=20, minute=0, timezone="Asia/Shanghai"),
+        id="behavior_insights_weekly",
+        name="每周行为洞察 (周日 20:00)",
+        replace_existing=True,
+    )
+
+    # 每日 21:30 用户情绪感知（高频操作检测 → 情绪推断）
+    _scheduler.add_job(
+        job_user_emotion_sensing,
+        CronTrigger(hour=21, minute=30, timezone="Asia/Shanghai"),
+        id="user_emotion_daily",
+        name="每日用户情绪感知 (21:30)",
+        replace_existing=True,
+    )
+
+    # 每周一 07:00 均线交叉策略回测（上周策略表现，仅在数据≥30天时运行）
     _scheduler.add_job(
         job_weekly_backtest,
-        CronTrigger(day_of_week='fri', hour=22, minute=0, timezone="Asia/Shanghai"),
+        CronTrigger(day_of_week='mon', hour=7, minute=0, timezone="Asia/Shanghai"),
         id="weekly_backtest",
-        name="周线回测报告 (每周五 22:00)",
+        name="周线回测报告 (每周一 07:00)",
         replace_existing=True,
     )
 

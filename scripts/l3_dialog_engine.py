@@ -610,8 +610,8 @@ class L3DialogEngine:
         执行5种压力测试情景，返回 run_id。
         结果写入 l3.stress_test_results。
         """
-        from backtest_engine import StressTestEngine
-
+        # StressTestEngine 已通过 job_stress_test() 调度复用
+        # L3DialogEngine.run_stress_test() 保留为 CLI/手动调用路径
         positions = load_positions_from_db()
         if not positions:
             logger.warning("无持仓数据，跳过压力测试")

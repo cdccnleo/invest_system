@@ -1321,7 +1321,7 @@ def render_tamf_memory():
             conn.close()
             if row:
                 vmaj, vmin, status, lupdated, snapshot = row
-                snap = json.loads(snapshot) if snapshot else {}
+                snap = snapshot if isinstance(snapshot, dict) else {}
                 st.markdown(f"**{names.get(selected_code, selected_code)}**（{selected_code}）")
                 st.caption(f"版本 v{vmaj}.{vmin} | 状态 {status} | 更新 {str(lupdated)[:16]}")
                 if snap:

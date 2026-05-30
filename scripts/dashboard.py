@@ -1658,4 +1658,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # 委托给模块化版本 dashboard_views/__main__.py
+    from dashboard_views.__main__ import main as _dm
+    _dm()

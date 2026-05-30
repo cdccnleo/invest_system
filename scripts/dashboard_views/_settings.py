@@ -8,7 +8,7 @@ import streamlit as st
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
-from dashboard import ensure_plan_review_table
+from dashboard import ensure_plan_review_table, POSITIONS_CSV
 from ._shared import get_db_connection
 
 def render_plan_review():

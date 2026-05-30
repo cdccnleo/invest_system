@@ -1314,8 +1314,7 @@ def render_tamf_memory():
             FROM memory.target_memory_files WHERE ts_code = %s
         """
         try:
-            from storage_factory import get_db_conn
-            conn = get_db_conn()
+            conn = get_db_connection()
             cur = conn.cursor()
             cur.execute(meta_q, (selected_code,))
             row = cur.fetchone()
@@ -1377,7 +1376,7 @@ def render_tamf_memory():
         LIMIT 30
     """
     try:
-        conn = get_db_conn()
+        conn = get_db_connection()
         cur = conn.cursor()
         cur.execute(tl_q, (selected_code,))
         rows = cur.fetchall()

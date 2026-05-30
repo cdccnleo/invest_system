@@ -11,8 +11,9 @@ from typing import Optional
 
 import psycopg2
 
+from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv("/home/aileo/invest_system/.env")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 from fetch_quotes import collect_quotes
 from notification import send_notification, send_warning_alert, send_error_alert
@@ -290,7 +291,7 @@ class IntradayMonitor:
     """盘中异动监控器"""
 
     # 冷却状态持久化文件（进程重启后仍保留30分钟冷却）
-    _COOLDOWN_FILE = Path("/home/aileo/invest_system/logs/alert_cooldown.json")
+    _COOLDOWN_FILE = Path(__file__).parent.parent / "logs" / "alert_cooldown.json"
 
     def __init__(self):
         self.positions = load_positions_codes()

@@ -4,10 +4,11 @@ model_router.py — 白名单优先模型路由
 """
 
 import os, re, logging
+from pathlib import Path
 from typing import Literal
 from dotenv import load_dotenv
 
-load_dotenv("/home/aileo/invest_system/.env")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 logger = logging.getLogger("invest_system.router")
 

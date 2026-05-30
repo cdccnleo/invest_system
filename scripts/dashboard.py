@@ -1284,7 +1284,7 @@ def render_tamf_memory():
     import streamlit as st
     from pathlib import Path
 
-    TAMF_DIR = Path("/home/aileo/invest_system/data/target_memories")
+    TAMF_DIR = Path(__file__).parent.parent / "data" / "target_memories"
 
     st.markdown("## 📊 TAMF 投资标的分析记忆")
 

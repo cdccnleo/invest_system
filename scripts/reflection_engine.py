@@ -18,7 +18,9 @@ DB_CONFIG = {
     "password": "",  # 运行时由 _get_password() 注入,
 }
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
-USER_MD_PATH = os.environ.get("USER_MD_PATH", "/home/aileo/invest_system/USER.md")
+from pathlib import Path
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+USER_MD_PATH = os.environ.get("USER_MD_PATH", str(PROJECT_ROOT / "USER.md"))
 
 
 def _get_password():

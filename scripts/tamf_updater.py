@@ -22,10 +22,10 @@ from typing import Optional
 import psycopg2
 
 # ─── 项目路径 ────────────────────────────────────────────────
-PROJECT_ROOT = Path("/home/aileo/invest_system")
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 TAMF_DIR = PROJECT_ROOT / "data" / "target_memories"
 TAMF_TEMPLATE = TAMF_DIR / "TEMPLATE.md"
-CREDENTIAL_STORE = Path("/home/aileo/.hermes/invest_credentials/store.json")
+CREDENTIAL_STORE = Path.home() / ".hermes" / "invest_credentials" / "store.json"
 
 # ─── 代码归一化 ──────────────────────────────────────────────
 # holdings.code (6位纯数字) → daily_quotes.ts_code (6位.交易所后缀)
@@ -79,8 +79,6 @@ def get_db_conn():
 
 def load_positions() -> list[dict]:
     """从 holdings.encrypted_positions 加载当前持仓（复用pgcrypto_migration解密）"""
-    import sys
-    sys.path.insert(0, "/home/aileo/invest_system/scripts")
     from pgcrypto_migration import load_positions_from_db
     raw = load_positions_from_db()
     return [

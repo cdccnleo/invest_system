@@ -256,9 +256,11 @@ def compress_reports(
 
 
 if __name__ == '__main__':
-    import sys
-    sys.path.insert(0, '/home/aileo/invest_system')
-    
+    import sys as _sys
+    from pathlib import Path as _Path
+    _root = _Path(__file__).parent.parent.resolve()
+    _sys.path.insert(0, str(_root))
+
     from context_compressor import compress_news, compress_reports, compress_context
     
     # 测试新闻压缩

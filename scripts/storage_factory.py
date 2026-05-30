@@ -12,9 +12,10 @@ from typing import Optional
 from contextlib import contextmanager
 
 import psycopg2
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv("/home/aileo/invest_system/.env")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # 优先使用 credentials 模块（支持 WCM / 本地文件 / 环境变量）
 try:

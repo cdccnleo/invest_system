@@ -5,10 +5,12 @@ prompt_builder.py — 增强版 Prompt 组装器
 
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_ROOT = Path("/home/aileo/invest_system")
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 TAMF_DIR = PROJECT_ROOT / "data" / "target_memories"
 
 

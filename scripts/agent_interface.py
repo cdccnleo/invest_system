@@ -4,13 +4,16 @@ agent_interface.py — Agent 抽象接口层
 """
 
 import logging
+import sys
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
 from dotenv import load_dotenv
 import os as _os
 load_dotenv(_os.path.join(_os.path.dirname(__file__), "..", ".env"))
-import sys; sys.path.insert(0, "/home/aileo/invest_system/scripts")
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
 
 logger = logging.getLogger("invest_system.agent_interface")
 

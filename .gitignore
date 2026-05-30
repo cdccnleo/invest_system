@@ -33,6 +33,5 @@ Thumbs.db
 # 凭据存储（credentials.py 降级文件）
 credentials.json
 
-# 技能草案/审核（用户生成内容，不提交）
-skills/approved/
+# 技能草案（AI生成临时产物，不提交）
 skills/drafts/

@@ -4,7 +4,12 @@ Generated from dashboard.py (411-623 lines)
 Each function accesses streamlit via st (passed through from main module).
 """
 
-from ._shared import get_db_connection, load_positions, get_latest_quotes_from_db
+from ._shared import get_db_connection, get_latest_quotes_from_db
+import pandas as pd
+from pathlib import Path as _Path
+import sys as _sys
+_sys.path.insert(0, str(_Path(__file__).parent.parent))
+from dashboard import load_positions
 
 # ── 视图 1：持仓仪表板 ──────────────────────────────────────────────────────
 

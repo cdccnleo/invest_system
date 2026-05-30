@@ -5,6 +5,7 @@ Each function accesses streamlit via st (passed through from main module).
 """
 
 from ._shared import get_db_connection, get_latest_quotes_from_db
+import streamlit as st
 import pandas as pd
 from pathlib import Path as _Path
 import sys as _sys

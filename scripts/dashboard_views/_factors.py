@@ -106,7 +106,7 @@ def render_factor_analysis():
             return ""
 
         st.subheader("评分排名")
-        styled = df.style.applymap(color_score, subset=["综合得分", "价值", "质量", "动量", "波动率", "技术", "规模"])
+        styled = df.style.map(color_score, subset=["综合得分", "价值", "质量", "动量", "波动率", "技术", "规模"])
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
         # 因子贡献图

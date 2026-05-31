@@ -95,8 +95,8 @@ def render_sidebar():
     # URL 参数优先（?page=calendar）
     import streamlit as st_caller
     query_params = st_caller.query_params
-    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "🤖 L3 投资伙伴", "📈 策略回测", "⚙️ 设置"}
-    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "🤖 L3 投资伙伴", "📈 策略回测", "⚙️ 设置"]
+    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"}
+    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"]
 
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "📋 持仓仪表板"
@@ -113,6 +113,7 @@ def render_sidebar():
             "tamf": "📊 TAMF分析记忆",
             "l3": "🤖 L3 投资伙伴",
             "strategies": "📈 策略回测",
+            "factors": "📊 多因子评分",
             "settings": "⚙️ 设置",
         }
         mapped = page_map.get(url_page)
@@ -336,6 +337,7 @@ from dashboard_views._tamf     import render_tamf_memory, render_history
 from dashboard_views._l3_status import render_l3_status
 from dashboard_views._settings import render_plan_review, render_settings
 from dashboard_views._strategies import render_strategy_comparison
+from dashboard_views._factors import render_factor_analysis
 
 # ── 共享数据函数（来自 dashboard.py）────────────────────────────────────────
 import sys as _sys
@@ -367,6 +369,8 @@ def main():
         render_l3_status()
     elif page == "📈 策略回测":
         render_strategy_comparison()
+    elif page == "📊 多因子评分":
+        render_factor_analysis()
     elif page == "⚙️ 设置":
         render_settings()
 

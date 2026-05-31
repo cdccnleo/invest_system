@@ -1,0 +1,26 @@
+[Unit]
+Description=InvestPilot Scheduler Daemon
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=aileo
+Group=aileo
+WorkingDirectory=/home/aileo/invest_system
+ExecStart=/home/aileo/invest_system/.venv/bin/python scripts/schedule_runner.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/aileo/invest_system/logs/schedule_runner.log
+StandardError=append:/home/aileo/invest_system/logs/schedule_runner.log
+# 环境变量（.env 由脚本内 load_dotenv 加载）
+Environment="HOME=/home/aileo"
+
+# 停止时优雅退出（给 APScheduler 5秒清理时间）
+TimeoutStopSec=10
+
+# 防止锁屏/休眠干扰（WSL 特有）
+ExecStartPost=bash -c 'echo "InvestPilot Scheduler started at $(date)" >> /home/aileo/invest_system/logs/schedule_runner.log'
+
+[Install]
+WantedBy=multi-user.target

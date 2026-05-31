@@ -273,6 +273,95 @@ def run_daily_reflection():
         raise
 
 
+def evaluate_analysis_quality(result: dict, prompt: str = "") -> dict:
+    """
+    对 LLM 分析结果进行实时质量评估
+    评估维度：完整性、一致性、可操作性、置信度
+    返回质量评分（0-100）及警告列表
+    """
+    quality_score = 100
+    warnings = []
+
+    # 1. 完整性检查
+    if not result.get("plans"):
+        quality_score -= 30
+        warnings.append("缺少操作计划")
+    if not result.get("risks"):
+        quality_score -= 10
+        warnings.append("缺少风险提示")
+    if not result.get("market_outlook"):
+        quality_score -= 10
+        warnings.append("缺少市场展望")
+
+    # 2. 计划质量检查（每条计划必须有 action + reason）
+    plans = result.get("plans", [])
+    if plans:
+        incomplete_plans = [p for p in plans if not (p.get("action") and p.get("reason"))]
+        if incomplete_plans:
+            quality_score -= len(incomplete_plans) * 5
+            warnings.append(f"{len(incomplete_plans)}条计划缺少操作或理由")
+
+    # 3. 置信度检查
+    confidence = result.get("confidence_level", "unknown")
+    if confidence == "low":
+        quality_score -= 20
+        warnings.append("模型自身置信度低")
+    elif confidence == "unknown":
+        quality_score -= 15
+        warnings.append("未提供置信度评估")
+
+    # 4. 错误检查
+    if result.get("error"):
+        quality_score = 0
+        warnings.append(f"LLM 调用错误: {result['error']}")
+
+    quality_score = max(0, min(100, quality_score))
+
+    return {
+        "quality_score": quality_score,
+        "quality_level": "high" if quality_score >= 80 else "medium" if quality_score >= 50 else "low",
+        "warnings": warnings,
+        "flagged": quality_score < 50,
+        "checks": {
+            "has_plans": bool(result.get("plans")),
+            "has_risks": bool(result.get("risks")),
+            "has_outlook": bool(result.get("market_outlook")),
+            "has_confidence": confidence != "unknown",
+            "has_error": bool(result.get("error")),
+        },
+    }
+
+
+def log_quality_to_audit(result: dict, quality: dict, agent_type: str = ""):
+    """将质量评估结果写入审计日志"""
+    conn = get_db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO audit.audit_log
+                (event_type, operator, target_type, detail, result)
+            VALUES ('QUALITY_ASSESSMENT', 'SYSTEM', 'LLM_OUTPUT', %s, %s)
+        """, (
+            json.dumps({
+                "quality_score": quality["quality_score"],
+                "quality_level": quality["quality_level"],
+                "warnings": quality["warnings"],
+                "checks": quality["checks"],
+                "agent_type": agent_type,
+                "plan_count": len(result.get("plans", [])),
+                "confidence": result.get("confidence_level", "unknown"),
+            }, ensure_ascii=False),
+            "FLAGGED" if quality["flagged"] else "PASSED",
+        ))
+        conn.commit()
+        logger.info(f"质量评估: {quality['quality_score']}分 ({quality['quality_level']}) "
+                    f"{'⚠️已标记' if quality['flagged'] else '✅通过'}")
+    except Exception as e:
+        logger.warning(f"质量评估日志写入失败: {e}")
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 

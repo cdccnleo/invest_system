@@ -427,6 +427,25 @@ def run_analysis():
     if raw.get("error"):
         result["error"] = raw["error"]
 
+    # ── Step 7.5: 质量评估（reflection_engine 联动）───────────────────────
+    print("\n📌 Step 7.5: 分析质量评估...")
+    try:
+        from reflection_engine import evaluate_analysis_quality, log_quality_to_audit
+        quality = evaluate_analysis_quality(result)
+        print(f"  质量评分: {quality['quality_score']}/100 ({quality['quality_level']})")
+        if quality["warnings"]:
+            for w in quality["warnings"]:
+                print(f"  ⚠️ {w}")
+        if quality["flagged"]:
+            print(f"  🚨 低质量输出已标记，建议人工审核")
+        try:
+            log_quality_to_audit(result, quality, agent_type=type(agent).__name__)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"质量评估异常: {e}")
+        quality = {"quality_score": 0, "quality_level": "unknown", "warnings": [str(e)], "flagged": False}
+
     # ── Step 8: 还原脱敏并输出报告 ───────────────────────────────────────
     print("\n" + "=" * 65)
     print("📊 持仓分析报告")

@@ -362,9 +362,8 @@ def job_deep_analysis_weekly():
 
 
 def job_reports_collection():
-    """16:00 研报复盘工作流 — 采集当日研报"""
-    if not _guard_trading_day("job_reports_collection"):
-        return
+    """16:00 研报复盘工作流 — 采集当日研报（每日运行，非仅交易日）"""
+    # 移除交易日守卫：研报发布后即入库，非交易日同样需要更新
     logger.info("=" * 50)
     logger.info("16:00 研报采集工作流启动")
     try:
@@ -582,9 +581,8 @@ def job_midday():
 
 
 def job_announcements_collection():
-    """20:50 公告采集工作流 — 采集持仓股近30天公告（晚间集中发布后采集，21:00前完成供复盘使用）"""
-    if not _guard_trading_day("job_announcements_collection"):
-        return
+    """20:50 公告采集工作流 — 采集持仓股近30天公告（每日运行，非仅交易日）"""
+    # 移除交易日守卫：公告在非交易日同样可能发布（如盘后重大事项）
     logger.info("=" * 50)
     logger.info("20:50 公告采集工作流启动")
     try:

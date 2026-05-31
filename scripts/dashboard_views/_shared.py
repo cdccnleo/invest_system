@@ -7,7 +7,7 @@ Dashboard shared utilities — 数据加载 / 数据库连接 / 行情查询
 import os, csv
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 import sys as _sys
 _sys.path.insert(0, str(ROOT / "scripts"))
 

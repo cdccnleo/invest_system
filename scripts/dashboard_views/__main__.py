@@ -16,7 +16,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # ── 路径设置 ───────────────────────────────────────────────────────────────
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 # ── Dashboard 主程序（st.set_page_config 必须最早执行）─────────────────────────

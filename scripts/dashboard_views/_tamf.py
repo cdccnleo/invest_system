@@ -369,13 +369,13 @@ def render_tamf_memory():
     import streamlit as st
     from pathlib import Path
 
-    TAMF_DIR = Path(__file__).parent.parent / "data" / "target_memories"
+    TAMF_DIR = Path(__file__).parent.parent.parent / "data" / "target_memories"
 
     st.markdown("## 📊 TAMF 投资标的分析记忆")
 
     # 加载持仓列表
     try:
-        sys.path.insert(0, str(Path(__file__).parent))
+        sys.path.insert(0, str(Path(__file__).parent.parent))
         from pgcrypto_migration import load_positions_from_db
         positions = load_positions_from_db()
         codes = [p["code"] for p in positions]

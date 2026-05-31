@@ -67,6 +67,9 @@ def _wcm_get(service: str) -> Optional[str]:
     }}
     """
     result = _run_ps(script).strip()
+    # 跳过 WCM 占位符（WSL cmdkey 遗留），直接返回 None 触发后续降级逻辑
+    if result and result == "* NONE *":
+        return None
     if result and result != "CRED_NOT_FOUND" and len(result) > 0:
         logger.debug(f"WCM 读取成功: {service}")
         return result

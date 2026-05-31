@@ -45,7 +45,7 @@ def render_strategy_comparison():
     if run_btn:
         with st.spinner("正在加载行情数据并运行策略回测..."):
             try:
-                from prompt_builder import get_db_conn
+                from audit_analytics import get_db_conn
                 conn = get_db_conn()
                 cur = conn.cursor()
                 cur.execute("""
@@ -104,7 +104,7 @@ def render_strategy_comparison():
     if optimize_btn:
         with st.spinner("正在优化参数..."):
             try:
-                from prompt_builder import get_db_conn
+                from audit_analytics import get_db_conn
                 conn = get_db_conn()
                 cur = conn.cursor()
                 cur.execute("""

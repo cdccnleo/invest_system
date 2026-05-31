@@ -456,9 +456,8 @@ def _detect_rating_changes():
 
 
 def job_evening():
-    """21:00 晚间工作流"""
-    if not _guard_trading_day("job_evening"):
-        return
+    """21:00 晚间工作流（每日运行，非仅交易日）"""
+    # 移除交易日守卫：新闻/研报在非交易日同样需要更新
     logger.info("=" * 50)
     logger.info("21:00 晚间工作流启动")
     try:

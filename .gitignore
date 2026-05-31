@@ -17,6 +17,10 @@ build/
 # 日志
 logs/*.log
 
+# 测试覆盖率
+.coverage
+htmlcov/
+
 # Jupyter
 .ipynb_checkpoints/
 

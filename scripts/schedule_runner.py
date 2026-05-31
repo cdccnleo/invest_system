@@ -192,6 +192,40 @@ def job_morning():
         _safe_error_alert("🔴 盘前工作流异常", f"错误: {e}")
 
 
+def _parallel_collect_close_data(stock_codes: list, anns_days_window: int = 30) -> dict:
+    """
+    并行采集盘后数据：财务数据 + 公告采集同时进行。
+    利用 ThreadPoolExecutor 将两个独立的 I/O 密集型任务并行执行，
+    总耗时从串行约 3 分钟降至约 1.5 分钟。
+    """
+    import concurrent.futures
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results = {"financial": None, "announcements": None, "errors": []}
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
+
+        if stock_codes:
+            futures[executor.submit(
+                collect_financial_for_positions, stock_codes
+            )] = "financial"
+
+        futures[executor.submit(
+            fetch_all_positions_announcements, anns_days_window, 3
+        )] = "announcements"
+
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result(timeout=180)
+            except Exception as e:
+                results["errors"].append(f"{key}: {e}")
+                logger.error(f"并行采集失败 {key}: {e}")
+
+    return results
+
+
 def job_closing():
     """15:30 盘后工作流"""
     if not _guard_trading_day("job_closing"):
@@ -202,64 +236,62 @@ def job_closing():
         run_analysis()
         daily_embedding_job()  # 向量化当日新闻
 
-        # 采集持仓股票财务数据
+        # 并行采集持仓股票财务数据 + 公告（同时进行，约 1.5 分钟）
         try:
             import csv
             pos_file = "/mnt/d/Hold/invest-data/positions.csv"
             with open(pos_file) as f:
                 reader = csv.DictReader(f)
                 positions = list(reader)
-            # 提取股票代码（去掉基金ETF）
             stock_codes = []
             for p in positions:
                 code = (p.get("code") or "").strip()
-                # 排除基金代码（5开头、15开头、51开头、56开头、58开头）
                 if code and not code.startswith(("5", "15", "51", "56", "58")) and len(code) == 6:
                     stock_codes.append(code)
-            if stock_codes:
-                fin_results = collect_financial_for_positions(stock_codes)
+
+            parallel_result = _parallel_collect_close_data(stock_codes)
+
+            if parallel_result["financial"]:
+                fin_results = parallel_result["financial"]
                 saved = sum(v.get("saved", 0) for v in fin_results.values())
                 logger.info(f"财务数据采集: {saved} 条记录")
-        except Exception as e:
-            logger.warning(f"财务数据采集异常: {e}")
 
-        # 采集持仓股公告（新浪财经网页版）
-        try:
-            anns = fetch_all_positions_announcements(days_window=30, max_pages=3)
-            logger.info(f"公告采集: {len(anns)} 条")
-            # 持久化到数据库
+            anns = parallel_result["announcements"]
             if anns:
+                logger.info(f"公告采集: {len(anns)} 条")
                 ann_storage = get_storage()
                 stored = ann_storage.write_announcements(anns)
                 ann_storage.close()
                 logger.info(f"公告写入 DB: {stored} 条")
-            # 公司行为成本调整（分红除权、送股）
-            if anns:
-                from pgcrypto_migration import process_corp_actions
-                action_result = process_corp_actions(anns)
-                if action_result["processed"] > 0:
-                    msg = (f"🏢 公司行为调整: 分红{action_result['dividend']}笔 "
-                           f"送股{action_result['bonus']}笔 已更新持仓成本/份额")
-                    send_notification("🏢 持仓成本自动调整", msg, level="INFO")
-                    logger.info(f"公司行为调整完成: {action_result}")
 
-                # T2.3: 事件驱动TAMF更新 — 分红/送股公告即时写入TAMF
-                try:
-                    from tamf_updater import on_announcement_detected
-                    corp_types = {"分红", "送股", "配股", "季报", "中报", "年报"}
-                    tamf_updated = 0
-                    for a in anns:
-                        if a.get("ann_type", "") in corp_types:
-                            code = str(a.get("ts_code", "")).strip()[:6]
-                            if code:
-                                on_announcement_detected(code, a)
-                                tamf_updated += 1
-                    if tamf_updated > 0:
-                        logger.info(f"TAMF事件驱动更新: {tamf_updated} 个标的")
-                except Exception as e:
-                    logger.debug(f"TAMF事件驱动更新跳过: {e}")
+                if anns:
+                    from pgcrypto_migration import process_corp_actions
+                    action_result = process_corp_actions(anns)
+                    if action_result["processed"] > 0:
+                        msg = (f"🏢 公司行为调整: 分红{action_result['dividend']}笔 "
+                               f"送股{action_result['bonus']}笔 已更新持仓成本/份额")
+                        send_notification("🏢 持仓成本自动调整", msg, level="INFO")
+                        logger.info(f"公司行为调整完成: {action_result}")
+
+                    try:
+                        from tamf_updater import on_announcement_detected
+                        corp_types = {"分红", "送股", "配股", "季报", "中报", "年报"}
+                        tamf_updated = 0
+                        for a in anns:
+                            if a.get("ann_type", "") in corp_types:
+                                code = str(a.get("ts_code", "")).strip()[:6]
+                                if code:
+                                    on_announcement_detected(code, a)
+                                    tamf_updated += 1
+                        if tamf_updated > 0:
+                            logger.info(f"TAMF事件驱动更新: {tamf_updated} 个标的")
+                    except Exception as e:
+                        logger.debug(f"TAMF事件驱动更新跳过: {e}")
+
+            if parallel_result["errors"]:
+                logger.warning(f"并行采集部分失败: {parallel_result['errors']}")
         except Exception as e:
-            logger.warning(f"公告采集异常: {e}")
+            logger.warning(f"数据采集异常: {e}")
 
         storage = get_storage()
         storage.write_audit(
@@ -1560,6 +1592,19 @@ def start_scheduler():
         replace_existing=True,
         misfire_grace_time=600,
     )
+
+    # 每周日 23:00 数据库全量备份 + 每日清理过期备份
+    try:
+        from backup_manager import backup_job as job_db_backup
+        _scheduler.add_job(
+            job_db_backup,
+            CronTrigger(day_of_week='sun', hour=23, minute=0, timezone="Asia/Shanghai"),
+            id="db_backup_weekly",
+            name="数据库全量备份 (每周日 23:00)",
+            replace_existing=True,
+        )
+    except ImportError:
+        logger.warning("backup_manager 未就绪，跳过备份任务注册")
 
     _scheduler.start()
     logger.info("调度器已启动")

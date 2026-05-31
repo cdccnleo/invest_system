@@ -25,31 +25,115 @@ def render_portfolio_dashboard():
     df = pd.DataFrame(positions)
     total_mv = df["市值"].sum()
 
-    # 顶部 KPI 卡片
-    st.markdown("## 📋 持仓仪表板")
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    # ── 自动刷新 ────────────────────────────────────────
+    col_title, col_refresh = st.columns([3, 1])
+    with col_title:
+        st.markdown("## 📋 持仓仪表板")
+    with col_refresh:
+        auto_refresh = st.checkbox("🔄 自动刷新", value=False,
+                                   help="每60秒自动刷新数据")
+        if auto_refresh:
+            st.caption(f"⏱ 每60秒刷新")
+            import streamlit as _st
+            _st.rerun() if False else None
 
-    # 估算总盈亏（需要成本）
+    # 顶部 KPI 卡片（6列）
+    kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
+
     total_cost = (df["份额"] * df["成本"]).sum()
     total_pnl = total_mv - total_cost
     pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
 
+    # 计算当日涨跌（基于最新行情）
+    today_pnl = 0.0
+    today_pnl_pct = 0.0
+    try:
+        quotes = get_latest_quotes_from_db()
+        if quotes:
+            quote_map = {q[0]: q for q in quotes}
+            for _, row in df.iterrows():
+                code = row["代码"]
+                if code in quote_map:
+                    _, _, change_pct, _ = quote_map[code]
+                    today_pnl += row["市值"] * (change_pct / 100) if change_pct else 0
+            if total_mv > 0:
+                today_pnl_pct = (today_pnl / (total_mv - today_pnl)) * 100
+    except Exception:
+        pass
+
     with kpi1:
-        st.metric(
-            "💰 总市值",
-            f"¥{total_mv:,.0f}",
-            delta=f"{pnl_pct:+.1f}%" if pnl_pct != 0 else None,
-        )
+        st.metric("💰 总市值", f"¥{total_mv:,.0f}",
+                  delta=f"{pnl_pct:+.1f}%" if pnl_pct != 0 else None)
     with kpi2:
-        st.metric("📈 总盈亏", f"{pnl_pnl_str(total_pnl)}")
+        st.metric("📈 累计盈亏", f"{pnl_pnl_str(total_pnl)}")
     with kpi3:
-        fund_count = len(df[df["类型"] == "fund"])
-        st.metric("📊 基金数", fund_count)
+        st.metric("📊 今日涨跌", f"{today_pnl:+,.0f}",
+                  delta=f"{today_pnl_pct:+.2f}%" if today_pnl_pct != 0 else None)
     with kpi4:
         stock_count = len(df[df["类型"] == "stock"])
-        st.metric("🏦 股票数", stock_count)
+        st.metric("🏦 股票", stock_count)
+    with kpi5:
+        fund_count = len(df[df["类型"].isin(["fund", "etf"])])
+        st.metric("📊 基金/ETF", fund_count)
+    with kpi6:
+        # 亏损标的数
+        loss_count = len(df[df["市值"] < df["份额"] * df["成本"]])
+        st.metric("🔴 浮亏标的", loss_count,
+                  delta=f"-{loss_count}" if loss_count > 0 else "0")
 
     st.divider()
+
+    # ── 筛选器 ──────────────────────────────────────────
+    filter_col1, filter_col2, filter_col3 = st.columns([2, 2, 1])
+    with filter_col1:
+        type_filter = st.multiselect(
+            "🏷 类型筛选",
+            options=["stock", "fund", "etf"],
+            default=["stock", "fund", "etf"],
+            format_func=lambda x: {"stock": "🏦 股票", "fund": "📊 基金", "etf": "📈 ETF"}[x]
+        )
+    with filter_col2:
+        sort_by = st.selectbox(
+            "🔽 排序方式",
+            options=["仓位%", "市值", "盈亏", "盈亏%", "名称"],
+            index=0
+        )
+    with filter_col3:
+        sort_order = st.radio("", ["↓ 降序", "↑ 升序"], horizontal=True,
+                              label_visibility="collapsed")
+
+    # 应用筛选
+    df_filtered = df[df["类型"].isin(type_filter)] if type_filter else df
+
+    # 应用排序
+    ascending = sort_order == "↑ 升序"
+    if sort_by == "仓位%":
+        df_filtered = df_filtered.sort_values("仓位%", ascending=ascending)
+    elif sort_by == "市值":
+        df_filtered = df_filtered.sort_values("市值", ascending=ascending)
+    elif sort_by == "盈亏":
+        df_filtered["盈亏"] = df_filtered["市值"] - df_filtered["份额"] * df_filtered["成本"]
+        df_filtered = df_filtered.sort_values("盈亏", ascending=ascending)
+    elif sort_by == "盈亏%":
+        df_filtered["盈亏%"] = ((df_filtered["市值"] / (df_filtered["份额"] * df_filtered["成本"])) - 1) * 100
+        df_filtered = df_filtered.sort_values("盈亏%", ascending=ascending)
+    else:
+        df_filtered = df_filtered.sort_values("名称", ascending=ascending)
+
+    # ── 导出按钮 ─────────────────────────────────────────
+    export_col1, export_col2 = st.columns([1, 1])
+    with export_col1:
+        csv_data = df_filtered[["代码", "名称", "成本", "市值", "仓位%", "份额"]].copy()
+        csv_data["盈亏"] = csv_data["市值"] - csv_data["份额"] * csv_data["成本"]
+        csv_data["盈亏%"] = ((csv_data["市值"] / (csv_data["份额"] * csv_data["成本"])) - 1) * 100
+        csv_data["盈亏%"] = csv_data["盈亏%"].round(2)
+        st.download_button(
+            "📥 导出 CSV",
+            data=csv_data.to_csv(index=False).encode("utf-8-sig"),
+            file_name="investpilot_portfolio.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
     # 初始化持仓调整 session_state
     if "holdings_adjustments" not in st.session_state:

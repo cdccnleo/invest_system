@@ -329,11 +329,11 @@ def render_sidebar():
 # ── 视图 1：持仓仪表板 ──────────────────────────────────────────────────────
 
 # ── 视图路由（从各子模块导入）─────────────────────────────────────────────────
-from ._portfolio import render_portfolio_dashboard
-from ._news      import render_news_summary, render_reports, render_announcements
-from ._tamf     import render_tamf_memory, render_history
-from ._l3_status import render_l3_status
-from ._settings import render_plan_review, render_settings
+from dashboard_views._portfolio import render_portfolio_dashboard
+from dashboard_views._news      import render_news_summary, render_reports, render_announcements
+from dashboard_views._tamf     import render_tamf_memory, render_history
+from dashboard_views._l3_status import render_l3_status
+from dashboard_views._settings import render_plan_review, render_settings
 
 # ── 共享数据函数（来自 dashboard.py）────────────────────────────────────────
 import sys as _sys

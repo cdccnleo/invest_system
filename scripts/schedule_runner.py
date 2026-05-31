@@ -242,6 +242,22 @@ def job_closing():
                            f"送股{action_result['bonus']}笔 已更新持仓成本/份额")
                     send_notification("🏢 持仓成本自动调整", msg, level="INFO")
                     logger.info(f"公司行为调整完成: {action_result}")
+
+                # T2.3: 事件驱动TAMF更新 — 分红/送股公告即时写入TAMF
+                try:
+                    from tamf_updater import on_announcement_detected
+                    corp_types = {"分红", "送股", "配股", "季报", "中报", "年报"}
+                    tamf_updated = 0
+                    for a in anns:
+                        if a.get("ann_type", "") in corp_types:
+                            code = str(a.get("ts_code", "")).strip()[:6]
+                            if code:
+                                on_announcement_detected(code, a)
+                                tamf_updated += 1
+                    if tamf_updated > 0:
+                        logger.info(f"TAMF事件驱动更新: {tamf_updated} 个标的")
+                except Exception as e:
+                    logger.debug(f"TAMF事件驱动更新跳过: {e}")
         except Exception as e:
             logger.warning(f"公告采集异常: {e}")
 
@@ -348,10 +364,63 @@ def job_reports_collection():
         )
         storage.close()
 
+        # T2.3: 事件驱动TAMF更新 — 检测研报评级变动
+        try:
+            _detect_rating_changes()
+        except Exception:
+            pass
+
         logger.info("研报采集工作流完成")
     except Exception as e:
         logger.error(f"研报采集工作流异常: {e}")
         _safe_error_alert("🔴 研报采集工作流异常", f"错误: {e}")
+
+
+def _detect_rating_changes():
+    """
+    T2.3: 检测持仓股研报评级变动，触发TAMF事件更新。
+    比较每个持仓股最新的2份研报评级，如有变化则调用 on_rating_change。
+    """
+    try:
+        from tamf_updater import get_db_conn, on_rating_change
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        # 找出每个ts_code最近2份研报，且评级不同
+        cur.execute("""
+            SELECT ts_code, rating, source, report_date FROM (
+                SELECT ts_code, rating, source, report_date,
+                       ROW_NUMBER() OVER (PARTITION BY ts_code ORDER BY report_date DESC) AS rn
+                FROM research.research_reports
+                WHERE ts_code IS NOT NULL
+            ) sub WHERE rn <= 2
+            ORDER BY ts_code, report_date DESC
+        """)
+        rows = cur.fetchall()
+        conn.close()
+
+        # 按ts_code分组
+        by_code = {}
+        for r in rows:
+            code = r[0]
+            if code not in by_code:
+                by_code[code] = []
+            by_code[code].append({"rating": r[1], "source": r[2], "date": r[3]})
+
+        changes = 0
+        for code, reports in by_code.items():
+            if len(reports) >= 2 and reports[0]["rating"] != reports[1]["rating"]:
+                latest = reports[0]
+                previous = reports[1]
+                on_rating_change(code, previous["rating"], latest["rating"], latest["source"])
+                changes += 1
+
+        if changes > 0:
+            logging.getLogger("schedule_runner").info(f"TAMF评级变动检测: {changes} 个标的")
+        return changes
+    except Exception as e:
+        logging.getLogger("schedule_runner").debug(f"TAMF评级变动检测跳过: {e}")
+        return 0
 
 
 def job_evening():
@@ -512,6 +581,26 @@ def job_announcements_collection():
                    f"总计: {len(anns)} 条\n"
                    f"类型: {type_str}")
             send_notification("📢 持仓股公告采集报告", msg, level="INFO")
+
+            # T2.3: 事件驱动TAMF更新 — 晚间公告即时写入TAMF
+            try:
+                from tamf_updater import on_announcement_detected as _on_ann
+                tamf_types = {"分红", "送股", "配股", "季报", "中报", "年报", "风险提示", "退市风险"}
+                tamf_cnt = 0
+                for a in anns:
+                    ann_type = a.get("ann_type", "")
+                    if ann_type in tamf_types or any(
+                        kw in (a.get("title") or "") for kw in ["风险", "退市", "处罚"]
+                    ):
+                        code = str(a.get("ts_code", "")).strip()[:6]
+                        if code:
+                            r = _on_ann(code, a)
+                            if r.get("status") == "updated":
+                                tamf_cnt += 1
+                if tamf_cnt > 0:
+                    logger.info(f"TAMF晚间公告事件更新: {tamf_cnt} 个标的")
+            except Exception as e:
+                logger.debug(f"TAMF晚间公告事件更新跳过: {e}")
         else:
             send_notification("📢 持仓股公告采集报告", "今日无新增持仓股公告。", level="INFO")
 
@@ -1524,13 +1613,53 @@ def run_scheduler_daemon():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="InvestPilot 定时调度器")
-    parser.add_argument("--mode", choices=["daemon", "once"], default="daemon",
-                        help="daemon: 后台运行; once: 立即执行一次")
+    parser.add_argument("--mode", choices=["daemon", "once", "tamf-shadow"], default="daemon",
+                        help="daemon: 后台运行; once: 立即执行一次; tamf-shadow: 影子模式管理")
     parser.add_argument("--job", choices=["morning", "closing", "evening"], default="morning",
                         help="指定运行哪个任务")
+    parser.add_argument("--shadow-cmd", choices=["enable", "disable", "status", "diff", "promote-all", "rollback"],
+                        help="TAMF 影子模式命令")
     args = parser.parse_args()
 
-    if args.mode == "once":
+    if args.mode == "tamf-shadow":
+        logging.basicConfig(level=logging.INFO)
+        try:
+            from tamf_shadow import TamfShadowMode
+            shadow = TamfShadowMode()
+            if args.shadow_cmd == "enable":
+                shadow.enable()
+                print("✅ TAMF 影子模式已激活 — 所有更新将先写入影子目录")
+                print("   影子目录: data/target_memories_shadow/")
+                print("   生产目录不受影响。验证通过后执行 promote-all 晋升。")
+            elif args.shadow_cmd == "disable":
+                shadow.disable()
+                print("✅ TAMF 影子模式已停用 — 恢复正常生产写入")
+            elif args.shadow_cmd == "status":
+                import json
+                print(json.dumps(shadow.status_report(), ensure_ascii=False, indent=2))
+            elif args.shadow_cmd == "diff":
+                diffs = shadow.diff_all()
+                if not diffs:
+                    print("(无已影子化的标的)")
+                for d in diffs:
+                    if d["has_diff"]:
+                        print(f"\n{'='*60}")
+                        print(f"🔍 {d['code']} — {d['diff_lines']} 行差异")
+                        print(f"{'='*60}")
+                        print(d["diff_text"][:2000])
+                    else:
+                        print(f"✅ {d['code']} 无差异" if d["shadow_exists"] else f"⚠️ {d['code']} 无影子文件")
+            elif args.shadow_cmd == "promote-all":
+                result = shadow.promote_all()
+                print(f"✅ 批量晋升完成: {result['promoted']}成功 / {result['failed']}失败 (共{result['total']}只)")
+            elif args.shadow_cmd == "rollback":
+                count = shadow.rollback_all()
+                print(f"✅ 已回滚全部 {count} 个影子文件")
+            else:
+                print("用法: python schedule_runner.py --mode tamf-shadow --shadow-cmd <enable|disable|status|diff>")
+        except ImportError as e:
+            print(f"❌ 影子模式模块不可用: {e}")
+    elif args.mode == "once":
         logging.basicConfig(level=logging.INFO)
         if args.job == "morning":
             job_morning()

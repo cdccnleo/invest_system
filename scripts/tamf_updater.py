@@ -187,13 +187,26 @@ def read_tamf(code: str) -> Optional[str]:
 
 
 def write_tamf(code: str, content: str) -> None:
+    """
+    写入 TAMF 文件。
+    若影子模式激活，则写入影子目录（不触达生产文件）。
+    """
+    # ── 影子模式检测 ────────────────────────────────
+    try:
+        from tamf_shadow import is_shadow_mode_active, tamf_shadow_write
+        if is_shadow_mode_active():
+            tamf_shadow_write(code, content)
+            return
+    except ImportError:
+        pass
+
     p = get_tamf_path(code)
     p.parent.mkdir(parents=True, exist_ok=True)
 
-    # ── 影子模式：写入前备份旧版本 ────────────────────────────────
+    # ── 写入前备份旧版本 ────────────────────────────────
     import shutil, datetime as _dt
     if p.exists():
-        backup_dir = TAMF_DIR.parent / "target_memories_shadow"
+        backup_dir = TAMF_DIR.parent / "target_memories_shadow" / "auto_backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         shutil.copy2(p, backup_dir / f"{code}_{ts}.md")
@@ -822,10 +835,28 @@ def scheduled_update_all_holdings() -> dict:
     """
     定时任务入口：遍历所有持仓，检测新数据并增量更新。
     注册到 APScheduler: 每日 15:35
+
+    若影子模式激活:
+      - 所有更新写入影子目录（data/target_memories_shadow/）
+      - 每 N 个影子周期完成后发送差异摘要通知
+      - 生产文件不受影响
     """
+    # ── 影子模式周期启动 ────────────────────────────
+    shadow_active = False
+    try:
+        from tamf_shadow import is_shadow_mode_active, TamfShadowMode
+        shadow_active = is_shadow_mode_active()
+        if shadow_active:
+            shadow = TamfShadowMode()
+            shadow.state["cycle_count"] = shadow.state.get("cycle_count", 0) + 1
+            from tamf_shadow import _save_state
+            _save_state(shadow.state)
+    except ImportError:
+        pass
+
     positions = load_positions()
     results = {"total": len(positions), "updated": 0, "skipped": 0, "failed": 0}
-    
+
     for pos in positions:
         code = pos["code"]
         try:
@@ -836,7 +867,33 @@ def scheduled_update_all_holdings() -> dict:
                 results["skipped"] += 1
         except Exception as e:
             results["failed"] += 1
-    
+
+    # ── 影子模式周期后处理 ──────────────────────────
+    if shadow_active and results["updated"] > 0:
+        try:
+            shadow = TamfShadowMode()
+            report = shadow.status_report()
+            # 发送影子运行通知
+            try:
+                from notification import send_notification
+                shadow_msg = (
+                    f"🕶️ TAMF 影子模式运行报告 (周期#{report['cycle_count']})\n\n"
+                    f"持仓总数: {results['total']}\n"
+                    f"本次更新: {results['updated']} 只\n"
+                    f"影子化累计: {report['total_shadow_files']} 只\n"
+                    f"有差异: {report['with_differences']} 只 ({report['total_diff_lines']}行)\n"
+                    f"待晋升: {len(report['holdings_shadowed'])} 只\n\n"
+                    f"⚠️ 生产文件未受影响。请用 `python tamf_shadow.py diff` 审查差异。"
+                )
+                send_notification("🕶️ TAMF 影子运行", shadow_msg, level="INFO")
+            except Exception:
+                pass
+            logger = logging.getLogger("tamf_updater")
+            logger.info(f"影子模式周期#{report['cycle_count']}完成: {results['updated']}只更新, "
+                        f"{report['with_differences']}只有差异")
+        except Exception:
+            pass
+
     return results
 
 
@@ -898,6 +955,16 @@ def scheduled_deep_analysis_weekly() -> dict:
             results["failed"] += 1
             results["errors"].append(f"{code}: {e}")
 
+    # T4.2: 技能-标的联动 — 深度分析后检查基本面变化触发技能复审
+    if results["deep_updated"] > 0:
+        try:
+            from skill_tamf_linkage import on_fundamental_change_detected
+            for pos in positions:
+                code = pos["code"]
+                on_fundamental_change_detected(code)
+        except Exception:
+            pass
+
     return results
 
 
@@ -921,6 +988,201 @@ def _record_timeline_event(
         conn.close()
     except Exception:
         pass  # 不因时线写入失败中断主流程
+
+
+# ══════════════════════════════════════════════════════════════════
+# 第7层：事件驱动即时更新（T2.3）
+# ══════════════════════════════════════════════════════════════════
+
+def on_transaction_executed(code: str, transaction: dict) -> dict:
+    """
+    交易执行后即时更新TAMF文件的持仓历程（章节二）。
+    由交易执行流程调用。
+
+    Args:
+        code: 持仓代码（6位纯数字）
+        transaction: {"date", "action", "shares", "price", "amount", "reason"}
+    Returns:
+        {"status": "updated"|"skipped", "code": code}
+    """
+    logger = logging.getLogger("tamf_updater")
+    content = read_tamf(code)
+    if not content:
+        logger.debug(f"on_transaction: {code} 无TAMF文件，跳过")
+        return {"status": "no_file", "code": code}
+
+    name = ""
+    positions = load_positions()
+    pos = next((p for p in positions if p["code"] == code), None)
+    if pos:
+        name = pos.get("name", "")
+
+    # 追加操作历史行
+    date_str = transaction.get("date", datetime.now().strftime("%Y-%m-%d"))
+    action = transaction.get("action", "UNKNOWN")
+    shares = transaction.get("shares", 0)
+    price = transaction.get("price", 0)
+    amount = transaction.get("amount", 0)
+    reason = transaction.get("reason", "")
+
+    action_sign = f"+{shares}" if action in ("BUY", "建仓", "加仓") else f"-{shares}" if action in ("SELL", "减仓", "清仓") else str(shares)
+    new_line = f"| {date_str} | {action} | {action_sign} | ¥{price} | ¥{amount:,.0f} | {reason[:30]} | — |"
+
+    # 在操作历史时间线表格中追加新行（在第一个空行或表格结束处）
+    import re
+    timeline_pattern = re.compile(
+        r'(\| 日期 \| 操作 \| 数量 \| 价格 \| 金额 \| 原因摘要 \| 事后评估 \|\n\|[-| ]+\|\n)((?:\|.*\|\n)*)',
+        re.DOTALL
+    )
+    def _append_line(match):
+        header = match.group(1)
+        existing = match.group(2).rstrip()
+        return header + existing + "\n" + new_line + "\n"
+
+    content = timeline_pattern.sub(_append_line, content, count=1)
+
+    # 更新持仓状态表（当前持仓状态）
+    if pos:
+        status_line = f"| {pos.get('shares', 0):.0f} | ¥{pos.get('avg_cost', 0):.3f} | — | ¥{pos.get('market_value', 0):,.0f} | ¥{pos.get('pnl_amount', 0):,.0f} | {pos.get('pnl_pct', 0):.2f}% | {pos.get('weight_pct', 0):.2f}% |"
+        status_pattern = re.compile(
+            r'\| 持有数量 \| 平均成本 \| 现价 \| 持仓市值 \| 盈亏金额 \| 盈亏% \| 仓位占比 \|\n\|[-| :]+\|\n\|.*\|',
+            re.DOTALL
+        )
+        content = status_pattern.sub(
+            f"| 持有数量 | 平均成本 | 现价 | 持仓市值 | 盈亏金额 | 盈亏% | 仓位占比 |\n|---------|---------|------|---------|---------|------|---------|\n{status_line}",
+            content, count=1
+        )
+
+    write_tamf(code, content)
+    _record_timeline_event(code, f"TRANSACTION_{action}", "INFO",
+                           f"交易: {action} {action_sign}股 @ ¥{price}",
+                           f"金额: ¥{amount:,.0f} | 原因: {reason[:50]}")
+
+    logger.info(f"on_transaction: {code} 交易已记录到TAMF")
+    return {"status": "updated", "code": code}
+
+
+def on_announcement_detected(code: str, announcement: dict) -> dict:
+    """
+    公告检测后即时更新TAMF文件的相关章节。
+    由公告采集流程调用。
+
+    Args:
+        code: 持仓代码（6位纯数字）
+        announcement: {"title", "ann_type", "notice_date"}
+    Returns:
+        {"status": "updated"|"skipped", "code": code, "affected_sections": [...]}
+    """
+    logger = logging.getLogger("tamf_updater")
+    content = read_tamf(code)
+    if not content:
+        return {"status": "no_file", "code": code}
+
+    ann_type = announcement.get("ann_type", announcement.get("type", ""))
+    title = announcement.get("title", "")
+    notice_date = announcement.get("notice_date", announcement.get("date", ""))
+    affected = []
+
+    # 判断公告类型是否需要更新
+    if ann_type in ("分红", "送股", "配股"):
+        # 更新章节二：公司行为记录
+        detail = announcement.get("detail", "")
+        new_line = f"| {notice_date} | {ann_type} | {detail} | 待确认 | ⏳ 待处理 |"
+        import re
+        corp_pattern = re.compile(
+            r'(\| 日期 \| 类型 \| 详情 \| 对成本影响 \| 处理状态 \|\n\|[-| :]+\|\n)((?:\|.*\|\n)*)',
+            re.DOTALL
+        )
+        def _append_corp(match):
+            header = match.group(1)
+            existing = match.group(2).rstrip()
+            return header + existing + "\n" + new_line + "\n"
+        content = corp_pattern.sub(_append_corp, content, count=1)
+        affected.append("section_2_holdings")
+
+    if ann_type in ("季报", "中报", "年报"):
+        # 标记基本面需要重新评估（由每日增量更新完成）
+        affected.extend(["section_3_fundamentals", "section_1_basic_profile"])
+        _record_timeline_event(code, "FINANCIAL_REPORT", "INFO",
+                               f"财报发布: {title[:60]}",
+                               f"类型: {ann_type} | 日期: {notice_date}")
+        # T4.2: 技能-标的联动 — 季报/年报触发技能复审
+        try:
+            from skill_tamf_linkage import on_fundamental_change_detected
+            on_fundamental_change_detected(code)
+        except Exception:
+            pass
+
+    # 触发风险公告更新
+    risk_keywords = ["风险", "警示", "亏损", "退市", "处罚", "监管"]
+    if any(kw in title for kw in risk_keywords):
+        affected.append("section_7_monitoring")
+        _record_timeline_event(code, "RISK_ANNOUNCEMENT", "WARNING",
+                               f"风险公告: {title[:60]}",
+                               f"类型: {ann_type}")
+
+    # 常用更新：消息面
+    affected.append("section_5_news")
+    affected = list(set(affected))
+
+    if affected:
+        write_tamf(code, content)
+        logger.info(f"on_announcement: {code} 公告已处理，影响章节: {affected}")
+    else:
+        logger.debug(f"on_announcement: {code} 公告无需即时更新")
+
+    return {"status": "updated" if affected else "skipped", "code": code, "affected_sections": affected}
+
+
+def on_rating_change(code: str, old_rating: str, new_rating: str,
+                     source: str = "") -> dict:
+    """
+    研报评级变动即时更新TAMF的监控状态和消息面章节。
+    由研报采集流程调用。
+
+    Args:
+        code: 持仓代码（6位纯数字）
+        old_rating: 旧评级 (如 "增持")
+        new_rating: 新评级 (如 "中性")
+        source: 评级来源机构
+    Returns:
+        {"status": "updated"|"skipped", "code": code}
+    """
+    logger = logging.getLogger("tamf_updater")
+    content = read_tamf(code)
+    if not content:
+        return {"status": "no_file", "code": code}
+
+    # 判断方向
+    rating_rank = {"买入": 5, "增持": 4, "中性": 3, "减持": 2, "卖出": 1}
+    old_score = rating_rank.get(old_rating, 3)
+    new_score = rating_rank.get(new_rating, 3)
+    direction = "上调" if new_score > old_score else "下调" if new_score < old_score else "维持"
+
+    source_str = f" ({source})" if source else ""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    _record_timeline_event(
+        code, "RATING_CHANGE",
+        "WARNING" if direction == "下调" else "INFO",
+        f"评级变动: {old_rating} → {new_rating}{source_str}",
+        f"方向: {direction} | 时间: {now_str}"
+    )
+
+    # 更新监控状态（研报评级变动行）
+    import re
+    mon_pattern = re.compile(
+        r'\| 研报评级变动 \| ([^|]*) \|',
+        re.DOTALL
+    )
+    new_mon_line = f"| 研报评级变动 | {direction} ({old_rating}→{new_rating}{source_str}) |"
+    if mon_pattern.search(content):
+        content = mon_pattern.sub(new_mon_line + " |", content, count=1)
+
+    write_tamf(code, content)
+    logger.info(f"on_rating_change: {code} {old_rating}→{new_rating} ({direction})")
+
+    return {"status": "updated", "code": code, "direction": direction}
 
 
 # ─── 主入口 ─────────────────────────────────────────────────

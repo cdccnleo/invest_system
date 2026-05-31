@@ -5,7 +5,7 @@ Each function accesses streamlit via st (passed through from main module).
 """
 
 import streamlit as st
-from ._shared import get_db_connection, get_news_count, load_positions
+from ._shared import get_db_connection, get_news_count
 
 # ── 视图 2：新闻摘要 ────────────────────────────────────────────────────────
 

@@ -99,7 +99,7 @@ def render_portfolio_dashboard():
             index=0
         )
     with filter_col3:
-        sort_order = st.radio("", ["↓ 降序", "↑ 升序"], horizontal=True,
+        sort_order = st.radio("排序", ["↓ 降序", "↑ 升序"], horizontal=True,
                               label_visibility="collapsed")
 
     # 应用筛选

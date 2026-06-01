@@ -5,12 +5,67 @@ Each function accesses streamlit via st (passed through from main module).
 """
 
 import streamlit as st
-from ._shared import get_db_connection, get_news_count
+from datetime import datetime
+from ._shared import get_db_connection, get_news_count, get_sync_status, set_sync_status
+
+
+# ── 手动同步按钮通用组件 ────────────────────────────────────────────────────
+
+def _render_sync_button(data_type: str, label: str, sync_func, help_text: str = ""):
+    """
+    渲染手动同步按钮组件，包含防重复点击、状态反馈和异常处理。
+
+    Args:
+        data_type: 数据类型标识（news/reports/announcements）
+        label: 按钮文本
+        sync_func: 同步执行函数，返回 {"status": ..., "total": ..., "saved": ..., "error": ...}
+        help_text: 按钮提示文本
+    """
+    status = get_sync_status(data_type)
+    last_sync = status.get("last_sync")
+    is_syncing = status.get("syncing", False)
+
+    col_info, col_btn = st.columns([2, 1])
+    with col_info:
+        if last_sync:
+            st.caption(f"最后同步: {last_sync.strftime('%m-%d %H:%M:%S')}")
+        else:
+            st.caption("尚未手动同步过")
+
+    with col_btn:
+        disabled = is_syncing
+        if st.button(label, help=help_text, disabled=disabled, key=f"sync_{data_type}_btn"):
+            set_sync_status(data_type, syncing=True)
+            with st.spinner(f"正在采集{data_type}数据..."):
+                try:
+                    result = sync_func()
+                    set_sync_status(data_type, last_sync=datetime.now(), syncing=False)
+                    if result["status"] == "ok":
+                        st.success(f"同步完成：采集 {result['total']} 条，新增 {result['saved']} 条")
+                        st.rerun()
+                    elif result["status"] == "empty":
+                        st.info("数据已是最新，无新增内容")
+                    else:
+                        st.error(f"同步失败: {result.get('error', '未知错误')}")
+                except Exception as e:
+                    set_sync_status(data_type, syncing=False)
+                    st.error(f"同步异常: {e}")
+
 
 # ── 视图 2：新闻摘要 ────────────────────────────────────────────────────────
 
 def render_news_summary():
     st.markdown("## 📰 新闻摘要（近7日）")
+
+    # ── 手动同步按钮 ──
+    def _sync_news():
+        from fetch_news import collect_and_save_news
+        return collect_and_save_news()
+
+    _render_sync_button("news", "🔄 同步新闻", _sync_news, "手动触发新闻数据采集")
+
+    st.divider()
+
     conn = get_db_connection()
     if conn is None:
         st.warning("无法连接数据库")
@@ -107,6 +162,19 @@ def render_news_summary():
 def render_reports():
     """研报展示页面 — 近30天研报，支持按股票/评级/来源筛选"""
     st.markdown("## 📋 研报（近30天）")
+
+    # ── 手动同步按钮 ──
+    def _sync_reports():
+        from fetch_reports import collect_reports
+        try:
+            reports = collect_reports(days_back=7, save_to_db=True)
+            return {"status": "ok", "total": len(reports), "saved": len(reports), "error": None}
+        except Exception as e:
+            return {"status": "error", "total": 0, "saved": 0, "error": str(e)}
+
+    _render_sync_button("reports", "🔄 同步研报", _sync_reports, "手动触发研报数据采集（近7天）")
+
+    st.divider()
 
     conn = get_db_connection()
     if conn is None:
@@ -228,6 +296,26 @@ def render_reports():
 def render_announcements():
     """公告展示页面 — 近30天持仓股公告，支持按类型筛选"""
     st.markdown("## 📢 持仓股公告（近30天）")
+
+    # ── 手动同步按钮 ──
+    def _sync_announcements():
+        from fetch_announcements import fetch_all_positions_announcements
+        from storage_factory import get_storage
+        try:
+            anns = fetch_all_positions_announcements(days_window=1, max_pages=2)
+            if anns:
+                storage = get_storage()
+                saved = storage.write_announcements(anns)
+                storage.close()
+                return {"status": "ok", "total": len(anns), "saved": saved, "error": None}
+            return {"status": "empty", "total": 0, "saved": 0, "error": None}
+        except Exception as e:
+            return {"status": "error", "total": 0, "saved": 0, "error": str(e)}
+
+    _render_sync_button("announcements", "🔄 同步公告", _sync_announcements,
+                        "手动触发持仓股公告采集（今日，若需更多日期请使用定时任务）")
+
+    st.divider()
 
     conn = get_db_connection()
     if conn is None:

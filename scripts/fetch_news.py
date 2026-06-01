@@ -274,3 +274,50 @@ def collect_news() -> list[dict]:
 
     logger.info(f"新闻采集完成: 共 {len(all_news)} 条（已去重）")
     return all_news
+
+
+# ─── 数据库持久化 ──────────────────────────────────────────────────────────
+
+def save_news_to_db(news: list[dict]) -> int:
+    """
+    将采集的新闻列表写入 PostgreSQL research.news_articles 表。
+    通过 storage_factory 的 write_news 方法实现 ON CONFLICT (title, published_at) DO NOTHING 去重。
+
+    Args:
+        news: collect_news() 返回的新闻字典列表
+
+    Returns:
+        实际新增写入的新闻条数
+    """
+    if not news:
+        logger.info("save_news_to_db: 无新闻数据可写入")
+        return 0
+
+    try:
+        from storage_factory import get_storage
+        storage = get_storage()
+        saved = storage.write_news(news)
+        storage.close()
+        logger.info(f"save_news_to_db: 采集 {len(news)} 条, 新增写入 {saved} 条")
+        return saved
+    except Exception as e:
+        logger.error(f"save_news_to_db 失败: {e}")
+        return 0
+
+
+def collect_and_save_news() -> dict:
+    """
+    一键采集并保存新闻，用于手动同步按钮调用。
+
+    Returns:
+        {"status": "ok"|"empty"|"error", "total": int, "saved": int, "error": str|None}
+    """
+    try:
+        news = collect_news()
+        if not news:
+            return {"status": "empty", "total": 0, "saved": 0, "error": None}
+        saved = save_news_to_db(news)
+        return {"status": "ok", "total": len(news), "saved": saved, "error": None}
+    except Exception as e:
+        logger.error(f"collect_and_save_news 异常: {e}")
+        return {"status": "error", "total": 0, "saved": 0, "error": str(e)}

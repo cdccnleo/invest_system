@@ -93,3 +93,34 @@ def get_news_count() -> int:
         return 0
     finally:
         conn.close()
+
+
+# ── 手动同步状态管理 ────────────────────────────────────────────────────────
+
+def init_sync_status():
+    """初始化同步状态到 session_state"""
+    import streamlit as st
+    if "sync_status" not in st.session_state:
+        st.session_state["sync_status"] = {
+            "news": {"last_sync": None, "syncing": False},
+            "reports": {"last_sync": None, "syncing": False},
+            "announcements": {"last_sync": None, "syncing": False},
+        }
+
+
+def get_sync_status(data_type: str) -> dict:
+    """获取指定数据类型的同步状态"""
+    import streamlit as st
+    init_sync_status()
+    return st.session_state["sync_status"].get(data_type, {"last_sync": None, "syncing": False})
+
+
+def set_sync_status(data_type: str, last_sync=None, syncing=None):
+    """更新指定数据类型的同步状态"""
+    import streamlit as st
+    init_sync_status()
+    status = st.session_state["sync_status"][data_type]
+    if last_sync is not None:
+        status["last_sync"] = last_sync
+    if syncing is not None:
+        status["syncing"] = syncing

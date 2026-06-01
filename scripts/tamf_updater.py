@@ -20,6 +20,7 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
 import psycopg2
+from psycopg2 import pool
 
 # ─── 项目路径 ────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -65,14 +66,43 @@ def normalize_ts_code(code: str, name: str = "") -> str:
     return f"{c}.XSHE"
 
 
+# ─── 线程安全连接池 ───────────────────────────────────────────
+_db_pool = None
+
+
+def _init_db_pool():
+    """初始化线程安全的数据库连接池（延迟加载）"""
+    global _db_pool
+    if _db_pool is None:
+        with open(CREDENTIAL_STORE) as f:
+            creds = json.load(f)
+        _db_pool = pool.ThreadedConnectionPool(
+            minconn=2, maxconn=16,
+            host="localhost", port=5432,
+            dbname="investpilot", user="invest_admin",
+            password=creds["DB_PASSWORD"]
+        )
+    return _db_pool
+
+
 def get_db_conn():
-    with open(CREDENTIAL_STORE) as f:
-        creds = json.load(f)
-    return psycopg2.connect(
-        host="localhost", port=5432,
-        dbname="investpilot", user="invest_admin",
-        password=creds["DB_PASSWORD"]
-    )
+    """从连接池获取连接，避免并发时创建过多连接导致池耗尽"""
+    return _init_db_pool().getconn()
+
+
+def release_db_conn(conn):
+    """将连接归还连接池"""
+    global _db_pool
+    if _db_pool and conn:
+        _db_pool.putconn(conn)
+
+
+def close_db_pool():
+    """关闭连接池（程序退出时调用）"""
+    global _db_pool
+    if _db_pool:
+        _db_pool.closeall()
+        _db_pool = None
 
 
 # ─── 第1层：数据获取 ─────────────────────────────────────────
@@ -92,85 +122,93 @@ def load_positions() -> list[dict]:
 def load_recent_quotes(ts_code: str, days: int = 20) -> list[dict]:
     """获取近N日行情（用于技术面分析）"""
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT trade_date, open_price, high_price, low_price, close_price, volume, amount, change_pct
-        FROM market.daily_quotes
-        WHERE ts_code = %s
-        ORDER BY trade_date DESC
-        LIMIT %s
-    """, (ts_code, days))
-    rows = cur.fetchall()
-    conn.close()
-    if not rows:
-        return []
-    return [
-        {"date": r[0], "open": r[1], "high": r[2], "low": r[3],
-         "close": r[4], "volume": r[5], "amount": r[6], "change_pct": r[7]}
-        for r in rows
-    ]
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT trade_date, open_price, high_price, low_price, close_price, volume, amount, change_pct
+            FROM market.daily_quotes
+            WHERE ts_code = %s
+            ORDER BY trade_date DESC
+            LIMIT %s
+        """, (ts_code, days))
+        rows = cur.fetchall()
+        if not rows:
+            return []
+        return [
+            {"date": r[0], "open": r[1], "high": r[2], "low": r[3],
+             "close": r[4], "volume": r[5], "amount": r[6], "change_pct": r[7]}
+            for r in rows
+        ]
+    finally:
+        release_db_conn(conn)
 
 
 def load_financial_trend(ts_code: str, quarters: int = 8) -> list[dict]:
     """获取近N季度财务指标"""
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT report_date, report_type, total_revenue, net_profit, gross_margin,
-               net_margin, debt_ratio, roe, yoy_growth, profit_growth
-        FROM market.financial_indicators
-        WHERE ts_code = %s
-        ORDER BY report_date DESC
-        LIMIT %s
-    """, (ts_code, quarters))
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"date": r[0], "type": r[1], "revenue": r[2], "profit": r[3],
-         "gross_margin": r[4], "net_margin": r[5], "debt_ratio": r[6],
-         "roe": r[7], "yoy_growth": r[8], "profit_growth": r[9]}
-        for r in rows
-    ]
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT report_date, report_type, total_revenue, net_profit, gross_margin,
+                   net_margin, debt_ratio, roe, yoy_growth, profit_growth
+            FROM market.financial_indicators
+            WHERE ts_code = %s
+            ORDER BY report_date DESC
+            LIMIT %s
+        """, (ts_code, quarters))
+        rows = cur.fetchall()
+        return [
+            {"date": r[0], "type": r[1], "revenue": r[2], "profit": r[3],
+             "gross_margin": r[4], "net_margin": r[5], "debt_ratio": r[6],
+             "roe": r[7], "yoy_growth": r[8], "profit_growth": r[9]}
+            for r in rows
+        ]
+    finally:
+        release_db_conn(conn)
 
 
 def load_recent_announcements(ts_code: str, limit: int = 10) -> list[dict]:
     """获取近N条公告"""
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT ann_id, ts_code, title, ann_type, notice_date
-        FROM research.announcements
-        WHERE ts_code = %s
-        ORDER BY notice_date DESC NULLS LAST, created_at DESC
-        LIMIT %s
-    """, (ts_code, limit))
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "ts_code": r[1], "title": r[2], "type": r[3],
-         "date": r[4]}
-        for r in rows
-    ]
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ann_id, ts_code, title, ann_type, notice_date
+            FROM research.announcements
+            WHERE ts_code = %s
+            ORDER BY notice_date DESC NULLS LAST, created_at DESC
+            LIMIT %s
+        """, (ts_code, limit))
+        rows = cur.fetchall()
+        return [
+            {"id": r[0], "ts_code": r[1], "title": r[2], "type": r[3],
+             "date": r[4]}
+            for r in rows
+        ]
+    finally:
+        release_db_conn(conn)
 
 
 def load_recent_reports(ts_code: str, limit: int = 5) -> list[dict]:
     """获取近N篇研报"""
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, ts_code, title, summary, rating, report_date, source
-        FROM research.research_reports
-        WHERE ts_code = %s
-        ORDER BY report_date DESC NULLS LAST, created_at DESC
-        LIMIT %s
-    """, (ts_code, limit))
-    rows = cur.fetchall()
-    conn.close()
-    return [
-        {"id": r[0], "ts_code": r[1], "title": r[2], "summary": r[3],
-         "rating": r[4], "date": r[5], "source": r[6]}
-        for r in rows
-    ]
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, ts_code, title, summary, rating, report_date, source
+            FROM research.research_reports
+            WHERE ts_code = %s
+            ORDER BY report_date DESC NULLS LAST, created_at DESC
+            LIMIT %s
+        """, (ts_code, limit))
+        rows = cur.fetchall()
+        return [
+            {"id": r[0], "ts_code": r[1], "title": r[2], "summary": r[3],
+             "rating": r[4], "date": r[5], "source": r[6]}
+            for r in rows
+        ]
+    finally:
+        release_db_conn(conn)
 
 
 # ─── 第2层：TAMF文件读写 ────────────────────────────────────
@@ -217,22 +255,24 @@ def write_tamf(code: str, content: str) -> None:
 def get_tamf_metadata(code: str) -> Optional[dict]:
     """从memory.target_memory_files读取某标的的元数据"""
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT ts_code, stock_name, version_major, version_minor,
-               analysis_status, last_updated, data_snapshot
-        FROM memory.target_memory_files WHERE ts_code = %s
-    """, (code,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "ts_code": row[0], "stock_name": row[1],
-        "version_major": row[2], "version_minor": row[3],
-        "analysis_status": row[4], "last_updated": row[5],
-        "data_snapshot": json.loads(row[6]) if row[6] else {}
-    }
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT ts_code, stock_name, version_major, version_minor,
+                   analysis_status, last_updated, data_snapshot
+            FROM memory.target_memory_files WHERE ts_code = %s
+        """, (code,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "ts_code": row[0], "stock_name": row[1],
+            "version_major": row[2], "version_minor": row[3],
+            "analysis_status": row[4], "last_updated": row[5],
+            "data_snapshot": json.loads(row[6]) if row[6] else {}
+        }
+    finally:
+        release_db_conn(conn)
 
 
 def upsert_tamf_metadata(code: str, stock_name: str,
@@ -242,23 +282,25 @@ def upsert_tamf_metadata(code: str, stock_name: str,
                           file_path: str) -> None:
     """upsert到memory.target_memory_files"""
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO memory.target_memory_files
-            (ts_code, stock_name, file_path, version_major, version_minor,
-             analysis_status, data_snapshot, last_updated)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-        ON CONFLICT (ts_code) DO UPDATE SET
-            stock_name = EXCLUDED.stock_name,
-            version_major = EXCLUDED.version_major,
-            version_minor = EXCLUDED.version_minor,
-            analysis_status = EXCLUDED.analysis_status,
-            data_snapshot = EXCLUDED.data_snapshot,
-            last_updated = NOW()
-    """, (code, stock_name, file_path, version_major, version_minor,
-          analysis_status, json.dumps(data_snapshot)))
-    conn.commit()
-    conn.close()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO memory.target_memory_files
+                (ts_code, stock_name, file_path, version_major, version_minor,
+                 analysis_status, data_snapshot, last_updated)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (ts_code) DO UPDATE SET
+                stock_name = EXCLUDED.stock_name,
+                version_major = EXCLUDED.version_major,
+                version_minor = EXCLUDED.version_minor,
+                analysis_status = EXCLUDED.analysis_status,
+                data_snapshot = EXCLUDED.data_snapshot,
+                last_updated = NOW()
+        """, (code, stock_name, file_path, version_major, version_minor,
+              analysis_status, json.dumps(data_snapshot)))
+        conn.commit()
+    finally:
+        release_db_conn(conn)
 
 
 # ─── 第3层：章节更新 ─────────────────────────────────────────
@@ -636,16 +678,18 @@ def init_all_tamf_files() -> dict:
             
             # 记录时间线事件
             conn = get_db_conn()
-            cur = conn.cursor()
-            cur.execute("""
-                INSERT INTO memory.target_timeline_events
-                    (ts_code, event_time, event_type, event_source, severity, title, description)
-                VALUES (%s, NOW(), 'TAMF_INIT', 'SYSTEM', 'INFO',
-                        'TAMF文件首次初始化', '批量初始化脚本生成初始TAMF文件')
-            """, (code,))
-            conn.commit()
-            conn.close()
-            
+            try:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO memory.target_timeline_events
+                        (ts_code, event_time, event_type, event_source, severity, title, description)
+                    VALUES (%s, NOW(), 'TAMF_INIT', 'SYSTEM', 'INFO',
+                            'TAMF文件首次初始化', '批量初始化脚本生成初始TAMF文件')
+                """, (code,))
+                conn.commit()
+            finally:
+                release_db_conn(conn)
+
             results["success"] += 1
             
         except Exception as e:
@@ -686,40 +730,41 @@ def detect_new_data_for_target(code: str) -> dict:
     
     # 检查行情
     conn = get_db_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT COUNT(*) FROM market.daily_quotes
-        WHERE ts_code = %s AND trade_date > %s
-    """, (ts_code, last_update))
-    new_quote_count = cur.fetchone()[0]
-    new_data["quotes"] = new_quote_count > 0
-    
-    # 检查公告
-    cur.execute("""
-        SELECT COUNT(*) FROM research.announcements
-        WHERE ts_code = %s AND (notice_date > %s OR created_at > %s)
-    """, (code, last_update, last_update))
-    new_ann_count = cur.fetchone()[0]
-    new_data["announcements"] = new_ann_count > 0
-    
-    # 检查研报
-    cur.execute("""
-        SELECT COUNT(*) FROM research.research_reports
-        WHERE ts_code = %s AND created_at > %s
-    """, (code, last_update))
-    new_report_count = cur.fetchone()[0]
-    new_data["reports"] = new_report_count > 0
-    
-    # 检查财务
-    cur.execute("""
-        SELECT COUNT(*) FROM market.financial_indicators
-        WHERE ts_code = %s AND created_at > %s
-    """, (ts_code, last_update))
-    new_fin_count = cur.fetchone()[0]
-    new_data["financials"] = new_fin_count > 0
-    
-    conn.close()
-    
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COUNT(*) FROM market.daily_quotes
+            WHERE ts_code = %s AND trade_date > %s
+        """, (ts_code, last_update))
+        new_quote_count = cur.fetchone()[0]
+        new_data["quotes"] = new_quote_count > 0
+
+        # 检查公告
+        cur.execute("""
+            SELECT COUNT(*) FROM research.announcements
+            WHERE ts_code = %s AND (notice_date > %s OR created_at > %s)
+        """, (code, last_update, last_update))
+        new_ann_count = cur.fetchone()[0]
+        new_data["announcements"] = new_ann_count > 0
+
+        # 检查研报
+        cur.execute("""
+            SELECT COUNT(*) FROM research.research_reports
+            WHERE ts_code = %s AND created_at > %s
+        """, (code, last_update))
+        new_report_count = cur.fetchone()[0]
+        new_data["reports"] = new_report_count > 0
+
+        # 检查财务
+        cur.execute("""
+            SELECT COUNT(*) FROM market.financial_indicators
+            WHERE ts_code = %s AND created_at > %s
+        """, (ts_code, last_update))
+        new_fin_count = cur.fetchone()[0]
+        new_data["financials"] = new_fin_count > 0
+    finally:
+        release_db_conn(conn)
+
     affected = detect_affected_sections(new_data)
     return {
         "has_new_data": any(new_data.values()),
@@ -831,13 +876,15 @@ def incremental_update(code: str) -> dict:
     }
 
 
-def parallel_update_all_holdings(max_workers: int = 4) -> dict:
+def parallel_update_all_holdings(max_workers: int = 2) -> dict:
     """
     并行更新所有持仓标的的 TAMF 文件。
     使用 ThreadPoolExecutor 并发执行 incremental_update，
     显著缩短总耗时（从串行约 5 分钟降至约 1.5 分钟）。
 
-    max_workers=4 可避免数据库连接池耗尽和 API 限流。
+    max_workers=2 配合 ThreadedConnectionPool(maxconn=16) 使用，
+    避免数据库连接池耗尽（原 max_workers=4 在嵌套线程池场景下
+    曾导致 46 个持仓全部失败）。
     """
     import concurrent.futures
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1002,6 +1049,7 @@ def _record_timeline_event(
     description: str = "",
 ) -> None:
     """将事件写入 memory.target_timeline_events"""
+    conn = None
     try:
         conn = get_db_conn()
         cur = conn.cursor()
@@ -1011,9 +1059,11 @@ def _record_timeline_event(
             VALUES (%s, %s, %s, %s, %s)
         """, (ts_code, event_type, severity, title, description))
         conn.commit()
-        conn.close()
     except Exception:
         pass  # 不因时线写入失败中断主流程
+    finally:
+        if conn:
+            release_db_conn(conn)
 
 
 # ══════════════════════════════════════════════════════════════════

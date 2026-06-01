@@ -373,6 +373,36 @@ def render_tamf_memory():
 
     st.markdown("## 📊 TAMF 投资标的分析记忆")
 
+    # ── 手工更新按钮 ──
+    col_info, col_btn = st.columns([2, 1])
+    with col_info:
+        last_sync = st.session_state.get("tamf_last_sync")
+        if last_sync:
+            st.caption(f"最后更新: {last_sync.strftime('%m-%d %H:%M:%S')}")
+        else:
+            st.caption("尚未手工更新过")
+    with col_btn:
+        if st.button("🔄 更新全部TAMF", key="sync_tamf_btn",
+                     disabled=st.session_state.get("syncing_tamf", False)):
+            st.session_state["syncing_tamf"] = True
+            with st.spinner("正在更新所有持仓TAMF文件..."):
+                try:
+                    sys.path.insert(0, str(Path(__file__).parent.parent))
+                    from tamf_updater import parallel_update_all_holdings
+                    result = parallel_update_all_holdings()
+                    st.session_state["syncing_tamf"] = False
+                    st.session_state["tamf_last_sync"] = datetime.now()
+                    st.success(
+                        f"TAMF更新完成: 总{result['total']}个, "
+                        f"更新{result['updated']}个, "
+                        f"跳过{result['skipped']}个, "
+                        f"失败{result['failed']}个"
+                    )
+                except Exception as e:
+                    st.session_state["syncing_tamf"] = False
+                    st.error(f"TAMF更新异常: {e}")
+    st.divider()
+
     # 加载持仓列表
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))

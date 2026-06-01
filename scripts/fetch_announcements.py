@@ -139,7 +139,7 @@ def _fetch_em_single(code: str, max_pages: int = MAX_EM_PAGES, days_window: int 
                         has_old = True
                         continue
 
-                    # 去重：用 date_str + title 前30字（art_id/id 均为 None）
+                    # 去重：用 date_str + title 前30字
                     title = (n.get("title") or n.get("notice_title") or "").strip()
                     if not title or len(title) < 5:
                         continue
@@ -147,7 +147,15 @@ def _fetch_em_single(code: str, max_pages: int = MAX_EM_PAGES, days_window: int 
                     if dup_key in seen_ids:
                         continue
                     seen_ids.add(dup_key)
-                    em_url = f"https://data.eastmoney.com/notices/hot.html"  # art_id 为 None，暂用热点页
+
+                    art_code = n.get("art_code", "")
+                    # stock_code 位于嵌套的 codes[0] 中
+                    codes_list = n.get("codes", [])
+                    em_stock_code = codes_list[0].get("stock_code", code) if codes_list else code
+                    if art_code:
+                        em_url = f"https://data.eastmoney.com/notices/detail/{em_stock_code}/{art_code}.html"
+                    else:
+                        em_url = f"https://data.eastmoney.com/notices/hot.html"
 
                     all_anns.append({
                         "ts_code": code,

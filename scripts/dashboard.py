@@ -625,6 +625,37 @@ def pnl_pnl_str(pnl: float) -> str:
 
 def render_news_summary():
     st.markdown("## 📰 新闻摘要（近7日）")
+
+    # ── 手动同步按钮 ──
+    col_info, col_btn = st.columns([2, 1])
+    with col_info:
+        last_sync = st.session_state.get("news_last_sync")
+        if last_sync:
+            st.caption(f"最后同步: {last_sync.strftime('%m-%d %H:%M:%S')}")
+        else:
+            st.caption("尚未手动同步过")
+    with col_btn:
+        if st.button("🔄 同步新闻", key="sync_news_btn",
+                     disabled=st.session_state.get("syncing_news", False)):
+            st.session_state["syncing_news"] = True
+            with st.spinner("正在采集新闻数据..."):
+                try:
+                    from fetch_news import collect_and_save_news
+                    result = collect_and_save_news()
+                    st.session_state["syncing_news"] = False
+                    st.session_state["news_last_sync"] = datetime.now()
+                    if result["status"] == "ok":
+                        st.success(f"同步完成：采集 {result['total']} 条，新增 {result['saved']} 条")
+                        st.rerun()
+                    elif result["status"] == "empty":
+                        st.info("数据已是最新，无新增内容")
+                    else:
+                        st.error(f"同步失败: {result.get('error', '未知错误')}")
+                except Exception as e:
+                    st.session_state["syncing_news"] = False
+                    st.error(f"同步异常: {e}")
+    st.divider()
+
     conn = get_db_connection()
     if conn is None:
         st.warning("无法连接数据库")
@@ -721,6 +752,34 @@ def render_news_summary():
 def render_reports():
     """研报展示页面 — 近30天研报，支持按股票/评级/来源筛选"""
     st.markdown("## 📋 研报（近30天）")
+
+    # ── 手动同步按钮 ──
+    col_info, col_btn = st.columns([2, 1])
+    with col_info:
+        last_sync = st.session_state.get("reports_last_sync")
+        if last_sync:
+            st.caption(f"最后同步: {last_sync.strftime('%m-%d %H:%M:%S')}")
+        else:
+            st.caption("尚未手动同步过")
+    with col_btn:
+        if st.button("🔄 同步研报", key="sync_reports_btn",
+                     disabled=st.session_state.get("syncing_reports", False)):
+            st.session_state["syncing_reports"] = True
+            with st.spinner("正在采集研报数据..."):
+                try:
+                    from fetch_reports import collect_reports
+                    reports = collect_reports(days_back=7, save_to_db=True)
+                    st.session_state["syncing_reports"] = False
+                    st.session_state["reports_last_sync"] = datetime.now()
+                    if reports:
+                        st.success(f"同步完成：采集 {len(reports)} 条研报")
+                        st.rerun()
+                    else:
+                        st.info("数据已是最新，无新增内容")
+                except Exception as e:
+                    st.session_state["syncing_reports"] = False
+                    st.error(f"同步异常: {e}")
+    st.divider()
 
     conn = get_db_connection()
     if conn is None:
@@ -842,6 +901,38 @@ def render_reports():
 def render_announcements():
     """公告展示页面 — 近30天持仓股公告，支持按类型筛选"""
     st.markdown("## 📢 持仓股公告（近30天）")
+
+    # ── 手动同步按钮 ──
+    col_info, col_btn = st.columns([2, 1])
+    with col_info:
+        last_sync = st.session_state.get("ann_last_sync")
+        if last_sync:
+            st.caption(f"最后同步: {last_sync.strftime('%m-%d %H:%M:%S')}")
+        else:
+            st.caption("尚未手动同步过")
+    with col_btn:
+        if st.button("🔄 同步公告", key="sync_ann_btn",
+                     disabled=st.session_state.get("syncing_ann", False)):
+            st.session_state["syncing_ann"] = True
+            with st.spinner("正在采集公告数据..."):
+                try:
+                    from fetch_announcements import fetch_all_positions_announcements
+                    from storage_factory import get_storage
+                    anns = fetch_all_positions_announcements(days_window=1, max_pages=2)
+                    st.session_state["syncing_ann"] = False
+                    st.session_state["ann_last_sync"] = datetime.now()
+                    if anns:
+                        storage = get_storage()
+                        saved = storage.write_announcements(anns)
+                        storage.close()
+                        st.success(f"同步完成：采集 {len(anns)} 条，新增 {saved} 条")
+                        st.rerun()
+                    else:
+                        st.info("数据已是最新，无新增内容")
+                except Exception as e:
+                    st.session_state["syncing_ann"] = False
+                    st.error(f"同步异常: {e}")
+    st.divider()
 
     conn = get_db_connection()
     if conn is None:

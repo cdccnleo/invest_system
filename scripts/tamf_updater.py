@@ -231,7 +231,7 @@ def get_tamf_metadata(code: str) -> Optional[dict]:
         "ts_code": row[0], "stock_name": row[1],
         "version_major": row[2], "version_minor": row[3],
         "analysis_status": row[4], "last_updated": row[5],
-        "data_snapshot": json.loads(row[6]) if row[6] else {}
+        "data_snapshot": row[6] if isinstance(row[6], dict) else json.loads(row[6]) if row[6] else {}
     }
 
 
@@ -297,13 +297,14 @@ def detect_affected_sections(new_data: dict) -> list[str]:
     if new_data.get("quotes"):
         affected.extend(["section_4_technical", "section_7_monitoring"])
     if new_data.get("announcements"):
-        ann = new_data["announcements"]
-        types = {a.get("type") for a in ann}
-        if types & {"分红", "送股", "配股"}:
-            affected.append("section_2_holdings")
-        if types & {"季报", "中报", "年报"}:
-            affected.extend(["section_3_fundamentals", "section_1_basic_profile"])
-        affected.append("section_5_news")
+        # new_data["announcements"] is a bool here (from detect_new_data_for_target)
+        # 公告类型检测需从数据库实时查询，这里简化为宽泛触发
+        affected.extend([
+            "section_5_news",
+            "section_3_fundamentals",
+            "section_1_basic_profile",
+            "section_2_holdings",
+        ])
     if new_data.get("transactions"):
         affected.append("section_2_holdings")
     if new_data.get("reports"):

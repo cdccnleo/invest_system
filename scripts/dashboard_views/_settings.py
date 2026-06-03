@@ -167,8 +167,8 @@ def render_plan_review():
         if not pending_approvals:
             st.warning("暂无待提交的审核")
         else:
-            from storage_factory import StorageFactory
-            storage = StorageFactory()
+            from storage_factory import get_storage
+            storage = get_storage()
 
             # 汇总写入 audit_log
             summary = {

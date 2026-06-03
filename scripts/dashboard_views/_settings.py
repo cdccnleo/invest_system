@@ -98,9 +98,8 @@ def render_plan_review():
                 col_label, col_action = st.columns([0.7, 0.3])
                 with col_label:
                     st.markdown(f"**[{i+1}] {plan.get('action', 'N/A')}** "
-                                f"`{plan.get('code', '')}` {plan.get('name', '')}")
-                    st.caption(f"入场 {plan.get('entry', 'N/A')} | 止损 {plan.get('stop_loss', 'N/A')} | "
-                               f"目标 {plan.get('target', 'N/A')} | 仓位 {plan.get('position', 'N/A')}")
+                                    f"`{plan.get('ts_code', '')}` {plan.get('name', '')}")
+                    st.caption(f"入场 {plan.get('limit_price', 'N/A')} | 仓位 {plan.get('position_pct', 'N/A')}%")
 
                 # 批准/否决勾选框
                 approve_key = f"approve_{plan_id}"

@@ -70,39 +70,34 @@ def normalize_ts_code(code: str, name: str = "") -> str:
 _db_pool = None
 
 
-def _init_db_pool():
-    """初始化线程安全的数据库连接池（延迟加载）"""
-    global _db_pool
-    if _db_pool is None:
-        with open(CREDENTIAL_STORE) as f:
-            creds = json.load(f)
-        _db_pool = pool.ThreadedConnectionPool(
-            minconn=2, maxconn=16,
-            host="localhost", port=5432,
-            dbname="investpilot", user="invest_admin",
-            password=creds["DB_PASSWORD"]
-        )
-    return _db_pool
+import threading
 
+_thread_local = threading.local()
+
+def _get_thread_conn():
+    """获取当前线程专属连接（线程内复用，避免ThreadedConnectionPool的unkeyed错误）"""
+    if not hasattr(_thread_local, 'conn') or _thread_local.conn is None:
+        from pgcrypto_migration import get_credential
+        _thread_local.conn = psycopg2.connect(
+            host="localhost", port=5432, database="investpilot",
+            user="invest_admin", password=get_credential("DB_PASSWORD")
+        )
+        _thread_local.conn.autocommit = True
+    return _thread_local.conn
 
 def get_db_conn():
-    """从连接池获取连接，避免并发时创建过多连接导致池耗尽"""
-    return _init_db_pool().getconn()
-
+    """兼容旧接口：返回当前线程专属连接"""
+    return _get_thread_conn()
 
 def release_db_conn(conn):
-    """将连接归还连接池"""
-    global _db_pool
-    if _db_pool and conn:
-        _db_pool.putconn(conn)
-
+    """兼容旧接口：连接由线程自己持有，不放回池（no-op）"""
+    pass
 
 def close_db_pool():
-    """关闭连接池（程序退出时调用）"""
-    global _db_pool
-    if _db_pool:
-        _db_pool.closeall()
-        _db_pool = None
+    """关闭所有线程的连接"""
+    if hasattr(_thread_local, 'conn') and _thread_local.conn:
+        _thread_local.conn.close()
+        _thread_local.conn = None
 
 
 # ─── 第1层：数据获取 ─────────────────────────────────────────

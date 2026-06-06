@@ -232,7 +232,7 @@ def _render_by_stock():
     # 获取持仓列表
     try:
         cur = conn.cursor()
-        cur.execute("SELECT ts_code, name FROM memory.target_memory_files ORDER BY ts_code")
+        cur.execute("SELECT ts_code, stock_name FROM memory.target_memory_files ORDER BY ts_code")
         stocks = cur.fetchall()
         cur.close()
 

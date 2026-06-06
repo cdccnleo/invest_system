@@ -95,8 +95,8 @@ def render_sidebar():
     # URL 参数优先（?page=calendar）
     import streamlit as st_caller
     query_params = st_caller.query_params
-    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"}
-    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"]
+    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "📚 AInvest知识库", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"}
+    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "📚 AInvest知识库", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"]
 
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "📋 持仓仪表板"

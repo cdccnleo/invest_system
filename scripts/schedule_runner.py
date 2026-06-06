@@ -296,7 +296,7 @@ def job_closing():
         storage = get_storage()
         storage.write_audit(
             "SCHEDULED_CLOSING_RUN", "SYSTEM",
-            detail={"triggered_at": datetime.now().isoformat()},
+            detail={"triggered_at": datetime.now().isoformat(), "positions": len(positions)},
             result="SUCCESS"
         )
         storage.close()

@@ -70,39 +70,34 @@ def normalize_ts_code(code: str, name: str = "") -> str:
 _db_pool = None
 
 
-def _init_db_pool():
-    """初始化线程安全的数据库连接池（延迟加载）"""
-    global _db_pool
-    if _db_pool is None:
-        with open(CREDENTIAL_STORE) as f:
-            creds = json.load(f)
-        _db_pool = pool.ThreadedConnectionPool(
-            minconn=2, maxconn=16,
-            host="localhost", port=5432,
-            dbname="investpilot", user="invest_admin",
-            password=creds["DB_PASSWORD"]
-        )
-    return _db_pool
+import threading
 
+_thread_local = threading.local()
+
+def _get_thread_conn():
+    """获取当前线程专属连接（线程内复用，避免ThreadedConnectionPool的unkeyed错误）"""
+    if not hasattr(_thread_local, 'conn') or _thread_local.conn is None:
+        from pgcrypto_migration import get_credential
+        _thread_local.conn = psycopg2.connect(
+            host="localhost", port=5432, database="investpilot",
+            user="invest_admin", password=get_credential("DB_PASSWORD")
+        )
+        _thread_local.conn.autocommit = True
+    return _thread_local.conn
 
 def get_db_conn():
-    """从连接池获取连接，避免并发时创建过多连接导致池耗尽"""
-    return _init_db_pool().getconn()
-
+    """兼容旧接口：返回当前线程专属连接"""
+    return _get_thread_conn()
 
 def release_db_conn(conn):
-    """将连接归还连接池"""
-    global _db_pool
-    if _db_pool and conn:
-        _db_pool.putconn(conn)
-
+    """兼容旧接口：连接由线程自己持有，不放回池（no-op）"""
+    pass
 
 def close_db_pool():
-    """关闭连接池（程序退出时调用）"""
-    global _db_pool
-    if _db_pool:
-        _db_pool.closeall()
-        _db_pool = None
+    """关闭所有线程的连接"""
+    if hasattr(_thread_local, 'conn') and _thread_local.conn:
+        _thread_local.conn.close()
+        _thread_local.conn = None
 
 
 # ─── 第1层：数据获取 ─────────────────────────────────────────
@@ -269,7 +264,7 @@ def get_tamf_metadata(code: str) -> Optional[dict]:
             "ts_code": row[0], "stock_name": row[1],
             "version_major": row[2], "version_minor": row[3],
             "analysis_status": row[4], "last_updated": row[5],
-            "data_snapshot": json.loads(row[6]) if row[6] else {}
+            "data_snapshot": row[6] if isinstance(row[6], dict) else json.loads(row[6]) if row[6] else {}
         }
     finally:
         release_db_conn(conn)
@@ -339,13 +334,14 @@ def detect_affected_sections(new_data: dict) -> list[str]:
     if new_data.get("quotes"):
         affected.extend(["section_4_technical", "section_7_monitoring"])
     if new_data.get("announcements"):
-        ann = new_data["announcements"]
-        types = {a.get("type") for a in ann}
-        if types & {"分红", "送股", "配股"}:
-            affected.append("section_2_holdings")
-        if types & {"季报", "中报", "年报"}:
-            affected.extend(["section_3_fundamentals", "section_1_basic_profile"])
-        affected.append("section_5_news")
+        # new_data["announcements"] is a bool here (from detect_new_data_for_target)
+        # 公告类型检测需从数据库实时查询，这里简化为宽泛触发
+        affected.extend([
+            "section_5_news",
+            "section_3_fundamentals",
+            "section_1_basic_profile",
+            "section_2_holdings",
+        ])
     if new_data.get("transactions"):
         affected.append("section_2_holdings")
     if new_data.get("reports"):

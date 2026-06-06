@@ -97,10 +97,10 @@ def render_plan_review():
 
                 col_label, col_action = st.columns([0.7, 0.3])
                 with col_label:
-                    st.markdown(f"**[{i+1}] {plan.get('action', 'N/A')}** "
-                                f"`{plan.get('code', '')}` {plan.get('name', '')}")
-                    st.caption(f"入场 {plan.get('entry', 'N/A')} | 止损 {plan.get('stop_loss', 'N/A')} | "
-                               f"目标 {plan.get('target', 'N/A')} | 仓位 {plan.get('position', 'N/A')}")
+                                    action = plan.get('action', '')
+                                    price = (plan.get('exit_price') or plan.get('limit_price')) if action else 'N/A'
+                                    st.markdown(f"**[{i+1}] {action}** `{plan.get('ts_code', '')}` {plan.get('name', '')}")
+                                    st.caption(f"价格 {'入场' if action == 'buy' else '出场'} {price} | 仓位 {plan.get('position_pct', 'N/A')}%")
 
                 # 批准/否决勾选框
                 approve_key = f"approve_{plan_id}"
@@ -168,8 +168,8 @@ def render_plan_review():
         if not pending_approvals:
             st.warning("暂无待提交的审核")
         else:
-            from storage_factory import StorageFactory
-            storage = StorageFactory()
+            from storage_factory import get_storage
+            storage = get_storage()
 
             # 汇总写入 audit_log
             summary = {

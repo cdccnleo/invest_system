@@ -31,7 +31,15 @@ from typing import Optional
 logger = logging.getLogger("invest_system.ainvest_parser")
 
 # ── 路径常量 ────────────────────────────────────────────────
-AINVEST_REPORTS_DIR = Path("C:/PythonProject/AInvest/reports")
+# WSL + Windows 兼容：优先 Windows 路径，WSL 下自动映射到 /mnt/c/
+_WIN_PATH = Path("C:/PythonProject/AInvest/reports")
+_MNT_PATH = Path("/mnt/c/PythonProject/AInvest/reports")
+if _WIN_PATH.exists():
+    AINVEST_REPORTS_DIR = _WIN_PATH
+elif _MNT_PATH.exists():
+    AINVEST_REPORTS_DIR = _MNT_PATH
+else:
+    AINVEST_REPORTS_DIR = _WIN_PATH  # 保持原值，目录不存在时 scan 会有 warning
 
 # 股票代码正则：匹配 6位数字（A股）+ 可选5位港股代码
 STOCK_CODE_PATTERN = re.compile(

@@ -339,12 +339,17 @@ def build_analysis_prompt(
     else:
         tamf_section = "## 持仓标的分析记忆摘要（TAMF）\n⚠️ 暂无TAMF数据，将基于原始数据生成建议"
 
+    # ── AInvest 深度知识摘要 ────────────────────────────────────────────
+    ainvest_section = build_ainvest_knowledge_for_prompt(sanitized_positions)
+
     # ── 完整 Prompt ─────────────────────────────────────────────────────────
     prompt = f"""{SYSTEM_PROMPT}
 
 {profile_section}
 
 {tamf_section}
+
+{ainvest_section}
 
 {positions_section}
 
@@ -505,3 +510,61 @@ def truncate_prompt(
     return (f"[⚠️ 上下文已压缩（~{current}→{kept_tokens} tokens，"
             f"已丢弃 {len(ordered) - len(kept)} 个低优先级分段）]\n\n"
             + truncated_prompt)
+
+
+def build_ainvest_knowledge_for_prompt(
+    positions: list[dict],
+    max_reports_per_stock: int = 5
+) -> str:
+    """
+    为 LLM Prompt 构建 AInvest 知识库摘要。
+    对每只持仓标的，从 ainvest_kb.stock_kb_links 查询最近关联报告，
+    提取关键判断和投资信号，生成精简摘要。
+    """
+    import logging
+    logger = logging.getLogger("invest_system.prompt_builder")
+    from storage_factory import get_pg_connection
+    conn = get_pg_connection()
+    if conn is None:
+        return "## AInvest 深度知识摘要\n⚠️ 知识库暂不可用"
+    try:
+        cur = conn.cursor()
+        sections = []
+        for pos in positions[:15]:  # 最多15只持仓
+            code = str(pos.get("code", "")).zfill(6)
+            name = pos.get("name", code)
+            cur.execute("""
+                SELECT pr.report_type, pr.title,
+                       LEFT(pr.summary, 200) as summary,
+                       pr.report_date, pr.confidence_score
+                FROM ainvest_kb.stock_kb_links skl
+                JOIN ainvest_kb.parsed_reports pr ON pr.id = skl.report_id
+                WHERE skl.ts_code = %s
+                  AND pr.report_date >= NOW() - INTERVAL '30 days'
+                ORDER BY pr.report_date DESC, skl.relevance_score DESC
+                LIMIT %s
+            """, (code, max_reports_per_stock))
+            reports = cur.fetchall()
+            if not reports:
+                continue
+            report_lines = []
+            for r_type, r_title, r_summary, r_date, r_conf in reports:
+                date_str = r_date.strftime("%m-%d") if r_date else "?"
+                type_label = {"events": "事件", "trackers": "跟踪",
+                              "deep-analysis": "深度", "daily": "复盘"}.get(r_type, r_type)
+                report_lines.append(
+                    f"  - [{date_str}][{type_label}] {r_title[:50]}\n"
+                    f"    {r_summary or '(无摘要)'}"
+                )
+            sections.append(
+                f"**{name}** ({code}) -- 关联 {len(reports)} 份分析报告\n"
+                + "\n".join(report_lines)
+            )
+        if not sections:
+            return "## AInvest 深度知识摘要\n暂无关联知识"
+        return "## AInvest 深度知识摘要（过去30天）\n" + "\n\n".join(sections)
+    except Exception as e:
+        logger.warning(f"构建 AInvest 知识摘要失败: {e}")
+        return "## AInvest 深度知识摘要\n⚠️ 知识查询异常"
+    finally:
+        conn.close()

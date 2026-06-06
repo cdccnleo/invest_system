@@ -151,13 +151,15 @@ def _chunk_text(text: str, max_chars: int = 500) -> list[str]:
         chunks.append(current)
     return chunks
 
+    # 公开别名（供 kb_ainvest_worker.py 等外部模块使用）
+    chunk_text = _chunk_text
 
-def search_similar_news(query: str, top_k: int = 5, min_score: float = 0.5) -> list[dict]:
-    """
-    语义搜索相似新闻
-    返回: [{article_id, title, content, similarity, published_at}, ...]
-    """
-    query_emb = get_embedding(query)
+
+    def search_similar_news(query: str, top_k: int = 5, min_score: float = 0.5) -> list[dict]:
+        """语义搜索相似新闻
+        返回: [{article_id, title, content, similarity, published_at}, ...]
+        """
+        query_emb = get_embedding(query)
     if query_emb is None:
         logger.warning("Query embedding 生成失败")
         return []

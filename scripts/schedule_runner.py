@@ -1603,8 +1603,40 @@ def start_scheduler():
     except ImportError:
         logger.warning("backup_manager 未就绪，跳过备份任务注册")
 
+    # === AInvest 知识库任务（新增）===
+
+    # 盘前检查（07:30 -- 检查前日 AInvest 报告更新）
+    _scheduler.add_job(
+        _job_ainvest_kb_scan,
+        CronTrigger(hour=7, minute=30, timezone="Asia/Shanghai"),
+        id="ainvest_kb_morning",
+        name="AInvest知识库盘前检查 (07:30)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # 盘后扫描（15:30 -- 采集当日新增报告）
+    _scheduler.add_job(
+        _job_ainvest_kb_scan,
+        CronTrigger(hour=15, minute=30, timezone="Asia/Shanghai"),
+        id="ainvest_kb_afternoon",
+        name="AInvest知识库盘后扫描 (15:30)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # 晚间完整处理（21:30 -- 深度解析+向量嵌入+TAMF联动）
+    _scheduler.add_job(
+        _job_ainvest_kb_scan,
+        CronTrigger(hour=21, minute=30, timezone="Asia/Shanghai"),
+        id="ainvest_kb_evening",
+        name="AInvest知识库晚间完整处理 (21:30)",
+        replace_existing=True,
+        misfire_grace_time=900,
+    )
+
     _scheduler.start()
-    logger.info("调度器已启动")
+    logger.info("调度器已启动 (含 AInvest 知识库任务)")
     _log_next_runs()
 
 
@@ -1616,6 +1648,33 @@ def _log_next_runs():
     for job in jobs:
         next_run = job.next_run_time
         logger.info(f"  {job.name}: 下次 {next_run}")
+
+
+
+def _job_ainvest_kb_scan():
+    """
+    AInvest 知识库扫描定时任务入口。
+    注册到 APScheduler: 07:30 / 15:30 / 21:30。
+    非交易日仍然执行（AInvest 报告可能在周末生成）。
+    """
+    logger.info("AInvest 知识库扫描触发")
+    try:
+        from kb_ainvest_worker import process_ainvest_reports
+        result = process_ainvest_reports()
+        if result.get("status") == "completed":
+            logger.info(
+                f"AInvest 知识库更新完成: {result['parsed_ok']} 成功, "
+                f"{result['parsed_failed']} 失败, "
+                f"耗时 {result.get('elapsed_seconds', 0):.0f}s"
+            )
+        else:
+            logger.info(f"AInvest 知识库扫描: {result.get('reason', 'ok')}")
+    except Exception as e:
+        logger.error(f"AInvest 知识库扫描失败: {e}")
+        try:
+            _safe_error_alert("AInvest 知识库扫描失败", str(e))
+        except Exception:
+            pass
 
 
 def stop_scheduler():

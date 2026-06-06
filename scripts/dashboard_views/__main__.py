@@ -111,6 +111,7 @@ def render_sidebar():
             "announcements": "📢 公告",
             "calendar": "📅 决策日历",
             "tamf": "📊 TAMF分析记忆",
+            "ainvest_kb": "📚 AInvest知识库",
             "l3": "🤖 L3 投资伙伴",
             "strategies": "📈 策略回测",
             "factors": "📊 多因子评分",
@@ -338,6 +339,7 @@ from dashboard_views._l3_status import render_l3_status
 from dashboard_views._settings import render_plan_review, render_settings
 from dashboard_views._strategies import render_strategy_comparison
 from dashboard_views._factors import render_factor_analysis
+from dashboard_views._ainvest_kb import render_ainvest_kb
 
 # ── 共享数据函数（来自 dashboard.py）────────────────────────────────────────
 import sys as _sys
@@ -365,6 +367,8 @@ def main():
         render_plan_review()
     elif page == "📊 TAMF分析记忆":
         render_tamf_memory()
+    elif page == "📚 AInvest知识库":
+        render_ainvest_kb()
     elif page == "🤖 L3 投资伙伴":
         render_l3_status()
     elif page == "📈 策略回测":

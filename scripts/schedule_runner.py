@@ -575,6 +575,37 @@ def job_reports_collection():
             pass
 
 
+def job_report_summary_to_tamf():
+    """
+    16:05 研报摘要→TAMF第6章同步 — 将最新研报摘要写入持仓标的TAMF第六章。
+    在 job_reports_collection (16:00) 完成研报采集和LLM摘要生成后执行，
+    确保新入库研报的 summary 字段已就绪。
+    """
+    logger.info("=" * 50)
+    logger.info("16:05 研报摘要→TAMF第6章同步启动")
+    try:
+        from auto_report_to_tamf import sync_reports_to_tamf
+        result = sync_reports_to_tamf(days=7, limit=30)
+        logger.info(
+            f"TAMF第6章同步完成: 更新{result['targets_updated']}只标的, "
+            f"处理{result['processed']}篇研报, 跳过{result['skipped']}篇"
+        )
+        if result.get("failed", 0) > 0:
+            _safe_error_alert(
+                "⚠️ 研报摘要→TAMF部分失败",
+                f"更新{result['targets_updated']}只, 失败{result.get('failed', 0)}只",
+            )
+        elif result["targets_updated"] > 0:
+            logger.info(f"✅ 研报摘要→TAMF同步成功({result['targets_updated']}只标的)")
+    except Exception as e:
+        logger.error(f"研报摘要→TAMF同步异常: {e}")
+        _safe_error_alert("🔴 研报摘要→TAMF同步异常", f"错误: {e}")
+        try:
+            send_job_failure("研报摘要→TAMF", str(e))
+        except Exception:
+            pass
+
+
 def _detect_rating_changes():
     """
     T2.3: 检测持仓股研报评级变动，触发TAMF事件更新。
@@ -1896,6 +1927,15 @@ def start_scheduler():
         CronTrigger(hour=16, minute=0, timezone="Asia/Shanghai"),
         id="reports_collection",
         name="研报采集工作流 (16:00)",
+        replace_existing=True,
+    )
+
+    # 16:05 研报摘要→TAMF第6章同步（研报采集后）
+    _scheduler.add_job(
+        job_report_summary_to_tamf,
+        CronTrigger(hour=16, minute=5, timezone="Asia/Shanghai"),
+        id="report_summary_to_tamf",
+        name="研报摘要→TAMF第6章 (16:05)",
         replace_existing=True,
     )
 

@@ -1251,6 +1251,83 @@ def on_rating_change(code: str, old_rating: str, new_rating: str,
     return {"status": "updated", "code": code, "direction": direction}
 
 
+# ─── 研报摘要 → Chapter 6 写入 ────────────────────────────────
+
+def update_chapter_6_for_ts_code(code: str, investment_summary: str) -> dict:
+    """
+    将投资研判摘要写入指定标的TAMF文件的第6章（投资研判节）。
+
+    策略：找到 ## 六、历史决策记忆 节，在其后插入/替换 ### 投资研判 小节，
+    同时保留 关键决策案例 和 Agent 反思笔记 不受影响。
+
+    Args:
+        code:        持仓代码（6位纯数字）
+        investment_summary: 投资研判内容（markdown文本）
+
+    Returns:
+        {"status": "updated"|"skipped"|"no_file", "code": code}
+    """
+    logger = logging.getLogger("tamf_updater")
+    content = read_tamf(code)
+    if not content:
+        logger.debug(f"update_chapter_6: {code} 无TAMF文件，跳过")
+        return {"status": "no_file", "code": code}
+
+    # 检测手动编辑保护
+    if is_section_manually_edited(content, "### 投资研判"):
+        logger.debug(f"{code} 投资研判章节已手动编辑，跳过自动更新")
+        return {"status": "skipped", "code": code, "reason": "manually_edited"}
+
+    # 定位 ## 六、历史决策记忆 章节起始
+    chapter6_pattern = re.compile(
+        r'(## 六、历史决策记忆\(元记忆层\)[^\n]*\n)',
+        re.IGNORECASE
+    )
+    m6 = chapter6_pattern.search(content)
+    if not m6:
+        logger.warning(f"update_chapter_6: {code} 未找到第6章，尝试追加到文件末尾")
+        # 兜底：直接追加
+        new_content = content.rstrip() + "\n\n### 投资研判\n" + investment_summary + "\n"
+        write_tamf(code, new_content)
+        return {"status": "updated", "code": code}
+
+    chapter6_start = m6.start()
+    # 找下一个 ## 第X章 标题（跨行匹配）
+    next_chapter_pattern = re.compile(r'\n## [一二三四五六七八九]、', re.MULTILINE)
+    m_next = next_chapter_pattern.search(content[chapter6_start + len(m6.group()):])
+    if m_next:
+        chapter6_end = chapter6_start + len(m6.group()) + m_next.start()
+    else:
+        # 无下一章 → 到文件末尾
+        chapter6_end = len(content)
+
+    chapter6_block = content[chapter6_start:chapter6_end]
+
+    # 替换/插入 ### 投资研判 小节
+    inv_summary_header = "### 投资研判\n"
+    inv_summary_block = inv_summary_header + investment_summary + "\n"
+
+    invest_section_pattern = re.compile(
+        r'(\n### 投资研判\n).*?(\n(?:?:\n### |\n## |$)',
+        re.DOTALL
+    )
+    if invest_section_pattern.search(chapter6_block):
+        # 已存在 → 替换
+        new_chapter6_block = invest_section_pattern.sub(
+            r'\g<1>' + investment_summary + r'\n\g<2>',
+            chapter6_block, count=1
+        )
+    else:
+        # 不存在 → 在章节开头插入（紧跟 ## 六... 标题行之后）
+        new_chapter6_block = m6.group() + inv_summary_block + chapter6_block[len(m6.group()):]
+
+    new_content = content[:chapter6_start] + new_chapter6_block + content[chapter6_end:]
+
+    write_tamf(code, new_content)
+    logger.info(f"update_chapter_6: {code} 投资研判已写入第6章")
+    return {"status": "updated", "code": code}
+
+
 # ─── 主入口 ─────────────────────────────────────────────────
 if __name__ == "__main__":
     import sys

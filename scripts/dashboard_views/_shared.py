@@ -66,27 +66,39 @@ def get_db_connection():
 
 @st.cache_data(ttl=60)
 def get_latest_quotes_from_db(codes: list[str]) -> dict:
-    """从 PostgreSQL 读取最新行情（每次创建临时连接，不缓存连接对象）"""
+    """从 PostgreSQL 读取最新行情（每次创建临时连接，60s 缓存）
+
+    优化: 不通过 storage._pg_conn / storage.close()（关闭连接会触发连接池重建，
+    每次 ~800ms 浪费）。改用独立 psycopg2.connect()，最后正常 close，连接池不受影响。
+    """
+    if not codes:
+        return {}
     try:
-        from storage_factory import get_storage
-        storage = get_storage()
-        conn = storage._pg_conn
-        if conn is None:
-            return {}
-        cur = conn.cursor()
-        placeholders = ",".join(["%s"] * len(codes))
+        from credentials import get_credential
+        pwd = get_credential("DB_PASSWORD")
+        import psycopg2
+        conn = psycopg2.connect(
+            host="localhost",
+            user="invest_admin",
+            database="investpilot",
+            password=pwd or os.environ.get("DB_PASSWORD", ""),
+        )
         try:
-            cur.execute(f"""
-                SELECT ts_code, close_price, change_pct, trade_date
-                FROM market.daily_quotes
-                WHERE ts_code IN ({placeholders})
-                  AND trade_date = CURRENT_DATE
-            """, codes)
-            return {row[0]: {"close": row[1], "change_pct": row[2], "date": row[3]}
-                    for row in cur.fetchall()}
+            cur = conn.cursor()
+            try:
+                placeholders = ",".join(["%s"] * len(codes))
+                cur.execute(f"""
+                    SELECT ts_code, close_price, change_pct, trade_date
+                    FROM market.daily_quotes
+                    WHERE ts_code IN ({placeholders})
+                      AND trade_date = (SELECT MAX(trade_date) FROM market.daily_quotes)
+                """, codes)
+                return {row[0]: {"close": row[1], "change_pct": row[2], "date": row[3]}
+                        for row in cur.fetchall()}
+            finally:
+                cur.close()
         finally:
-            cur.close()
-            storage.close()
+            conn.close()
     except Exception:
         return {}
 

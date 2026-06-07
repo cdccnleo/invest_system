@@ -13,6 +13,31 @@ from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
 
+
+# ── Excel 报告缓存 ────────────────────────────────────────────────────────────
+# generate_excel_report 单次跑 60-90s（含因子评分 + openpyxl 写盘），
+# 持仓变化时（用户调整 / 行情更新）才需重算。
+# 缓存键绑定 positions 的标识（账号/代码/份额/成本），相同则复用。
+@st.cache_data(ttl=300, show_spinner="正在生成 Excel 报告…")
+def _cached_excel_report(positions_key: str, positions_json: str) -> bytes:
+    """positions 序列化为 JSON 后作为缓存 key；返回 Excel 字节流"""
+    import json
+    from report_generator import generate_excel_report
+    positions = json.loads(positions_json)
+    path = generate_excel_report(positions)
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _positions_cache_key(positions: list[dict]) -> str:
+    """生成 positions 的稳定指纹（账号+代码+份额+成本+市值）"""
+    sig = "|".join(
+        f"{p.get('账号','main')}:{p.get('代码','')}:{p.get('份额',0)}:{p.get('成本',0)}:{p.get('市值',0)}"
+        for p in positions
+    )
+    return sig[:200]  # 太长截断即可
+
+
 # ── 视图 1：持仓仪表板 ──────────────────────────────────────────────────────
 
 def render_portfolio_dashboard():
@@ -163,20 +188,27 @@ def render_portfolio_dashboard():
         )
 
     with export_col2:
-        try:
-            from report_generator import generate_excel_report
-            excel_path = generate_excel_report(positions)
-            with open(excel_path, "rb") as f:
-                excel_bytes = f.read()
+        # 懒生成：用户点按钮才生成 Excel（首次 60-90s，之后走 streamlit cache）
+        if st.button("📊 准备 Excel 报告", key="prep_excel", use_container_width=True):
+            try:
+                import json
+                positions_key = _positions_cache_key(positions)
+                positions_json = json.dumps(positions, ensure_ascii=False, default=str)
+                with st.spinner("正在生成 Excel 报告（首次 60-90 秒）…"):
+                    st.session_state["excel_bytes"] = _cached_excel_report(positions_key, positions_json)
+                st.session_state["excel_filename"] = f"portfolio_{date.today().strftime('%Y%m%d')}.xlsx"
+                st.success("Excel 已就绪，点击下方按钮下载")
+            except Exception as e:
+                st.error(f"生成失败: {e}")
+
+        if st.session_state.get("excel_bytes"):
             st.download_button(
-                "📊 导出 Excel",
-                data=excel_bytes,
-                file_name=f"portfolio_{date.today().strftime('%Y%m%d')}.xlsx",
+                "📥 下载 Excel",
+                data=st.session_state["excel_bytes"],
+                file_name=st.session_state.get("excel_filename", "portfolio.xlsx"),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
-        except Exception as e:
-            st.button("📊 导出 Excel", disabled=True, help=f"导出失败: {e}")
 
     # 初始化持仓调整 session_state
     if "holdings_adjustments" not in st.session_state:

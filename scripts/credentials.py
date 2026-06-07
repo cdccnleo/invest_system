@@ -8,6 +8,7 @@ credentials.py — InvestPilot 统一凭据管理模块
 
 import os
 import logging
+from functools import lru_cache
 import subprocess
 import json
 from pathlib import Path
@@ -116,11 +117,15 @@ def _save_cred_file(creds: dict) -> None:
     os.chmod(CRED_FILE, 0o600)
 
 
-# ── 统一获取接口 ───────────────────────────────────────────────────────────
+# ── 统一获取接口 ────────────────────────────────────────────────────────────
 
+@lru_cache(maxsize=32)
 def get_credential(key: str, default: Optional[str] = None) -> Optional[str]:
     """
-    获取凭据的统一入口。
+    获取凭据的统一入口（进程级 lru_cache，避免重复 fork powershell.exe）。
+
+    第一次调用会启动 WCM/cmdkey（~800ms），后续调用 O(1)。
+    进程内最多缓存 32 个 key，maxsize 满了会 LRU 淘汰。
 
     读取优先级:
     1. Windows Credential Manager（WSL2: cmdkey）
@@ -140,28 +145,31 @@ def get_credential(key: str, default: Optional[str] = None) -> Optional[str]:
       DB_ENCRYPTION_KEY    — AES-256 加密密钥（32字符hex）
       DASHBOARD_PASSWORD   — 仪表盘访问密码
     """
-    # 1. WCM（Windows 端）
+    # 1. 本地降级文件（毫秒级 IO 优先，避免 WCM 的 powershell fork ~400ms）
+    creds = _load_cred_file()
+    if key in creds and creds[key]:
+        logger.debug(f"本地凭据文件命中: {key}")
+        return creds[key]
+
+    # 2. WCM（Windows 端）— 仅当 store.json 没有时尝试
     wcm_val = _wcm_get(key)
     if wcm_val:
         return wcm_val
 
-    # 2. WCM 别名尝度
+    # 3. WCM 别名尝试
     aliases = {
         "DB_PASSWORD": "InvestPilot_DB",
         "DEEPSEEK_API_KEY": "InvestPilot_DeepSeek",
-        "DATABASE_URL": "InvestPilot_DB_URL",
+        "DASHBOARD_PASSWORD": "InvestPilot_Dashboard",
+        "DINGTALK_WEBHOOK": "InvestPilot_DingTalk",
+        "WECHAT_WEBHOOK": "InvestPilot_WeChat",
+        "FEISHU_WEBHOOK": "InvestPilot_Feishu",
     }
     wcm_service = aliases.get(key)
     if wcm_service:
         wcm_val = _wcm_get(wcm_service)
         if wcm_val:
             return wcm_val
-
-    # 3. 本地降级文件
-    creds = _load_cred_file()
-    if key in creds and creds[key]:
-        logger.debug(f"本地凭据文件命中: {key}")
-        return creds[key]
 
     # 4. 环境变量（仅回退，非主要来源）
     env_val = os.environ.get(key)

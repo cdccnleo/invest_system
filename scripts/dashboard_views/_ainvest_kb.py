@@ -19,8 +19,8 @@ def render_ainvest_kb():
     st.markdown("## 📚 AInvest 深度知识库")
     st.caption("从 C:\\PythonProject\\AInvest\\reports 自动解析的投资分析报告知识库")
 
-    tab_overview, tab_by_stock, tab_signals, tab_settings = st.tabs([
-        "📋 报告总览", "🏷️ 按标的查询", "📊 信号提取", "⚙️ 同步设置"
+    tab_overview, tab_by_stock, tab_signals, tab_semantic, tab_settings = st.tabs([
+        "📋 报告总览", "🏷️ 按标的查询", "📊 信号提取", "🔍 语义搜索", "⚙️ 同步设置"
     ])
 
     with tab_overview:
@@ -31,6 +31,9 @@ def render_ainvest_kb():
 
     with tab_signals:
         _render_signals()
+
+    with tab_semantic:
+        _render_semantic_search()
 
     with tab_settings:
         _render_settings()
@@ -342,6 +345,67 @@ def _render_signals():
         st.error(f"查询失败: {e}")
     finally:
         conn.close()
+
+
+def _render_semantic_search():
+    """语义搜索面板 — 基于向量相似度的 AInvest 知识检索"""
+    st.markdown("### 🔍 语义知识搜索")
+
+    col_search, col_k = st.columns([4, 1])
+    with col_search:
+        query = st.text_input(
+            "搜索查询",
+            placeholder="例如：非农数据对半导体行业的影响、AI算力需求趋势",
+            label_visibility="collapsed",
+        )
+    with col_k:
+        top_k = st.number_input("返回条数", min_value=1, max_value=20, value=5, label_visibility="collapsed")
+
+    if st.button("🔍 搜索", type="primary", use_container_width=True):
+        if not query.strip():
+            st.warning("请输入搜索关键词")
+            return
+
+        with st.spinner("正在检索语义相似报告..."):
+            try:
+                from kb_ainvest_worker import search_ainvest_knowledge
+                results = search_ainvest_knowledge(query, top_k=top_k)
+            except Exception as e:
+                st.error(f"搜索失败: {e}")
+                return
+
+        if not results:
+            st.info("未找到相关报告，请尝试其他关键词")
+            return
+
+        st.success(f"找到 {len(results)} 条相关知识")
+
+        for i, r in enumerate(results):
+            with st.expander(f"[{r['date']}] {r['title'][:60]} (相似度: {r['similarity']:.1%})"):
+                st.markdown(f"**报告**: {r['title']}")
+                st.markdown(f"**类型**: {r.get('report_type', 'N/A')}")
+                st.markdown(f"**相似度**: {r['similarity']:.1%}")
+                st.markdown("**内容摘要**:")
+                st.info(r["content"][:500] if r["content"] else "(无内容)")
+
+                # 关联冲突检测
+                if r.get("related_codes"):
+                    try:
+                        from kb_ainvest_worker import detect_knowledge_conflict
+                        for code in r["related_codes"][:3]:
+                            sigs = r.get("signals", [])
+                            conflicts = detect_knowledge_conflict(code, sigs)
+                            if conflicts:
+                                for c in conflicts:
+                                    st.warning(
+                                        f"⚠️ 冲突检测 [{code}]: {c['type']} — "
+                                        f"AInvest: {c.get('ainvest', '')} vs TAMF: {c.get('tamf', '')}"
+                                    )
+                    except Exception:
+                        pass
+    else:
+        st.caption("💡 输入自然语言查询，语义搜索将找到最相关的报告片段")
+
 
 
 def _render_settings():

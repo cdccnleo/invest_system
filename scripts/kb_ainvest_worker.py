@@ -506,3 +506,127 @@ def process_ainvest_reports() -> dict:
         "parsed_failed": parsed_failed,
         "elapsed_seconds": elapsed,
     }
+
+# ── N1.1 语义搜索 ───────────────────────────────────────────────────────────
+
+def search_ainvest_knowledge(query: str, top_k: int = 5) -> list[dict]:
+    """
+    基于向量语义的 AInvest 知识搜索。
+
+    Args:
+        query: 自然语言查询（如 "非农数据对半导体行业的影响"）
+        top_k: 返回结果数
+    Returns:
+        [{report_id, chunk_index, content, similarity, title, date}, ...]
+    """
+    from embedding_service import get_embedding
+
+    query_emb = get_embedding(query)
+    if query_emb is None:
+        logger.warning("search_ainvest_knowledge: embedding 生成失败，跳过语义搜索")
+        return []
+
+    from storage_factory import get_pg_connection
+    conn = get_pg_connection()
+    if conn is None:
+        return []
+
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                re.report_id,
+                re.chunk_index,
+                re.content_chunk,
+                1 - (re.embedding <=> %s::vector) AS similarity,
+                pr.title,
+                pr.report_date
+            FROM ainvest_kb.report_embeddings re
+            JOIN ainvest_kb.parsed_reports pr ON pr.id = re.report_id
+            WHERE pr.report_date >= NOW() - INTERVAL '90 days'
+            ORDER BY re.embedding <=> %s::vector
+            LIMIT %s
+        """, (query_emb, query_emb, top_k))
+
+        results = []
+        for r in cur.fetchall():
+            results.append({
+                "report_id": r[0],
+                "chunk_index": r[1],
+                "content": r[2],
+                "similarity": round(r[3], 4),
+                "title": r[4],
+                "date": r[5].strftime("%Y-%m-%d") if r[5] else None,
+            })
+        return results
+    except Exception as e:
+        logger.warning(f"search_ainvest_knowledge 查询失败: {e}")
+        return []
+    finally:
+        conn.close()
+
+# ── N1.2 知识冲突检测 ───────────────────────────────────────────────────────
+
+def detect_knowledge_conflict(code: str, ainvest_signals: list[dict]) -> list[dict]:
+    """
+    检测 AInvest 信号与 TAMF 已有判断是否存在矛盾。
+
+    Args:
+        code: 股票代码（如 "688008"）
+        ainvest_signals: AInvest 提取的投资信号列表
+    Returns:
+        冲突列表，每项包含 type、ainvest 信号、TAMF 判断
+    """
+    from storage_factory import get_pg_connection
+    conn = get_pg_connection()
+    if conn is None:
+        return []
+
+    try:
+        cur = conn.cursor()
+        # 获取 TAMF 最近的判断
+        cur.execute("""
+            SELECT content
+            FROM memory.target_timeline_events
+            WHERE ts_code = %s
+              AND event_type IN ('TAMF_UPDATE', 'ANALYSIS_RESULT')
+              AND event_time >= NOW() - INTERVAL '30 days'
+            ORDER BY event_time DESC
+            LIMIT 10
+        """, (code,))
+        tamf_contents = [r[0] for r in cur.fetchall() if r[0]]
+
+        if not tamf_contents:
+            return []
+
+        # 合并 TAMF 内容用于关键词检测
+        tamf_text = " ".join(tamf_contents)
+
+        conflicts = []
+        for signal in ainvest_signals:
+            direction = signal.get("signal_direction", signal.get("direction", ""))
+            if not direction:
+                continue
+
+            # 检测方向相反的信号
+            if direction in ("positive", "bullish", "买入", "增持") and                     any(kw in tamf_text for kw in ["减持", "卖出", "减仓", "negative", "bearish"]):
+                conflicts.append({
+                    "type": "direction_conflict",
+                    "severity": "high",
+                    "ainvest": f"{signal.get('event_tag', '')} {signal.get('signal', '')}".strip(),
+                    "tamf": "TAMF 近期存在减仓/卖出判断",
+                })
+            elif direction in ("negative", "bearish", "卖出", "减持") and                     any(kw in tamf_text for kw in ["增持", "买入", "加仓", "positive", "bullish"]):
+                conflicts.append({
+                    "type": "direction_conflict",
+                    "severity": "high",
+                    "ainvest": f"{signal.get('event_tag', '')} {signal.get('signal', '')}".strip(),
+                    "tamf": "TAMF 近期存在加仓/买入判断",
+                })
+
+        return conflicts
+    except Exception as e:
+        logger.warning(f"detect_knowledge_conflict 查询失败: {e}")
+        return []
+    finally:
+        conn.close()

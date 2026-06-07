@@ -3,7 +3,10 @@ dashboard.py — Phase 2 Web 仪表盘 (Streamlit)
 持仓视图 v0.1
 """
 
-import os, sys, json, csv
+import os
+import sys
+import json
+import csv
 from pathlib import Path
 from datetime import datetime
 
@@ -13,7 +16,6 @@ os.environ[" STREAMLIT_SERVER_HEADLESS"] = "true"
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
 # ── 路径设置 ───────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
@@ -42,7 +44,6 @@ def _get_dashboard_password():
     global _cached_pw
     if _cached_pw is not None:
         return _cached_pw
-    import json
 
     cred_file = os.path.expanduser("~/.hermes/invest_credentials/store.json")
     try:
@@ -166,7 +167,7 @@ def get_news_count() -> int:
             WHERE published_at >= CURRENT_DATE - INTERVAL '7 days'
         """)
         return cur.fetchone()[0] or 0
-    except:
+    except Exception:
         return 0
     finally:
         conn.close()
@@ -220,17 +221,22 @@ def render_sidebar():
         if st.button("📥 从券商文件同步持仓", help="读取 D:\\Hold 目录下的券商持仓文件，更新 positions.csv 和 PostgreSQL"):
             with st.spinner("正在解析持仓文件..."):
                 try:
-                    import csv as csv_lib, json as json_lib
+                    import csv as csv_lib
+                    import json as json_lib
                     from pathlib import Path
                     def _read_gbk(p):
                         for enc in ['utf-8-sig', 'gbk', 'cp936', 'utf-8']:
                             try:
-                                with open(p, encoding=enc) as f: return f.read()
-                            except: continue
+                                with open(p, encoding=enc) as f:
+                                    return f.read()
+                            except Exception:
+                                continue
                         return ""
                     def _safe_float(v, default=0.0):
-                        try: return float(str(v).replace(',','').replace('"','').strip() or '0')
-                        except: return default
+                        try:
+                            return float(str(v).replace(',', '').replace('"', '').strip() or '0')
+                        except Exception:
+                            return default
                     def _parse_csv_line(line):
                         reader = csv_lib.reader([line])
                         return list(reader)[0]
@@ -240,7 +246,8 @@ def render_sidebar():
 
                     # 查找目录中最新实际存在的持仓文件日期
                     def _latest_hold_date():
-                        import re, os
+                        import re
+                        import os
                         best = None
                         for fname in os.listdir(HOLD_DIR):
                             m = re.search(r'(\d{8})\.csv$', fname)
@@ -266,12 +273,16 @@ def render_sidebar():
                     gj = _read_gbk(f"{HOLD_DIR}/国金证券持仓{file_date}.csv")
                     for line in gj.split('\n'):
                         row = _parse_csv_line(line)
-                        if len(row) < 10 or not row[0].strip() or not row[0][0].isdigit(): continue
+                        if len(row) < 10 or not row[0].strip() or not row[0][0].isdigit():
+                            continue
                         try:
                             code = row[0].strip().zfill(6)
                             name = row[1].strip()
-                            shares = _safe_float(row[3]); cost = abs(_safe_float(row[7])); mv = _safe_float(row[9])
-                            if shares <= 0 or mv <= 0: continue
+                            shares = _safe_float(row[3])
+                            cost = abs(_safe_float(row[7]))
+                            mv = _safe_float(row[9])
+                            if shares <= 0 or mv <= 0:
+                                continue
                             ptype = 'bond' if code.startswith('4') else ('fund' if code.startswith(('5','15')) else 'stock')
                             key = ('国金证券', code)
                             if key not in positions_map:
@@ -279,44 +290,66 @@ def render_sidebar():
                                 _dbg["国金证券"] += 1
                             else:
                                 p = positions_map[key]
-                                cs = p['shares']+shares; p['shares']=cs; p['market_value']+=mv; p['cost']=(p['cost']*p['shares']+cost*shares)/cs if cs>0 else p['cost']
-                        except: continue
+                                cs = p['shares'] + shares
+                                p['shares'] = cs
+                                p['market_value'] += mv
+                                p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']
+                        except Exception:
+                            continue
 
                     # 2. 天天基金
                     try:
                         with open(f"{HOLD_DIR}/天天基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'): continue
+                                if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'):
+                                    continue
                                 try:
-                                    code = row[0].strip(); name = row[1].strip(); nav = _safe_float(row[3]); amount = _safe_float(row[5])
-                                    if amount <= 0: continue
+                                    code = row[0].strip()
+                                    name = row[1].strip()
+                                    nav = _safe_float(row[3])
+                                    amount = _safe_float(row[5])
+                                    if amount <= 0:
+                                        continue
                                     key = ('天天基金', code)
                                     if key not in positions_map:
                                         positions_map[key] = {'account':'天天基金','code':code,'name':name,'type':'fund','shares':amount/nav if nav>0 else 0,'cost':nav,'date':date,'market_value':amount,'weight':0}
                                         _dbg["天天基金"] += 1
-                                except: continue
-                    except: pass
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
 
                     # 3. 广发基金
                     try:
                         with open(f"{HOLD_DIR}/广发基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 10 or not row[0].strip() or row[0] in ('类型',''): continue
+                                if len(row) < 10 or not row[0].strip() or row[0] in ('类型',''):
+                                    continue
                                 try:
-                                    code = str(row[2].strip()).zfill(6); name = row[1].strip()
-                                    shares = _safe_float(row[3]); cost = abs(_safe_float(row[7])); mv = _safe_float(row[9])
-                                    if shares <= 0 or mv <= 0: continue
+                                    code = str(row[2].strip()).zfill(6)
+                                    name = row[1].strip()
+                                    shares = _safe_float(row[3])
+                                    cost = abs(_safe_float(row[7]))
+                                    mv = _safe_float(row[9])
+                                    if shares <= 0 or mv <= 0:
+                                        continue
                                     ptype = 'stock' if row[0].strip() == '股票' else 'fund'
                                     key = ('广发证券', code)
                                     if key not in positions_map:
                                         positions_map[key] = {'account':'广发证券','code':code,'name':name,'type':ptype,'shares':shares,'cost':cost,'date':date,'market_value':mv,'weight':0}
                                         _dbg["广发证券"] += 1
                                     else:
-                                        p = positions_map[key]; cs = p['shares']+shares; p['shares']=cs; p['market_value']+=mv; p['cost']=(p['cost']*p['shares']+cost*shares)/cs if cs>0 else p['cost']
-                                except: continue
-                    except: pass
+                                        p = positions_map[key]
+                                        cs = p['shares'] + shares
+                                        p['shares'] = cs
+                                        p['market_value'] += mv
+                                        p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
 
                     # 4. 汇添富基金
                     try:
@@ -324,22 +357,34 @@ def render_sidebar():
                         with open(f"{HOLD_DIR}/汇添富基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'): continue
+                                if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'):
+                                    continue
                                 try:
-                                    code = str(row[0].strip()).zfill(6); name = row[1].strip()
-                                    nav = _safe_float(row[3]); shares = _safe_float(row[6]); mv = _safe_float(row[8]); ct = _safe_float(row[9])
-                                    if shares <= 0: continue
-                                    if code not in fund_groups: fund_groups[code] = {'name':name,'nav':nav,'ts':0,'tmv':0,'tct':0}
-                                    fund_groups[code]['ts'] += shares; fund_groups[code]['tmv'] += mv; fund_groups[code]['tct'] += ct
-                                except: continue
+                                    code = str(row[0].strip()).zfill(6)
+                                    name = row[1].strip()
+                                    nav = _safe_float(row[3])
+                                    shares = _safe_float(row[6])
+                                    mv = _safe_float(row[8])
+                                    ct = _safe_float(row[9])
+                                    if shares <= 0:
+                                        continue
+                                    if code not in fund_groups:
+                                        fund_groups[code] = {'name': name, 'nav': nav, 'ts': 0, 'tmv': 0, 'tct': 0}
+                                    fund_groups[code]['ts'] += shares
+                                    fund_groups[code]['tmv'] += mv
+                                    fund_groups[code]['tct'] += ct
+                                except Exception:
+                                    continue
                         for code, d in fund_groups.items():
-                            if d['ts'] <= 0: continue
+                            if d['ts'] <= 0:
+                                continue
                             avg_cost = d['tct']/d['ts'] if d['tct'] > 0 else d['nav']
                             key = ('汇添富基金', code)
                             if key not in positions_map:
                                 positions_map[key] = {'account':'汇添富基金','code':code,'name':d['name'],'type':'fund','shares':d['ts'],'cost':avg_cost,'date':date,'market_value':d['tmv'],'weight':0}
                                 _dbg["汇添富基金"] += 1
-                    except: pass
+                    except Exception:
+                        pass
 
                     positions = list(positions_map.values())
                     total_mv = sum(p['market_value'] for p in positions)
@@ -349,7 +394,7 @@ def render_sidebar():
                     # DEBUG: 打印各数据源记录数
                     st.caption(f"📊 各数据源: {_dbg}，合计 {len(positions)} 条 | 日期={date_str}")
                     if len(positions) < 30:
-                        st.warning(f"⚠️ 记录数偏少（<30），检查各文件读取是否完整")
+                        st.warning("⚠️ 记录数偏少（<30），检查各文件读取是否完整")
 
                     # 写入 positions.csv
                     csv_path = "/mnt/d/Hold/invest-data/positions.csv"
@@ -368,7 +413,13 @@ def render_sidebar():
                     cur = conn.cursor()
                     added = 0
                     for p in positions:
-                        code = p['code']; name = p['name']; shares = float(p['shares']); avg_cost = float(p['cost']); mv = float(p['market_value']); wt = float(p['weight']); ptype = p['type']
+                        code = p['code']
+                        name = p['name']
+                        shares = float(p['shares'])
+                        avg_cost = float(p['cost'])
+                        mv = float(p['market_value'])
+                        wt = float(p['weight'])
+                        ptype = p['type']
                         profit_loss = mv - avg_cost * shares
                         profit_pct = min(max((mv/avg_cost - 1)*100, -9999.9999), 9999.9999) if avg_cost > 0 else 0
                         # 使用 upsert_positions 函数：自动标记旧记录 is_current=FALSE + 插入新记录
@@ -706,7 +757,7 @@ def render_news_summary():
                 st.info("暂无国际投行研究数据（定时任务 21:00 采集）")
             else:
                 # 统计
-                bank_related = [r for r in intl_rows if r[6]]
+                [r for r in intl_rows if r[6]]
                 cur.execute("""
                     SELECT COUNT(*) FROM research.international_bank_research
                     WHERE published_at >= CURRENT_DATE - INTERVAL '7 days'
@@ -730,7 +781,6 @@ def render_news_summary():
                     date_str = published_at.strftime("%m-%d %H:%M") if published_at else "未知"
                     inst_str = ', '.join(cited_inst) if cited_inst else ''
                     bank_tag = "🔴" if is_bank else "⚪"
-                    type_str = f"[{art_type}] " if art_type else ""
 
                     header = (f"{bank_tag} [{date_str}] {source}"
                               + (f" | 涉及: {inst_str}" if inst_str else "")
@@ -991,7 +1041,8 @@ def render_announcements():
             "重要事项": "⭐", "资质认定": "🏅", "投资者关系": "🤝",
             "退市风险": "⚠️", "一般公告": "📌",
         }
-        TYPE_EMOJI = lambda t: TYPE_COLORS.get(t, "📌")
+        def TYPE_EMOJI(t):
+            return TYPE_COLORS.get(t, "📌")
 
         # 按日期分组展示
         current_date = None
@@ -1123,7 +1174,6 @@ def _enrich_calendar_entry(entry: dict) -> dict:
 def _build_month_grid(year: int, month: int, entries_by_date: dict) -> pd.DataFrame:
     """构建单个月份的日历网格 DataFrame"""
     import calendar
-    from datetime import date
 
     cal = calendar.Calendar(firstweekday=6)  # 周日开局
     weeks = cal.monthdatescalendar(year, month)
@@ -1386,7 +1436,7 @@ def render_tamf_memory():
         positions = load_positions_from_db()
         codes = [p["code"] for p in positions]
         names = {p["code"]: p["name"] for p in positions}
-        anon_map = {p["code"]: p.get("code", p["code"]) for p in positions}
+        {p["code"]: p.get("code", p["code"]) for p in positions}
     except Exception as e:
         st.error(f"加载持仓失败: {e}")
         return
@@ -1550,7 +1600,6 @@ def render_plan_review():
         }
 
     plan_reviews = st.session_state["plan_reviews"]
-    changed = False
 
     for run in runs:
         run_id = run["run_id"]
@@ -1590,10 +1639,8 @@ def render_plan_review():
                                                   key=approve_key)
                         if is_approved:
                             plan_reviews[plan_id] = "approved"
-                            changed = True
                         elif plan_reviews.get(plan_id) == "approved":
                             del plan_reviews[plan_id]
-                            changed = True
 
                 with col_cb2:
                     if not (existing and existing.get("decision")):
@@ -1601,14 +1648,12 @@ def render_plan_review():
                                                   key=reject_key)
                         if is_rejected:
                             plan_reviews[plan_id] = "rejected"
-                            changed = True
                         elif plan_reviews.get(plan_id) == "rejected":
                             del plan_reviews[plan_id]
-                            changed = True
 
                 with col_cb3:
                     if current_decision in ("approved", "rejected"):
-                        pos_pct = st.slider(
+                        st.slider(
                             "执行仓位%",
                             min_value=10, max_value=100,
                             value=default_pct,
@@ -1700,10 +1745,10 @@ def render_settings():
 
     st.markdown("### 数据源")
     st.markdown(f"- 持仓文件: `{POSITIONS_CSV}`")
-    st.markdown(f"- 数据库: `postgresql://invest_admin@localhost:5432/investpilot`")
-    st.markdown(f"- 行情: 东方财富基金 API + 新浪财经")
-    st.markdown(f"- 新闻: 同花顺快讯 + 新浪财经 + 金十数据（财联社已停用）")
-    st.markdown(f"- 研报: 东方财富研报 API（16:00 每日采集）")
+    st.markdown("- 数据库: `postgresql://invest_admin@localhost:5432/investpilot`")
+    st.markdown("- 行情: 东方财富基金 API + 新浪财经")
+    st.markdown("- 新闻: 同花顺快讯 + 新浪财经 + 金十数据（财联社已停用）")
+    st.markdown("- 研报: 东方财富研报 API（16:00 每日采集）")
 
     st.markdown("### 定时任务")
     st.markdown("- 08:30 盘前工作流")

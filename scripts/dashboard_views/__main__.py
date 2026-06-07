@@ -147,8 +147,10 @@ def render_sidebar():
                     def _read_gbk(p):
                         for enc in ['utf-8-sig', 'gbk', 'cp936', 'utf-8']:
                             try:
-                                with open(p, encoding=enc) as f: return f.read()
-                            except: continue
+                                with open(p, encoding=enc) as f:
+                                    return f.read()
+                            except Exception:
+                                continue
                         return ""
                     def _parse_csv_line(line):
                         reader = csv_lib.reader([line])
@@ -186,12 +188,16 @@ def render_sidebar():
                     gj = _read_gbk(f"{HOLD_DIR}/国金证券持仓{file_date}.csv")
                     for line in gj.split('\n'):
                         row = _parse_csv_line(line)
-                        if len(row) < 10 or not row[0].strip() or not row[0][0].isdigit(): continue
+                        if len(row) < 10 or not row[0].strip() or not row[0][0].isdigit():
+                            continue
                         try:
                             code = row[0].strip().zfill(6)
                             name = row[1].strip()
-                            shares = safe_float(row[3]); cost = abs(safe_float(row[7])); mv = safe_float(row[9])
-                            if shares <= 0 or mv <= 0: continue
+                            shares = safe_float(row[3])
+                            cost = abs(safe_float(row[7]))
+                            mv = safe_float(row[9])
+                            if shares <= 0 or mv <= 0:
+                                continue
                             ptype = 'bond' if code.startswith('4') else ('fund' if code.startswith(('5','15')) else 'stock')
                             key = ('国金证券', code)
                             if key not in positions_map:
@@ -199,44 +205,66 @@ def render_sidebar():
                                 _dbg["国金证券"] += 1
                             else:
                                 p = positions_map[key]
-                                cs = p['shares']+shares; p['shares']=cs; p['market_value']+=mv; p['cost']=(p['cost']*p['shares']+cost*shares)/cs if cs>0 else p['cost']
-                        except: continue
+                                cs = p['shares'] + shares
+                                p['shares'] = cs
+                                p['market_value'] += mv
+                                p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']
+                        except Exception:
+                            continue
 
                     # 2. 天天基金
                     try:
                         with open(f"{HOLD_DIR}/天天基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'): continue
+                                if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'):
+                                    continue
                                 try:
-                                    code = row[0].strip(); name = row[1].strip(); nav = safe_float(row[3]); amount = safe_float(row[5])
-                                    if amount <= 0: continue
+                                    code = row[0].strip()
+                                    name = row[1].strip()
+                                    nav = safe_float(row[3])
+                                    amount = safe_float(row[5])
+                                    if amount <= 0:
+                                        continue
                                     key = ('天天基金', code)
                                     if key not in positions_map:
                                         positions_map[key] = {'account':'天天基金','code':code,'name':name,'type':'fund','shares':amount/nav if nav>0 else 0,'cost':nav,'date':date,'market_value':amount,'weight':0}
                                         _dbg["天天基金"] += 1
-                                except: continue
-                    except: pass
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
 
                     # 3. 广发基金
                     try:
                         with open(f"{HOLD_DIR}/广发基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 10 or not row[0].strip() or row[0] in ('类型',''): continue
+                                if len(row) < 10 or not row[0].strip() or row[0] in ('类型',''):
+                                    continue
                                 try:
-                                    code = str(row[2].strip()).zfill(6); name = row[1].strip()
-                                    shares = safe_float(row[3]); cost = abs(safe_float(row[7])); mv = safe_float(row[9])
-                                    if shares <= 0 or mv <= 0: continue
+                                    code = str(row[2].strip()).zfill(6)
+                                    name = row[1].strip()
+                                    shares = safe_float(row[3])
+                                    cost = abs(safe_float(row[7]))
+                                    mv = safe_float(row[9])
+                                    if shares <= 0 or mv <= 0:
+                                        continue
                                     ptype = 'stock' if row[0].strip() == '股票' else 'fund'
                                     key = ('广发证券', code)
                                     if key not in positions_map:
                                         positions_map[key] = {'account':'广发证券','code':code,'name':name,'type':ptype,'shares':shares,'cost':cost,'date':date,'market_value':mv,'weight':0}
                                         _dbg["广发证券"] += 1
                                     else:
-                                        p = positions_map[key]; cs = p['shares']+shares; p['shares']=cs; p['market_value']+=mv; p['cost']=(p['cost']*p['shares']+cost*shares)/cs if cs>0 else p['cost']
-                                except: continue
-                    except: pass
+                                        p = positions_map[key]
+                                        cs = p['shares'] + shares
+                                        p['shares'] = cs
+                                        p['market_value'] += mv
+                                        p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']
+                                except Exception:
+                                    continue
+                    except Exception:
+                        pass
 
                     # 4. 汇添富基金
                     try:
@@ -244,22 +272,34 @@ def render_sidebar():
                         with open(f"{HOLD_DIR}/汇添富基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'): continue
+                                if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'):
+                                    continue
                                 try:
-                                    code = str(row[0].strip()).zfill(6); name = row[1].strip()
-                                    nav = safe_float(row[3]); shares = safe_float(row[6]); mv = safe_float(row[8]); ct = safe_float(row[9])
-                                    if shares <= 0: continue
-                                    if code not in fund_groups: fund_groups[code] = {'name':name,'nav':nav,'ts':0,'tmv':0,'tct':0}
-                                    fund_groups[code]['ts'] += shares; fund_groups[code]['tmv'] += mv; fund_groups[code]['tct'] += ct
-                                except: continue
+                                    code = str(row[0].strip()).zfill(6)
+                                    name = row[1].strip()
+                                    nav = safe_float(row[3])
+                                    shares = safe_float(row[6])
+                                    mv = safe_float(row[8])
+                                    ct = safe_float(row[9])
+                                    if shares <= 0:
+                                        continue
+                                    if code not in fund_groups:
+                                        fund_groups[code] = {'name': name, 'nav': nav, 'ts': 0, 'tmv': 0, 'tct': 0}
+                                    fund_groups[code]['ts'] += shares
+                                    fund_groups[code]['tmv'] += mv
+                                    fund_groups[code]['tct'] += ct
+                                except Exception:
+                                    continue
                         for code, d in fund_groups.items():
-                            if d['ts'] <= 0: continue
+                            if d['ts'] <= 0:
+                                continue
                             avg_cost = d['tct']/d['ts'] if d['tct'] > 0 else d['nav']
                             key = ('汇添富基金', code)
                             if key not in positions_map:
                                 positions_map[key] = {'account':'汇添富基金','code':code,'name':d['name'],'type':'fund','shares':d['ts'],'cost':avg_cost,'date':date,'market_value':d['tmv'],'weight':0}
                                 _dbg["汇添富基金"] += 1
-                    except: pass
+                    except Exception:
+                        pass
 
                     positions = list(positions_map.values())
                     total_mv = sum(p['market_value'] for p in positions)
@@ -288,7 +328,13 @@ def render_sidebar():
                     cur = conn.cursor()
                     added = 0
                     for p in positions:
-                        code = p['code']; name = p['name']; shares = float(p['shares']); avg_cost = float(p['cost']); mv = float(p['market_value']); wt = float(p['weight']); ptype = p['type']
+                        code = p['code']
+                        name = p['name']
+                        shares = float(p['shares'])
+                        avg_cost = float(p['cost'])
+                        mv = float(p['market_value'])
+                        wt = float(p['weight'])
+                        ptype = p['type']
                         profit_loss = mv - avg_cost * shares
                         profit_pct = min(max((mv/avg_cost - 1)*100, -9999.9999), 9999.9999) if avg_cost > 0 else 0
                         # 使用 upsert_positions 函数：自动标记旧记录 is_current=FALSE + 插入新记录

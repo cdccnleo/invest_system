@@ -4,7 +4,8 @@ APScheduler 驱动 08:30 / 15:30 / 21:00 三个工作流
 完成后通过 Server酱(微信) + 飞书机器人推送报告
 """
 
-import os, sys, logging
+import sys
+import logging
 from pathlib import Path
 from datetime import datetime, date
 
@@ -66,7 +67,7 @@ def _guard_trading_day(job_name: str):
 # ── 工作流定义 ────────────────────────────────────────────────────────────
 from fetch_reports import collect_reports
 from skill_library import check_skill_triggers, generate_skill_draft, SkillLifecycle
-from skill_library import DRAFT_DIR, APPROVED_DIR, TRIGGER_DAYS, TRIGGER_MIN_CALLS
+from skill_library import TRIGGER_DAYS, TRIGGER_MIN_CALLS
 from notification import send_notification, send_error_alert
 from intraday_monitor import IntradayMonitor, format_anomaly_message
 from fetch_financial import collect_financial_for_positions
@@ -107,7 +108,7 @@ def _build_morning_report() -> str:
             import json
             try:
                 detail = json.loads(detail_str) if detail_str else {}
-            except:
+            except Exception:
                 detail = {}
             positions_count = detail.get("positions", "?")
             quotes_count = detail.get("quotes", "?")
@@ -143,7 +144,7 @@ def _build_closing_report() -> str:
             import json
             try:
                 detail = json.loads(detail_str) if detail_str else {}
-            except:
+            except Exception:
                 detail = {}
             positions_count = detail.get("positions", "?")
             ts = event_time.strftime("%H:%M") if event_time else ""
@@ -198,7 +199,6 @@ def _parallel_collect_close_data(stock_codes: list, anns_days_window: int = 30) 
     利用 ThreadPoolExecutor 将两个独立的 I/O 密集型任务并行执行，
     总耗时从串行约 3 分钟降至约 1.5 分钟。
     """
-    import concurrent.futures
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     results = {"financial": None, "announcements": None, "errors": []}
@@ -658,7 +658,6 @@ def job_intraday_monitoring():
     if not _guard_trading_day("job_intraday_monitoring"):
         return
     # ── 交易时段守卫 ────────────────────────────────────────────────────
-    from datetime import time as dtime
     now = datetime.now()
     morning_start  = now.replace(hour=9,  minute=30, second=0, microsecond=0)
     morning_end    = now.replace(hour=11, minute=30, second=0, microsecond=0)
@@ -706,7 +705,6 @@ def job_skill_solidification():
     logger.info("=" * 50)
     logger.info("22:00 技能固化工作流启动")
     try:
-        import json
 
         # Step 1: 检测固化触发
         triggered = check_skill_triggers()
@@ -801,8 +799,8 @@ def job_skill_spot_check():
         import random
         from skill_library import (
             SkillLifecycle, spot_check_skill_result,
-            APPROVED_DIR, _log_skill_execution,
         )
+        from backtest_engine import get_db_conn
         import json as _json
 
         sl = SkillLifecycle()
@@ -850,7 +848,7 @@ def job_skill_spot_check():
                 continue
 
             detail = _json.loads(row[0]) if row[0] else {}
-            last_query = detail.get('query', '未知查询')
+            detail.get('query', '未知查询')
             # 模拟预期结构（实际场景需人工标注 expected）
             expected = {"status": "completed"}
             result = {"content": f"[抽查] 技能 {skill_name} 执行结果", "error": None}
@@ -925,7 +923,7 @@ def job_behavior_profile_update():
                 "建议复盘修改原因，减少过度干预。")
 
         # ── 推送确认报告 ──────────────────────────────────────────────────────────
-        msg = f"📊 **每日行为画像**（近30天）\n\n"
+        msg = "📊 **每日行为画像**（近30天）\n\n"
         msg += f"分析成功率: {profile.get('analysis_success_rate', 'N/A')}%\n"
         msg += f"总分析次数: {profile.get('total_analysis_runs', 0)}\n"
         msg += f"最大连续修改: {profile.get('max_consecutive_mod_days', 0)}天\n\n"
@@ -947,7 +945,6 @@ def _build_profile_rows(profile: dict) -> list[tuple]:
     将 analyze_trading_behavior() 返回的 dict 按 l3.behavior_profile 行模型拆解。
     每行: (profile_date, dimension, metric_name, metric_value, alert_level)
     """
-    from datetime import date
     from decimal import Decimal
 
     today = date.today()
@@ -965,7 +962,7 @@ def _build_profile_rows(profile: dict) -> list[tuple]:
                  "critical" if success_rate < 40 else "warning" if success_rate < 60 else "normal"))
 
     # ── 维度3: diversification（分散度）──────────────────────────────────────
-    total_events = sum(ev.values())
+    sum(ev.values())
     skill_cnt = ev.get("SKILL_EXECUTED", 0)
     rows.append((today, "diversification", "skill_usage_count", Decimal(skill_cnt),
                  "normal"))
@@ -1006,7 +1003,7 @@ def job_user_emotion_sensing():
     - 情绪分类：焦虑 | 过度自信 | 恐慌 | 平静 | 兴奋
     - 异常情绪时写入 l3.active_dialog_triggers 并推送飞书预警
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
     logger.info("=" * 50)
     logger.info("21:30 用户情绪感知启动")
@@ -1082,7 +1079,7 @@ def job_user_emotion_sensing():
                 f'建议：{"适当休息" if emotion in ("焦虑","恐慌") else "信任AI计划，减少干预"}',
             ))
             pg_conn.commit()
-            send_notification(f"🧠 L3 情绪感知", f"当前情绪: **{emotion}**\n{emotion_desc}")
+            send_notification("🧠 L3 情绪感知", f"当前情绪: **{emotion}**\n{emotion_desc}")
 
         cur.close()
         pg_conn.close()
@@ -1122,7 +1119,6 @@ def job_stress_test():
     import uuid as _uuid
     import json as _json
     from decimal import Decimal
-    from datetime import date
 
     logger.info("=" * 50)
     logger.info("22:00 每周压力测试启动")

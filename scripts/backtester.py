@@ -592,7 +592,194 @@ class BacktestEngine:
         ))
 
 
-# ── 命令行接口 ───────────────────────────────────────────────────────────────
+# ── 多策略对比与组合聚合 ─────────────────────────────────────────────
+
+class MultiStrategyComparison:
+    """
+    多策略对比引擎：运行多个策略并输出对比表 + 组合层面聚合
+    """
+
+    def __init__(self, config: BacktestConfig | None = None):
+        self.cfg = config or BacktestConfig()
+
+    def run(
+        self,
+        ts_code: str,
+        start_date: date | str,
+        end_date: date | str,
+        strategy_names: list[str] | None = None,
+    ) -> dict:
+        """
+        运行多策略对比
+        ts_code        : 标的代码
+        start_date     : 开始日期
+        end_date       : 结束日期
+        strategy_names : 要对比的策略列表（默认全部）
+        """
+        if strategy_names is None:
+            strategy_names = list(STRATEGY_MAP.keys())
+
+        quotes = load_quotes(ts_code, start_date, end_date)
+        if len(quotes) < self.cfg.min_data_days:
+            return {"error": f"行情数据不足，仅 {len(quotes)} 条"}
+
+        strategy_reports = []
+        for name in strategy_names:
+            if name not in STRATEGY_MAP:
+                continue
+            params = self.cfg.default_params.get(name, {}).copy()
+            strategy = STRATEGY_MAP[name](params)
+            engine = BacktestEngine(self.cfg)
+            report = engine.run(quotes, strategy, start_date, end_date)
+            report["strategy_name"] = name
+            strategy_reports.append(report)
+
+        # ── 对比表 ────────────────────────────────────────────────────
+        comparison_table = self._build_comparison_table(strategy_reports)
+
+        # ── 组合聚合 ─────────────────────────────────────────────────
+        portfolio_agg = self._aggregate_portfolio(strategy_reports)
+
+        return {
+            "ts_code": ts_code,
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+            "strategy_reports": strategy_reports,
+            "comparison_table": comparison_table,
+            "portfolio_agg": portfolio_agg,
+        }
+
+    def _build_comparison_table(self, reports: list[dict]) -> list[dict]:
+        """构建多策略对比表"""
+        table = []
+        for r in reports:
+            if "error" in r:
+                continue
+            s = r.get("summary", {})
+            table.append({
+                "strategy":        r.get("strategy_name", "unknown"),
+                "annual_return":  s.get("annual_return_pct", 0),
+                "max_drawdown":   s.get("max_drawdown_pct", 0),
+                "sharpe":         s.get("sharpe_ratio", 0),
+                "win_rate":       s.get("win_rate_pct", 0),
+                "profit_factor":  s.get("profit_factor", 0),
+                "total_pnl":      s.get("total_pnl", 0),
+                "buy_count":      s.get("buy_count", 0),
+                "sell_count":     s.get("sell_count", 0),
+                "final_equity":   s.get("final_equity", 0),
+            })
+        return table
+
+    def _aggregate_portfolio(self, reports: list[dict]) -> dict:
+        """组合层面聚合：等权平均equity curve + 平均最大回撤"""
+        valid = [r for r in reports if "error" not in r and r.get("equity_curve")]
+        if not valid:
+            return {}
+
+        # 对齐到最短 equity curve
+        min_len = min(len(r["equity_curve"]) for r in valid)
+        if min_len == 0:
+            return {}
+
+        n = len(valid)
+        combined = []
+        for i in range(min_len):
+            total = sum(r["equity_curve"][i][1] for r in valid if i < len(r["equity_curve"]))
+            combined.append(round(total / n, 2))
+
+        # 平均最大回撤
+        avg_max_dd = sum(
+            r.get("summary", {}).get("max_drawdown_pct", 0) for r in valid
+        ) / n
+
+        # 组合日收益
+        daily_returns = []
+        for i in range(1, len(combined)):
+            if combined[i - 1] > 0:
+                daily_returns.append((combined[i] - combined[i - 1]) / combined[i - 1])
+
+        rf = 0.03
+        if len(daily_returns) > 1:
+            std_dev = float(np.std(daily_returns, ddof=1))
+            mean_dr = float(np.mean(daily_returns))
+            sharpe = (mean_dr * 252 - rf) / (std_dev * (252 ** 0.5)) if std_dev > 1e-8 else 0.0
+        else:
+            sharpe = 0.0
+
+        initial = self.cfg.initial_cash
+        total_ret = (combined[-1] - initial) / initial * 100 if initial > 0 else 0
+        n_days = min_len
+        annual_ret = total_ret / (n_days / 252) if n_days > 252 else total_ret * 252 / n_days
+
+        # 组合最大回撤
+        peak = combined[0]
+        max_dd = 0.0
+        for v in combined:
+            if v > peak:
+                peak = v
+            dd = (peak - v) / peak if peak > 0 else 0
+            if dd > max_dd:
+                max_dd = dd
+
+        return {
+            "combined_equity_curve": combined,
+            "avg_max_drawdown_pct": round(avg_max_dd, 2),
+            "portfolio_max_drawdown_pct": round(max_dd * 100, 2),
+            "portfolio_sharpe": round(sharpe, 2),
+            "portfolio_annual_return_pct": round(annual_ret, 2),
+            "portfolio_total_return_pct": round(total_ret, 2),
+            "n_strategies": n,
+        }
+
+    def print_comparison_table(self, comparison_table: list[dict]) -> None:
+        """打印 ASCII 多策略对比表"""
+        if not comparison_table:
+            print("无可用对比数据")
+            return
+
+        headers = ["策略", "年化收益%", "最大回撤%", "夏普", "胜率%", "盈亏比", "最终权益"]
+        rows = []
+        for r in comparison_table:
+            rows.append([
+                r.get("strategy", ""),
+                f"{r.get('annual_return', 0):+.2f}",
+                f"{r.get('max_drawdown', 0):.2f}",
+                f"{r.get('sharpe', 0):.3f}",
+                f"{r.get('win_rate', 0):.1f}",
+                f"{r.get('profit_factor', 0):.2f}",
+                f"¥{r.get('final_equity', 0):,.0f}",
+            ])
+
+        col_widths = [max(len(str(row[i])) for row in rows + [headers]) for i in range(len(headers))]
+
+        def sep():
+            print("+" + "+".join("-" * (w + 2) for w in col_widths) + "+")
+
+        def row_line(cells):
+            print("|" + "|".join(f" {str(cells[i]).ljust(col_widths[i])} " for i in range(len(cells))) + "|")
+
+        sep()
+        row_line(headers)
+        sep()
+        for r in rows:
+            row_line(r)
+        sep()
+
+    def print_portfolio_agg(self, agg: dict) -> None:
+        """打印组合聚合摘要"""
+        if not agg:
+            print("无可用组合数据")
+            return
+        print("\n── 组合聚合 ──")
+        print(f"  策略数量:       {agg.get('n_strategies', 'N/A')}")
+        print(f"  综合年化收益:   {agg.get('portfolio_annual_return_pct', 0):+.2f}%")
+        print(f"  综合总收益:     {agg.get('portfolio_total_return_pct', 0):+.2f}%")
+        print(f"  综合夏普比率:   {agg.get('portfolio_sharpe', 0):.2f}")
+        print(f"  平均最大回撤:   {agg.get('avg_max_drawdown_pct', 0):.2f}%")
+        print(f"  组合最大回撤:   {agg.get('portfolio_max_drawdown_pct', 0):.2f}%")
+
+
+# ── 命令行接口 ────────────────────────────────────────────────────────────────
 
 def parse_args(argv: list[str]) -> dict:
     """解析命令行参数"""

@@ -225,11 +225,16 @@ def compare_strategies(
     start_date: str,
     end_date: str,
     strategies: list[dict],
-) -> list[dict]:
+) -> dict:
     """
-    对比多个策略的回测表现
+    对比多个策略的回测表现，输出对比表格 + 汇总指标
     strategies: [{"name": str, "weight": dict}, ...]
-    weight: {ts_code: weight_pct}
+    weight: {ts_code: weight_pct}  （暂未实现权重分配，仅支持等权）
+    返回：{
+        "strategy_results": [单独策略结果],
+        "comparison_table": [{name, sharpe, max_drawdown, annual_return, win_rate}, ...],
+        "portfolio_agg": portfolio-level aggregation
+    }
     """
     results = []
     for strat in strategies:
@@ -241,7 +246,148 @@ def compare_strategies(
         )
         result["strategy_name"] = strat.get("name", "unnamed")
         results.append(result)
-    return results
+
+    # ── 多策略对比表 ──────────────────────────────────────────────────
+    comparison_table = []
+    for r in results:
+        if "error" in r:
+            continue
+        comparison_table.append({
+            "strategy": r.get("strategy_name", "unnamed"),
+            "total_return_pct": r.get("total_return", 0),
+            "annual_return_pct": r.get("annual_return", 0),
+            "sharpe_ratio": r.get("sharpe_ratio", 0),
+            "max_drawdown_pct": r.get("max_drawdown", 0),
+            "win_rate_pct": r.get("win_rate", 0),
+            "trading_days": r.get("trading_days", 0),
+            "final_value": r.get("final_value", 0),
+        })
+
+    # ── 组合汇总 ─────────────────────────────────────────────────────
+    portfolio_agg = aggregate_portfolio_results(results)
+
+    return {
+        "strategy_results": results,
+        "comparison_table": comparison_table,
+        "portfolio_agg": portfolio_agg,
+    }
+
+
+def aggregate_portfolio_results(results: list[dict]) -> dict:
+    """
+    组合层面聚合：合并equity curve + 平均最大回撤 + 综合Sharpe
+    results: compare_strategies() 返回的 strategy_results
+    """
+    if not results:
+        return {}
+
+    # 对齐日期，取所有结果的 equity_curve
+    # equity_curve 格式: [value, value, ...]  与 dates 对应
+    all_dates_sets = []
+    for r in results:
+        if "error" in r:
+            continue
+        eq = r.get("equity_curve", [])
+        if not eq:
+            continue
+        all_dates_sets.append(set(range(len(eq))))
+
+    # 取最短equity curve长度
+    min_len = min((len(r.get("equity_curve", [])) for r in results if "error" not in r), default=0)
+    if min_len == 0:
+        return {}
+
+    # 合并equity curve（等权平均）
+    n_strategies = len([r for r in results if "error" not in r])
+    combined_curve = []
+    for i in range(min_len):
+        total = sum(
+            r["equity_curve"][i]
+            for r in results
+            if "error" not in r and i < len(r.get("equity_curve", []))
+        )
+        combined_curve.append(round(total / n_strategies, 2))
+
+    # 平均最大回撤
+    avg_max_dd = sum(
+        r.get("max_drawdown", 0) for r in results if "error" not in r
+    ) / n_strategies
+
+    # 组合日收益（基于合并曲线）
+    daily_returns = []
+    for i in range(1, len(combined_curve)):
+        if combined_curve[i - 1] > 0:
+            dr = (combined_curve[i] - combined_curve[i - 1]) / combined_curve[i - 1]
+            daily_returns.append(dr)
+
+    # 综合夏普（假设初始资金 1M * n_strategies）
+    rf = 0.03
+    import statistics
+    if len(daily_returns) > 1:
+        std_dev = statistics.stdev(daily_returns)
+        mean_dr = statistics.mean(daily_returns)
+        sharpe = (mean_dr * 252 - rf) / (std_dev * (252 ** 0.5)) if std_dev > 0 else 0
+    else:
+        sharpe = 0.0
+
+    total_return_pct = (combined_curve[-1] - combined_curve[0]) / combined_curve[0] * 100 if combined_curve[0] > 0 else 0
+    n_days = min_len
+    annual_return_pct = total_return_pct / (n_days / 252) if n_days > 252 else total_return_pct * 252 / n_days
+
+    # 组合最大回撤（基于合并曲线）
+    peak = combined_curve[0]
+    max_drawdown = 0.0
+    for v in combined_curve:
+        if v > peak:
+            peak = v
+        dd = (peak - v) / peak if peak > 0 else 0
+        if dd > max_drawdown:
+            max_drawdown = dd
+
+    return {
+        "combined_equity_curve": combined_curve,
+        "avg_max_drawdown_pct": round(avg_max_dd, 2),
+        "portfolio_max_drawdown_pct": round(max_drawdown * 100, 2),
+        "portfolio_sharpe_ratio": round(sharpe, 2),
+        "portfolio_annual_return_pct": round(annual_return_pct, 2),
+        "portfolio_total_return_pct": round(total_return_pct, 2),
+        "n_strategies": n_strategies,
+    }
+
+
+def print_comparison_table(comparison_table: list[dict]) -> None:
+    """打印多策略对比表（ASCII表格）"""
+    if not comparison_table:
+        print("无可用策略对比数据")
+        return
+
+    headers = ["策略", "年化收益%", "最大回撤%", "夏普比率", "胜率%", "交易日数", "最终权益"]
+    rows = []
+    for r in comparison_table:
+        rows.append([
+            r.get("strategy", ""),
+            f"{r.get('annual_return_pct', 0):+.2f}",
+            f"{r.get('max_drawdown_pct', 0):.2f}",
+            f"{r.get('sharpe_ratio', 0):.2f}",
+            f"{r.get('win_rate_pct', 0):.1f}",
+            str(r.get("trading_days", 0)),
+            f"¥{r.get('final_value', 0):,.0f}",
+        ])
+
+    col_widths = [max(len(str(row[i])) for row in rows + [headers]) for i in range(len(headers))]
+
+    def sep():
+        print("+" + "+".join("-" * (w + 2) for w in col_widths) + "+")
+
+    def row_line(cells):
+        print("|" + "|".join(f" {str(cells[i]).ljust(col_widths[i])} " for i in range(len(cells))) + "|")
+
+    sep()
+    row_line(headers)
+    sep()
+    for r in rows:
+        row_line(r)
+    sep()
 
 
 # ── 技术指标引擎 ──────────────────────────────────────────────────────

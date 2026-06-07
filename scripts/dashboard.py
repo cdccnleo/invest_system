@@ -44,7 +44,7 @@ def _init_pwa():
     # st.html renders directly into the Streamlit page body;
     # we use a hidden marker so these elements end up in <head> context.
     st.html(
-        f"""
+        """
         <link rel="manifest" href="/static/manifest.json" />
         <meta name="theme-color" content="#0ea5e9" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />

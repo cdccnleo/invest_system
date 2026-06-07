@@ -386,7 +386,7 @@ def _render_by_stock():
 
 
 def _render_signals():
-    """信号提取一览"""
+    """信号提取一览 — 懒加载版本"""
     conn = _get_db_conn()
     if conn is None:
         return
@@ -397,6 +397,19 @@ def _render_signals():
     with col2:
         direction = st.selectbox("信号方向", ["全部", "positive", "negative", "neutral"])
 
+    # 懒加载：手动触发按钮 + st.empty() 占位
+    signals_placeholder = st.empty()
+    if st.button("🔍 加载信号数据", key="load_signals_btn"):
+        with signals_placeholder.container():
+            _execute_signals_query(conn, signal_type, direction)
+
+    # 初始状态提示
+    if not signals_placeholder._parent_block:
+        st.caption("💡 点击上方按钮加载信号数据")
+
+
+def _execute_signals_query(conn, signal_type, direction):
+    """执行信号查询（供懒加载调用）"""
     try:
         cur = conn.cursor()
 
@@ -554,33 +567,36 @@ def _render_settings():
                 st.success("缓存已清除")
         st.caption("知识库连接缓存 (1小时) | 统计数据缓存 (5分钟)")
 
-        # 显示最近扫描审计
-        try:
-            conn = _get_db_conn()
-            if conn:
-                cur = conn.cursor()
-                cur.execute("""
-                    SELECT scan_start, total_files, new_files, changed_files,
-                           parsed_ok, parsed_failed
-                    FROM ainvest_kb.scan_audit
-                    ORDER BY id DESC LIMIT 5
-                """)
-                audits = cur.fetchall()
-                cur.close()
-                conn.close()
+        # 显示最近扫描审计（懒加载）
+        audit_placeholder = st.empty()
+        if st.button("📋 加载扫描记录", key="load_audit_btn"):
+            with audit_placeholder.container():
+                try:
+                    conn = _get_db_conn()
+                    if conn:
+                        cur = conn.cursor()
+                        cur.execute("""
+                            SELECT scan_start, total_files, new_files, changed_files,
+                                   parsed_ok, parsed_failed
+                            FROM ainvest_kb.scan_audit
+                            ORDER BY id DESC LIMIT 5
+                        """)
+                        audits = cur.fetchall()
+                        cur.close()
+                        conn.close()
 
-                if audits:
-                    st.markdown("### 最近扫描记录")
-                    audit_data = []
-                    for a in audits:
-                        audit_data.append({
-                            "时间": a[0].strftime("%m-%d %H:%M") if a[0] else "?",
-                            "扫描文件": a[1],
-                            "新增": a[2],
-                            "变更": a[3],
-                            "成功": a[4],
-                            "失败": a[5],
-                        })
-                    st.dataframe(pd.DataFrame(audit_data), use_container_width=True)
-        except Exception:
-            pass
+                        if audits:
+                            st.markdown("### 最近扫描记录")
+                            audit_data = []
+                            for a in audits:
+                                audit_data.append({
+                                    "时间": a[0].strftime("%m-%d %H:%M") if a[0] else "?",
+                                    "扫描文件": a[1],
+                                    "新增": a[2],
+                                    "变更": a[3],
+                                    "成功": a[4],
+                                    "失败": a[5],
+                                })
+                            st.dataframe(pd.DataFrame(audit_data), use_container_width=True)
+                except Exception:
+                    pass

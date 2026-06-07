@@ -8,10 +8,9 @@ import asyncio
 import logging
 import time
 from datetime import date, timedelta
-from typing import Optional, Callable, Any
+from typing import Callable
 
 import aiohttp
-import pandas as pd
 
 logger = logging.getLogger("invest_system.async_collector")
 

@@ -18,13 +18,11 @@ Author: InvestPilot v2.0 Phase 5
 from __future__ import annotations
 
 import os
-import json
 import logging
 import getopt
 import sys
 from pathlib import Path
-from datetime import date, datetime, timedelta
-from typing import Optional
+from datetime import date
 
 import psycopg2
 import numpy as np

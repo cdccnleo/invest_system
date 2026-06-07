@@ -5,9 +5,7 @@ report_summarizer.py — 研报/公告智能摘要模块
 """
 
 import logging
-import json
 from datetime import date, timedelta
-from typing import Optional
 
 import psycopg2
 import psycopg2.extras
@@ -291,7 +289,6 @@ def inject_summaries_to_tamf(ts_code: str, summaries: list[str]) -> bool:
     Returns:
         是否注入成功
     """
-    from pathlib import Path
     from tamf_updater import get_tamf_path
 
     if not summaries:

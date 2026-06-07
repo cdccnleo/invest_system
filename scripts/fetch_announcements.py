@@ -155,7 +155,7 @@ def _fetch_em_single(code: str, max_pages: int = MAX_EM_PAGES, days_window: int 
                     if art_code:
                         em_url = f"https://data.eastmoney.com/notices/detail/{em_stock_code}/{art_code}.html"
                     else:
-                        em_url = f"https://data.eastmoney.com/notices/hot.html"
+                        em_url = "https://data.eastmoney.com/notices/hot.html"
 
                     all_anns.append({
                         "ts_code": code,
@@ -171,7 +171,7 @@ def _fetch_em_single(code: str, max_pages: int = MAX_EM_PAGES, days_window: int 
             if has_old:
                 break  # 遇到旧数据不再翻页
 
-        except Exception as e:
+        except Exception:
             # EastMoney 失败，换 Sina
             break
 
@@ -319,7 +319,7 @@ def fetch_all_positions_announcements(positions: list = None,
         positions = load_positions_from_db()
 
     from storage_factory import get_storage
-    storage = get_storage()
+    get_storage()
 
     all_anns = []
     now = datetime.now()

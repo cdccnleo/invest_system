@@ -178,13 +178,13 @@ class DeviationAlertEvaluator(TriggerEvaluator):
         for row in rows:
             mn = row[0]
             avg_val = float(row[1])
-            cnt = int(row[2])
+            int(row[2])
             if lookback_days <= 7:
                 recent[mn] = avg_val
             baseline[mn] = avg_val  # 简化：用均值代表基线
 
         if not recent:
-            logger.debug(f"[deviation_alert] 无足够行为数据，跳过")
+            logger.debug("[deviation_alert] 无足够行为数据，跳过")
             return None
 
         # 从 audit_log 计算近期真实交易频率
@@ -385,7 +385,7 @@ class RiskEscalationEvaluator(TriggerEvaluator):
         if cond.get("type") != "risk_metric":
             return None
 
-        metric = cond.get("metric", "daily_drawdown")
+        cond.get("metric", "daily_drawdown")
         threshold = float(cond.get("threshold", 3))
 
         cur = self.conn.cursor()
@@ -394,7 +394,7 @@ class RiskEscalationEvaluator(TriggerEvaluator):
         positions = load_positions_from_db()
 
         # 从 daily_quotes 计算各标的当日涨跌
-        total_mv = sum(p.get("market_value", 0) for p in positions)
+        sum(p.get("market_value", 0) for p in positions)
         total_pnl = sum(p.get("profit", 0) for p in positions)
         total_cost = sum(p.get("cost", 0) * p.get("shares", 0) for p in positions)
 
@@ -453,7 +453,7 @@ class MilestoneEvaluator(TriggerEvaluator):
         if cond.get("type") != "pnl_milestone":
             return None
 
-        threshold = float(cond.get("threshold", 100000))
+        float(cond.get("threshold", 100000))
 
         cur = self.conn.cursor()
 
@@ -463,7 +463,7 @@ class MilestoneEvaluator(TriggerEvaluator):
             FROM l3.stress_test_results
             WHERE shock_result IS NOT NULL
         """)
-        max_loss_row = cur.fetchone()
+        cur.fetchone()
         # 用最新持仓快照的累计收益（从加密持仓表解密读取）
         positions = load_positions_from_db()
         total_pnl = sum(p.get("profit", 0) for p in positions)
@@ -643,7 +643,7 @@ class L3DialogEngine:
             for pos in positions:
                 code = pos.get("code", "")
                 name = pos.get("name", "")
-                shares = pos.get("shares", 0)
+                pos.get("shares", 0)
                 market_value = pos.get("market_value", 0)
                 pos_type = pos.get("type", "stock")
 
@@ -820,7 +820,7 @@ if __name__ == "__main__":
         print(f"  阶段: {status['phase']}")
         print(f"  能力评分: {status['capability_score']}/5 ({status['capability_label']})")
         print(f"  行为记录: {status['behavior_records']} 条")
-        print(f"\n触发器:")
+        print("\n触发器:")
         for t in status["triggers"]:
             icon = "🟢" if t["active"] else "⚫"
             last = t["last_triggered"] or "从未触发"

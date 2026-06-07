@@ -4,9 +4,11 @@ backtest_engine.py — 简易回测引擎
 输出：收益曲线、夏普比率、最大回撤、胜率
 """
 
-import os, csv, json, logging
+import os
+import csv
+import json
+import logging
 from datetime import date, timedelta
-from typing import Optional
 
 import psycopg2
 from dotenv import load_dotenv
@@ -138,7 +140,7 @@ def backtest_strategy(
             if not bar or bar["close"] <= 0:
                 continue
             prev_close = series[series.index(bar) - 1]["close"] if series.index(bar) > 0 else bar["close"]
-            stock_value = shares[ts] * bar["close"]
+            shares[ts] * bar["close"]
             daily_pnl += shares[ts] * (bar["close"] - prev_close)
 
         daily_return = daily_pnl / portfolio_values[-1] if portfolio_values[-1] > 0 else 0
@@ -152,7 +154,7 @@ def backtest_strategy(
 
     # 夏普比率（假设无风险利率 3%）
     rf = 0.03
-    excess_returns = [r - rf / 252 for r in daily_returns]
+    [r - rf / 252 for r in daily_returns]
     std_dev = statistics.stdev(daily_returns) if len(daily_returns) > 1 else 0
     sharpe = (annual_return - rf) / (std_dev * (252 ** 0.5)) if std_dev > 0 else 0
 

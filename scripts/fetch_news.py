@@ -8,7 +8,6 @@ import logging
 import time
 import re
 from datetime import datetime
-from typing import Optional
 
 import requests
 

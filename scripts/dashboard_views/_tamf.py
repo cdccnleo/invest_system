@@ -117,7 +117,6 @@ def _enrich_calendar_entry(entry: dict) -> dict:
 def _build_month_grid(year: int, month: int, entries_by_date: dict) -> pd.DataFrame:
     """构建单个月份的日历网格 DataFrame"""
     import calendar
-    from datetime import date
 
     cal = calendar.Calendar(firstweekday=6)  # 周日开局
     weeks = cal.monthdatescalendar(year, month)
@@ -410,7 +409,7 @@ def render_tamf_memory():
         positions = load_positions_from_db()
         codes = [p["code"] for p in positions]
         names = {p["code"]: p["name"] for p in positions}
-        anon_map = {p["code"]: p.get("code", p["code"]) for p in positions}
+        {p["code"]: p.get("code", p["code"]) for p in positions}
     except Exception as e:
         st.error(f"加载持仓失败: {e}")
         return

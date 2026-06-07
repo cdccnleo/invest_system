@@ -5,7 +5,6 @@ log_rotator.py — 日志轮转模块
 
 import logging
 import logging.handlers
-import os
 from pathlib import Path
 from datetime import datetime
 

@@ -3,10 +3,9 @@ fund_manager.py — 资金管理模块
 管理投资组合的资金视图：总资产、仓位、现金、可用资金
 """
 
-import os, csv, logging
-from pathlib import Path
-from datetime import date
-from typing import Optional
+import os
+import csv
+import logging
 
 import psycopg2
 from pgcrypto_migration import get_credential
@@ -23,7 +22,6 @@ POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positio
 
 
 def _get_password():
-    from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
 def get_db_conn():
@@ -109,7 +107,7 @@ class FundManager:
         2. 买入后单股仓位 <= max_single_pct
         3. 行业仓位 <= 30%
         """
-        code = ts_code.split(".")[0]
+        ts_code.split(".")[0]
 
         # 检查资金
         if amount > self.cash_amount:

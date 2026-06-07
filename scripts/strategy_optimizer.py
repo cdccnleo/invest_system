@@ -5,8 +5,7 @@ strategy_optimizer.py — 量化策略参数优化模块
 """
 
 import logging
-import json
-from typing import Optional, Callable
+from typing import Callable
 from dataclasses import dataclass, field
 
 import numpy as np

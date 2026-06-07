@@ -4,19 +4,22 @@ intraday_monitor.py — 盘中异动监控
 触发时发送告警到 Server酱 + 飞书
 """
 
-import os, csv, time, logging, threading
-from datetime import datetime, date
+import os
+import csv
+import time
+import logging
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import psycopg2
 
-from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 from fetch_quotes import collect_quotes
-from notification import send_notification, send_warning_alert, send_error_alert
+from notification import send_notification, send_error_alert
 
 try:
     from credentials import get_credential
@@ -259,7 +262,7 @@ def format_anomaly_message(anomalies: list[dict]) -> str:
     # 价格/成交量异动
     if price_vol_anomalies:
         for a in price_vol_anomalies:
-            alert = a.get("alert_type") or ""
+            a.get("alert_type") or ""
             emoji = "🔴" if abs(a["change_pct"]) >= 5 else "🟡"
             lines.append(
                 f"{emoji} {a['name']}({a['ts_code']})\n"
@@ -272,10 +275,8 @@ def format_anomaly_message(anomalies: list[dict]) -> str:
             alert_type = a.get("alert_type") or ""
             if "CROSS_UP" in alert_type:
                 emoji = "🟢"
-                direction = "金叉"
             else:
                 emoji = "🔴"
-                direction = "死叉"
             lines.append(
                 f"{emoji} {a['name']}({a['ts_code']})\n"
                 f"   现价 {a['close']} | {a['reason']}"

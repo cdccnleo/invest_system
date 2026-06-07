@@ -4,7 +4,6 @@ db_optimizer.py — 数据库查询优化模块
 """
 
 import logging
-import time
 from typing import Optional
 
 import psycopg2

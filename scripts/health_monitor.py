@@ -7,8 +7,7 @@ import logging
 import os
 import time
 import json
-from datetime import datetime, date, timedelta
-from typing import Optional
+from datetime import datetime, date
 
 import psycopg2
 

@@ -90,7 +90,7 @@ def commit_tamf_changes(dry_run: bool = False, auto_message: bool = True) -> dic
     today = datetime.now().strftime("%Y-%m-%d %H:%M")
     
     # 分类变更
-    added = [c["path"] for c in changed_files if c["status"].startswith("?")]
+    [c["path"] for c in changed_files if c["status"].startswith("?")]
     modified = [c["path"] for c in changed_files if c["status"] not in ("??", "A ", "??M")]
     modified = [c["path"] for c in changed_files if c["status"] not in ["??", "A "]]
     modified = [c for c in changed_files if c["status"] not in ["??", "A "]]

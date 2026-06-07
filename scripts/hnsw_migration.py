@@ -111,7 +111,7 @@ def migrate_table(conn, schema_table: str, dry_run: bool = False) -> dict:
     result["steps"].append(f"HNSW 索引创建完成，耗时 {elapsed:.1f}s")
 
     # Step 3: 验证新索引
-    cur.execute(f"""
+    cur.execute("""
         SELECT indexname, indexdef
         FROM pg_indexes
         WHERE indexname = %s

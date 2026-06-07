@@ -3,9 +3,10 @@ model_router.py — 白名单优先模型路由
 规则匹配 → 命中白名单直接路由 → 未命中再走 LLM 判断
 """
 
-import os, re, logging
+import os
+import re
+import logging
 from pathlib import Path
-from typing import Literal
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -120,10 +121,10 @@ def _llm_fallback_classify(query: str) -> str:
         # 直接取第一个字符判断
         answer = raw[0] if raw else ""
         if "B" in answer or answer == "B":
-            logger.info(f"[路由] LLM 判断 → DeepSeek")
+            logger.info("[路由] LLM 判断 → DeepSeek")
             return "deepseek"
         else:
-            logger.info(f"[路由] LLM 判断 → Ollama")
+            logger.info("[路由] LLM 判断 → Ollama")
             return "ollama"
     except Exception as e:
         logger.warning(f"LLM 分类失败，默认走 Ollama: {e}")

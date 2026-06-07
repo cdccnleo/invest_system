@@ -16,7 +16,6 @@ from strategy_engine import (
     MACrossoverStrategy,
     MomentumStrategy,
     MeanReversionStrategy,
-    PerformanceEvaluator,
     GridSearchOptimizer,
     StrategyRunner,
 )
@@ -117,7 +116,7 @@ def render_strategy_comparison():
                 conn.close()
 
                 if len(rows) < 30:
-                    st.warning(f"数据不足")
+                    st.warning("数据不足")
                     return
 
                 data = pd.DataFrame(rows, columns=["trade_date", "close", "high", "low", "volume"])

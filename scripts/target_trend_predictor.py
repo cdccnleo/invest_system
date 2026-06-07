@@ -15,7 +15,6 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import psycopg2
 
@@ -184,7 +183,7 @@ class TargetTrendPredictor:
             roe_recent = fin_rows[0][2] or 0
             roe_prev = fin_rows[1][2] or 0
             profit_change = ((profit_recent - profit_prev) / abs(profit_prev) * 100) if profit_prev else 0
-            roe_change = roe_recent - roe_prev if roe_recent and roe_prev else 0
+            roe_recent - roe_prev if roe_recent and roe_prev else 0
 
             if price_change_20d > 5 and profit_change < -10:
                 divergences.append({
@@ -570,7 +569,6 @@ def build_tamf_trend_section(ts_code: str, name: str = "") -> str:
     用于在 TAMF 第三章尾部追加趋势预测和估值背景。
     """
     result = run_trend_prediction_for_target(ts_code)
-    display_name = f"{name}（{ts_code}）" if name else ts_code
 
     sections = []
 
@@ -621,7 +619,7 @@ def build_tamf_trend_section(ts_code: str, name: str = "") -> str:
     val = result["valuation_context"]
     cv = val.get("current_valuation", {})
     hp = val.get("historical_percentile", {})
-    sc = val.get("sector_comparison", {})
+    val.get("sector_comparison", {})
 
     sections.append(f"""### 估值背景
 | 维度 | 值 |

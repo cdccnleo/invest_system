@@ -17,10 +17,7 @@ fetch_international_research.py — 国际投行研报/宏观研究采集模块
 """
 
 import logging
-import time
 import re
-from datetime import datetime
-from typing import Optional
 
 import requests
 import xml.etree.ElementTree as ET

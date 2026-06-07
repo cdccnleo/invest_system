@@ -4,7 +4,7 @@ data_validator.py — 数据质量校验层
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 # ─── 行情数据校验 ──────────────────────────────────────────────────────────

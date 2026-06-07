@@ -76,7 +76,6 @@ def render_plan_review():
         }
 
     plan_reviews = st.session_state["plan_reviews"]
-    changed = False
 
     for run in runs:
         run_id = run["run_id"]
@@ -116,10 +115,8 @@ def render_plan_review():
                                                   key=approve_key)
                         if is_approved:
                             plan_reviews[plan_id] = "approved"
-                            changed = True
                         elif plan_reviews.get(plan_id) == "approved":
                             del plan_reviews[plan_id]
-                            changed = True
 
                 with col_cb2:
                     if not (existing and existing.get("decision")):
@@ -127,14 +124,12 @@ def render_plan_review():
                                                   key=reject_key)
                         if is_rejected:
                             plan_reviews[plan_id] = "rejected"
-                            changed = True
                         elif plan_reviews.get(plan_id) == "rejected":
                             del plan_reviews[plan_id]
-                            changed = True
 
                 with col_cb3:
                     if current_decision in ("approved", "rejected"):
-                        pos_pct = st.slider(
+                        st.slider(
                             "执行仓位%",
                             min_value=10, max_value=100,
                             value=default_pct,
@@ -226,10 +221,10 @@ def render_settings():
 
     st.markdown("### 数据源")
     st.markdown(f"- 持仓文件: `{POSITIONS_CSV}`")
-    st.markdown(f"- 数据库: `postgresql://invest_admin@localhost:5432/investpilot`")
-    st.markdown(f"- 行情: 东方财富基金 API + 新浪财经")
-    st.markdown(f"- 新闻: 同花顺快讯 + 新浪财经 + 金十数据（财联社已停用）")
-    st.markdown(f"- 研报: 东方财富研报 API（16:00 每日采集）")
+    st.markdown("- 数据库: `postgresql://invest_admin@localhost:5432/investpilot`")
+    st.markdown("- 行情: 东方财富基金 API + 新浪财经")
+    st.markdown("- 新闻: 同花顺快讯 + 新浪财经 + 金十数据（财联社已停用）")
+    st.markdown("- 研报: 东方财富研报 API（16:00 每日采集）")
 
     st.markdown("### 定时任务")
     st.markdown("- 08:30 盘前工作流")

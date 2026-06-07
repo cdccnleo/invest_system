@@ -3,10 +3,8 @@ audit_analytics.py — 审计日志驱动的洞察分析
 从 audit.audit_log 中挖掘投资行为模式
 """
 
-import json, logging
+import logging
 from datetime import date, timedelta
-from collections import defaultdict
-from typing import Optional
 
 import psycopg2
 from pgcrypto_migration import get_credential
@@ -22,7 +20,6 @@ DB_CONFIG = {
 
 
 def _get_password():
-    from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
 def get_db_conn():

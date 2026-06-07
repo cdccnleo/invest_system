@@ -59,11 +59,11 @@ def migrate(conn, enc_key: str, dry_run: bool = False):
     failed = []
 
     for r in rows:
-        code, name = r[0], r[1]
+        code, _name = r[0], r[1]
         shares_txt, avg_cost_txt = r[2], r[3]
-        profit_loss_txt, profit_pct_txt = r[4], r[5]
-        market_value, close_price = r[6], r[7]
-        weight_pct, position_type = r[8], r[9]
+        profit_loss_txt, _profit_pct_txt = r[4], r[5]
+        _market_value, _close_price = r[6], r[7]
+        _weight_pct, _position_type = r[8], r[9]
 
         try:
             # 重新加密（使用当前密钥）
@@ -128,8 +128,8 @@ def verify(conn, enc_key: str):
     print("\n=== 验证（前5条）===")
     for r in rows:
         code = r[0]
-        dec_shares, dec_cost, dec_profit = r[1], r[2], r[3]
-        plain_shares, plain_cost, plain_profit = r[4], r[5], r[6]
+        _dec_shares, dec_cost, _dec_profit = r[1], r[2], r[3]
+        plain_shares, _plain_cost, _plain_profit = r[4], r[5], r[6]
 
         # plaintext should now be NULL (migrated)
         plain_status = "NULL ✅" if plain_shares is None else f"仍存在: {plain_shares}"

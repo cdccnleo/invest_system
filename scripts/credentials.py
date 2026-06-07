@@ -7,7 +7,6 @@ credentials.py — InvestPilot 统一凭据管理模块
 """
 
 import os
-import sys
 import logging
 import subprocess
 import json
@@ -82,7 +81,6 @@ def _wcm_set(service: str, username: str, password: str) -> bool:
     成功写入后，后续读取无需交互。
     """
     # 使用 echo + cmdkey 方式（password 通过 stdin 传入避免命令行暴露）
-    cmd = f'cmdkey /generic:{service} /user:{username}'
     try:
         # 先尝试添加（会提示确认，允许后后续自动批准）
         r1 = subprocess.run(
@@ -261,7 +259,7 @@ def check_credentials() -> dict:
         }
 
     # WCM 可用性
-    wcm_test = _wcm_get("__wcm_health_check_test__")
+    _wcm_get("__wcm_health_check_test__")
     checks["Windows Credential Manager"] = {
         "accessible": True,  # _wcm_get 不抛异常即表示 WCM 可访问
     }

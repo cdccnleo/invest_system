@@ -3,10 +3,8 @@ prompt_builder.py — 增强版 Prompt 组装器
 将上下文数据组装为 DeepSeek Prompt，发送给 LLM 生成分析
 """
 
-import json
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()

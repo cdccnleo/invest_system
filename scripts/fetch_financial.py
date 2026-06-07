@@ -7,8 +7,7 @@ fetch_financial.py — 个股财务数据采集模块
 
 import logging
 import time
-from datetime import datetime, date
-from typing import Optional
+from datetime import datetime
 
 import requests
 import psycopg2
@@ -326,7 +325,6 @@ def _fmt(v) -> str:
 
 if __name__ == "__main__":
     import sys
-    from pgcrypto_migration import get_credential
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     codes = sys.argv[1:] if len(sys.argv) > 1 else ["300059", "002149"]

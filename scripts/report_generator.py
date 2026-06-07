@@ -5,10 +5,8 @@ report_generator.py — 报告自动生成模块
 """
 
 import logging
-import json
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("invest_system.report_generator")
 
@@ -92,7 +90,7 @@ def generate_weekly_report() -> str:
     # 因子评分
     factor_section = "暂无因子评分数据"
     try:
-        from factor_engine import get_default_engine, score_positions
+        from factor_engine import score_positions
         positions = (lambda: None)()
         try:
             from dashboard_views._shared import load_positions
@@ -120,8 +118,9 @@ def generate_weekly_report() -> str:
         from report_summarizer import get_reports_with_summary
         reports = get_reports_with_summary(days=7, limit=10)
         if reports:
-            news_lines = [f"- **{r.get('title', '—')}** ({r.get('org_name', '—')})"]
+            news_lines = []
             for r in reports:
+                news_lines.append(f"- **{r.get('title', '—')}** ({r.get('org_name', '—')})")
                 if r.get("summary"):
                     news_lines.append(f"  > {r['summary']}")
             news_section = "\n".join(news_lines[:20])

@@ -170,7 +170,7 @@ def run_benchmark(quick: bool = False, output_path: str = None) -> dict:
     """
     questions = BENCHMARK_QUESTIONS[:10] if quick else BENCHMARK_QUESTIONS
     print(f"\n{'='*60}")
-    print(f"  Ollama 金融基准测试")
+    print("  Ollama 金融基准测试")
     print(f"  模式: {'快速 (10 题)' if quick else f'完整 ({len(questions)} 题)'}")
     print(f"  时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}\n")
@@ -232,7 +232,7 @@ def run_benchmark(quick: bool = False, output_path: str = None) -> dict:
 
     # ── 汇总统计 ──────────────────────────────────────────────────────
     print(f"\n{'='*60}")
-    print(f"  测试汇总")
+    print("  测试汇总")
     print(f"{'='*60}")
 
     for model in ["deepseek", "ollama"]:
@@ -249,7 +249,7 @@ def run_benchmark(quick: bool = False, output_path: str = None) -> dict:
     route_acc = route_match["correct"] / route_match["total"] * 100 if route_match["total"] else 0
     print(f"\n  路由准确率: {route_match['correct']}/{route_match['total']} ({route_acc:.1f}%)")
     if route_match["wrong"] > 0:
-        print(f"  路由偏差明细:")
+        print("  路由偏差明细:")
         for r in results:
             if not r["route_match"]:
                 print(f"    ⚠️ {r['id']} [{r['category']}] → 路由 {r['actual_route']}（期望 {r['expected_model']}）")
@@ -258,7 +258,7 @@ def run_benchmark(quick: bool = False, output_path: str = None) -> dict:
     ds_avg = sum(stats["deepseek"]["elapsed"]) / len(stats["deepseek"]["elapsed"]) if stats["deepseek"]["elapsed"] else 0
     ol_avg = sum(stats["ollama"]["elapsed"]) / len(stats["ollama"]["elapsed"]) if stats["ollama"]["elapsed"] else 0
     speed_ratio = ol_avg / ds_avg if ds_avg > 0 else 0
-    print(f"\n  速度对比:")
+    print("\n  速度对比:")
     print(f"    DeepSeek 平均: {ds_avg:.2f}s")
     print(f"    Ollama 平均:   {ol_avg:.2f}s")
     print(f"    速度比:        {speed_ratio:.2f}x (Ollama / DeepSeek)")

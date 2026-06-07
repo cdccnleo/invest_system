@@ -9,18 +9,14 @@ TAMF Updater — 投资标的分析记忆文件（TAMF）自动更新引擎
   4. 事件驱动的即时更新（交易/公告/评级变动）
 """
 
-import os
 import re
 import json
-import hashlib
 import logging
-import subprocess
 from math import floor
-from datetime import datetime, date, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import psycopg2
-from psycopg2 import pool
 
 # ─── 项目路径 ────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -237,7 +233,8 @@ def write_tamf(code: str, content: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
 
     # ── 写入前备份旧版本 ────────────────────────────────
-    import shutil, datetime as _dt
+    import shutil
+    import datetime as _dt
     if p.exists():
         backup_dir = TAMF_DIR.parent / "target_memories_shadow" / "auto_backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
@@ -438,7 +435,6 @@ def build_section_3_fundamentals(financials: list[dict], reports: list[dict]) ->
     
     fin_rows = ""
     if financials:
-        headers = ["指标", "Q-7", "Q-6", "Q-5", "Q-4", "Q-3", "Q-2", "Q-1(最新)", "趋势", "预警"]
         fin_rows = "| 指标 | Q-7 | Q-6 | Q-5 | Q-4 | Q-3 | Q-2 | Q-1(最新) | 趋势 | 预警 |\n|------|-----|-----|-----|-----|-----|-----|----------|------|:---:|\n"
         
         fields = [
@@ -450,7 +446,7 @@ def build_section_3_fundamentals(financials: list[dict], reports: list[dict]) ->
             ("资产负债率%", "debt_ratio", lambda v: f"{v:.1f}" if v else "—"),
         ]
         
-        rev_data = [f.get("revenue") for f in reversed(financials)]
+        [f.get("revenue") for f in reversed(financials)]
         for fname, fkey, fmt in fields:
             vals = [fmt(f.get(fkey)) for f in reversed(financials)]
             vals_str = " | ".join(vals[:8])
@@ -718,7 +714,7 @@ def detect_new_data_for_target(code: str) -> dict:
         }
     
     last_update = meta.get("last_updated", datetime.min)
-    snapshot = meta.get("data_snapshot", {})
+    meta.get("data_snapshot", {})
     
     # 对每个数据源检查是否有新记录
     ts_code = normalize_ts_code(code)
@@ -811,14 +807,14 @@ def incremental_update(code: str) -> dict:
     
     # 重建受影响的章节（简化策略：整体重写，保留手动编辑段落）
     # 实际上这里用"分章节重建"策略，只更新特定章节
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    datetime.now().strftime("%Y-%m-%d %H:%M")
     
     # 替换对应章节（正则匹配到第一个 --- 分隔符）
     new_content = current_cleaned
     
     # 提取版本信息
     version_match = re.search(r'\*\*记忆版本\*\*:', current)
-    version_line = version_match.group() if version_match else ""
+    version_match.group() if version_match else ""
     
     # 重新构建全文
     new_content = build_tamf_file(code, name, pos, financials, anns, reports, quotes)
@@ -882,7 +878,6 @@ def parallel_update_all_holdings(max_workers: int = 2) -> dict:
     避免数据库连接池耗尽（原 max_workers=4 在嵌套线程池场景下
     曾导致 46 个持仓全部失败）。
     """
-    import concurrent.futures
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     positions = load_positions()
@@ -1083,11 +1078,10 @@ def on_transaction_executed(code: str, transaction: dict) -> dict:
         logger.debug(f"on_transaction: {code} 无TAMF文件，跳过")
         return {"status": "no_file", "code": code}
 
-    name = ""
     positions = load_positions()
     pos = next((p for p in positions if p["code"] == code), None)
     if pos:
-        name = pos.get("name", "")
+        pos.get("name", "")
 
     # 追加操作历史行
     date_str = transaction.get("date", datetime.now().strftime("%Y-%m-%d"))

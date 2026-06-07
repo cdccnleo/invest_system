@@ -3,7 +3,12 @@ notification.py — 消息推送模块
 支持多通道：Server酱(微信) / 飞书机器人 / Bark(iOS)
 """
 
-import os, json, logging, urllib.request, urllib.error, time
+import os
+import json
+import logging
+import urllib.request
+import urllib.error
+import time
 from typing import Optional
 
 logger = logging.getLogger("invest_system.notification")
@@ -61,7 +66,7 @@ def send_via_serverchan(title: str, content: str, level: str = "INFO") -> bool:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 raw = resp.read()
                 if not raw:
-                    logger.warning(f"Server酱返回空响应")
+                    logger.warning("Server酱返回空响应")
                     return False
                 result = json.loads(raw)
                 if result and (result.get("code") == 0 or result.get("errno") == 0):
@@ -142,7 +147,7 @@ def send_via_feishu(title: str, content: str, level: str = "INFO") -> bool:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 raw = resp.read()
                 if not raw:
-                    logger.warning(f"飞书返回空响应")
+                    logger.warning("飞书返回空响应")
                     return False
                 result = json.loads(raw)
                 if result and (result.get("code") == 0 or result.get("StatusCode") == 0):

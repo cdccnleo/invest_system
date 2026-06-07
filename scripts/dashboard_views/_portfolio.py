@@ -4,11 +4,10 @@ Generated from dashboard.py (411-623 lines)
 Each function accesses streamlit via st (passed through from main module).
 """
 
-from ._shared import get_db_connection, get_latest_quotes_from_db
+from ._shared import get_latest_quotes_from_db
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
@@ -33,7 +32,7 @@ def render_portfolio_dashboard():
         auto_refresh = st.checkbox("🔄 自动刷新", value=False,
                                    help="每60秒自动刷新数据")
         if auto_refresh:
-            st.caption(f"⏱ 每60秒刷新")
+            st.caption("⏱ 每60秒刷新")
             import streamlit as _st
             _st.rerun() if False else None
 

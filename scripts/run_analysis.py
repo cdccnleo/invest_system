@@ -16,7 +16,6 @@ run_analysis.py — Phase 1 MVP 核心脚本
 import os
 import sys
 import csv
-import json
 import logging
 from datetime import datetime, date
 from pathlib import Path
@@ -199,7 +198,7 @@ def run_analysis():
     positions = enrich_positions_with_quotes(positions)
 
     # 提取所有 ts_code 列表（用于后续查询）
-    ts_codes = [p.get("ts_code", f"{p['code']}.XSHE") for p in positions]
+    [p.get("ts_code", f"{p['code']}.XSHE") for p in positions]
 
     # ── Step 3: 采集新闻 ──────────────────────────────────────────────────
     print("\n📌 Step 3: 采集新闻...")
@@ -437,7 +436,7 @@ def run_analysis():
             for w in quality["warnings"]:
                 print(f"  ⚠️ {w}")
         if quality["flagged"]:
-            print(f"  🚨 低质量输出已标记，建议人工审核")
+            print("  🚨 低质量输出已标记，建议人工审核")
         try:
             log_quality_to_audit(result, quality, agent_type=type(agent).__name__)
         except Exception:
@@ -481,7 +480,7 @@ def run_analysis():
         for risk in result.get("risks", []):
             print(f"  • {risk}")
 
-        print(f"\n📈 市场展望:")
+        print("\n📈 市场展望:")
         print(f"  {result.get('market_outlook', '暂无')}")
 
         confidence = result.get("confidence_level", "unknown")

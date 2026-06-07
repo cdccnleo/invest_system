@@ -95,7 +95,9 @@ class OllamaAgent(AgentInterface):
         self.model = model or os.environ.get("LOCAL_MODEL", "gemma4:e4b")
 
     def chat(self, prompt: str, system: str = None, model: str = None) -> dict:
-        import json, urllib.request, urllib.error
+        import json
+        import urllib.request
+        import urllib.error
 
         payload = {
             "model": model or self.model,
@@ -163,7 +165,7 @@ class RouterAgent(AgentInterface):
     def _reload_skills(self):
         """重新扫描已批准技能，建立触发匹配表"""
         from skill_library import APPROVED_DIR
-        import re, json
+        import re
         self._approved_skills = []
         for f in APPROVED_DIR.glob("*.md"):
             text = f.read_text(encoding="utf-8")

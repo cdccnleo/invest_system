@@ -5,10 +5,8 @@ hk_fetcher.py — 港股市场数据采集模块
 """
 
 import logging
-from datetime import date, datetime, timedelta
-from typing import Optional
+from datetime import date, timedelta
 
-import pandas as pd
 
 logger = logging.getLogger("invest_system.hk_fetcher")
 

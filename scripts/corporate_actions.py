@@ -4,9 +4,9 @@ corporate_actions.py — 公司行为处理模块
 数据源：东方财富数据中心
 """
 
-import os, re, logging, time
+import logging
+import time
 from datetime import date, timedelta
-from typing import Optional
 
 import psycopg2
 import urllib.request
@@ -41,7 +41,6 @@ def fetch_dividends(ts_code: str) -> list[dict]:
     ts_code格式: 300059.XSHE
     """
     code, market = ts_code.split(".")
-    secid = f"{1 if market == 'XSHG' else 0}.{code}"
 
     url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
     params = {
@@ -55,7 +54,6 @@ def fetch_dividends(ts_code: str) -> list[dict]:
     }
 
     from urllib.parse import urlencode
-    from pgcrypto_migration import get_credential
     try:
         req = urllib.request.Request(f"{url}?{urlencode(params)}", headers=EM_HEADERS)
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -149,7 +147,7 @@ def check_pending_corporate_actions(ts_codes: list[str]) -> list[dict]:
             if isinstance(action_date, str):
                 try:
                     action_date = date.fromisoformat(action_date[:10])
-                except:
+                except Exception:
                     continue
 
             # 仅关注未来或近期（7天内）的行为

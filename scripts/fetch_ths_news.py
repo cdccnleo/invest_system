@@ -7,7 +7,6 @@ fetch_ths_news.py — 同花顺快讯采集模块
 import logging
 import time
 from datetime import datetime
-from typing import Optional
 
 import requests
 
@@ -165,7 +164,6 @@ def fetch_ths_news(pages: int = MAX_PAGES) -> list[dict]:
 # ─── 可独立运行 ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import json
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     news = fetch_ths_news(pages=2)

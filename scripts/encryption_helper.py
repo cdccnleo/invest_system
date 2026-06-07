@@ -128,7 +128,6 @@ def decrypt_value(encrypted_bytes, key: Optional[str] = None) -> float:
     Example:
         value = decrypt_value(encrypted_bytes, "mysecretkey123456789012345678901234")
     """
-    import psycopg2
     
     if key is None:
         key = get_encryption_key()
@@ -170,7 +169,6 @@ def insert_position_encrypted(
     Example:
         insert_position_encrypted("000001", "平安银行", 1000, 12.5, 2500.0, 0.02)
     """
-    import psycopg2
     
     key = get_encryption_key()
     conn = _get_pg_conn()
@@ -210,9 +208,8 @@ def get_decrypted_positions() -> list[dict]:
         for pos in positions:
             print(pos["code"], pos["avg_cost"], pos["profit_loss"])
     """
-    import psycopg2
     
-    key = get_encryption_key()
+    get_encryption_key()
     conn = _get_pg_conn()
     cur = conn.cursor()
     
@@ -261,7 +258,6 @@ def update_position_encrypted(
     """
     更新持仓的加密字段（通过存储过程）
     """
-    import psycopg2
     
     key = get_encryption_key()
     conn = _get_pg_conn()
@@ -292,7 +288,6 @@ def verify_encryption() -> dict:
     Returns:
         dict: {success: bool, message: str}
     """
-    import psycopg2
     
     key = get_encryption_key()
     conn = _get_pg_conn()

@@ -6,7 +6,7 @@ Each function accesses streamlit via st (passed through from main module).
 
 import streamlit as st
 from datetime import datetime
-from ._shared import get_db_connection, get_news_count, get_sync_status, set_sync_status
+from ._shared import get_db_connection, get_sync_status, set_sync_status
 
 
 # ── 手动同步按钮通用组件 ────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ def render_news_summary():
                 st.info("暂无国际投行研究数据（定时任务 21:00 采集）")
             else:
                 # 统计
-                bank_related = [r for r in intl_rows if r[6]]
+                [r for r in intl_rows if r[6]]
                 cur.execute("""
                     SELECT COUNT(*) FROM research.international_bank_research
                     WHERE published_at >= CURRENT_DATE - INTERVAL '7 days'
@@ -140,7 +140,6 @@ def render_news_summary():
                     date_str = published_at.strftime("%m-%d %H:%M") if published_at else "未知"
                     inst_str = ', '.join(cited_inst) if cited_inst else ''
                     bank_tag = "🔴" if is_bank else "⚪"
-                    type_str = f"[{art_type}] " if art_type else ""
 
                     header = (f"{bank_tag} [{date_str}] {source}"
                               + (f" | 涉及: {inst_str}" if inst_str else "")
@@ -374,7 +373,8 @@ def render_announcements():
             "重要事项": "⭐", "资质认定": "🏅", "投资者关系": "🤝",
             "退市风险": "⚠️", "一般公告": "📌",
         }
-        TYPE_EMOJI = lambda t: TYPE_COLORS.get(t, "📌")
+        def TYPE_EMOJI(t):
+            return TYPE_COLORS.get(t, "📌")
 
         # 按日期分组展示
         current_date = None

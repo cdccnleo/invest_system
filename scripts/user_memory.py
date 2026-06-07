@@ -3,13 +3,18 @@ user_memory.py — USER.md / MEMORY.md 自动生成与更新
 基于 PostgreSQL 中的 profile + memory schema 数据
 """
 
-import os, json, logging
+import json
+import logging
+import os
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, date
-from typing import Optional
 
 import psycopg2
 from pgcrypto_migration import get_credential
+
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+USER_MD_PATH = os.environ.get("USER_MD_PATH", str(PROJECT_ROOT / "USER.md"))
+MEMORY_MD_PATH = os.environ.get("MEMORY_MD_PATH", str(PROJECT_ROOT / "MEMORY.md"))
 
 logger = logging.getLogger("invest_system.user_memory")
 
@@ -21,7 +26,6 @@ DB_CONFIG = {
 }
 
 def _get_password():
-    from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
 def get_db_conn():
@@ -157,7 +161,6 @@ def generate_meta_memories() -> str:
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     conn = get_db_conn()
     cur = conn.cursor()
-    memories = []
 
     try:
         # 读取近 30 条决策结果
@@ -190,7 +193,7 @@ def generate_meta_memories() -> str:
         for event_time, target_type, detail_json, result in entries[:10]:
             try:
                 detail = json.loads(detail_json) if detail_json else {}
-            except:
+            except Exception:
                 detail = {}
 
             ts = event_time.strftime("%m-%d %H:%M")

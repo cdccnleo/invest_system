@@ -4,8 +4,6 @@ data_sanitizer.py — 数据脱敏器
 金额 → 百分比，股票代码 → 匿名 ID
 """
 
-import random
-import hashlib
 
 
 

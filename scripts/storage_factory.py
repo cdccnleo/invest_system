@@ -7,12 +7,10 @@ import os
 import json
 import sqlite3
 from pathlib import Path
-from datetime import date
 from typing import Optional
 from contextlib import contextmanager
 
 import psycopg2
-from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -47,7 +45,7 @@ def get_pg_connection():
                 db_url = f"postgresql://invest_admin:{db_url}@localhost:5432/investpilot"
 
     if not db_url or "***" in str(db_url):
-        print(f"[WARN] DATABASE_URL 包含屏蔽值，无法连接，降级到 SQLite")
+        print("[WARN] DATABASE_URL 包含屏蔽值，无法连接，降级到 SQLite")
         return None
 
     try:

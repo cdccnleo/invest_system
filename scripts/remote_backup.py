@@ -6,10 +6,8 @@ remote_backup.py — 灾备异地备份模块
 
 import logging
 import shutil
-import os
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional
 
 logger = logging.getLogger("invest_system.remote_backup")
 

@@ -3,9 +3,10 @@ reflection_engine.py — 每日复盘 + USER.md 自动更新
 对比：计划 vs 修改后 vs 实际执行 → 归因分析 → 更新画像
 """
 
-import os, json, logging
-from datetime import datetime, date, timedelta
-from typing import Optional
+import os
+import json
+import logging
+from datetime import date
 
 import psycopg2
 
@@ -115,7 +116,6 @@ def _analyze_attribution(plan: dict, modifications: list[dict], quotes: dict) ->
     """
     归因分析：计划 vs 修改 vs 市场结果
     """
-    from llm_caller import get_llm_client
 
     # 收集对比数据
     plan_plans = plan.get("plans", [])
@@ -195,8 +195,6 @@ def _llm_generate_insights(plan_plans: list, reasons: list, quotes: dict) -> lis
 
 def _update_user_profile_from_reflection(attribution: dict):
     """根据归因分析更新 USER.md"""
-    from user_memory import generate_user_profile_summary
-    from pgcrypto_migration import get_credential
 
     # 读取当前 USER.md
     if not os.path.exists(USER_MD_PATH):

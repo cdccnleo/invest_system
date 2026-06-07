@@ -4,8 +4,11 @@ pgcrypto AES-128 列级加密存储 cost/profit/shares
 加密密钥: credentials.get_credential("DB_ENCRYPTION_KEY")
 """
 
-import sys, csv, logging, uuid, json
-from datetime import datetime
+import sys
+import csv
+import logging
+import uuid
+import json
 from pathlib import Path
 
 sys.path.insert(0, "scripts")
@@ -145,7 +148,8 @@ def ensure_schema(cursor):
 
 
 def migrate_positions_csv():
-    import hashlib, psycopg2
+    import hashlib
+    import psycopg2
     from pathlib import Path
 
     csv_path = Path(POSITIONS_CSV)
@@ -376,7 +380,8 @@ def process_corp_actions(announcements: list[dict]) -> dict:
     announcements: [{ts_code, title, ann_type, notice_date}, ...]
     返回: {processed, dividend, bonus, skipped, errors}
     """
-    import re, psycopg2
+    import re
+    import psycopg2
     from credentials import get_credential
 
     result = {"processed": 0, "dividend": 0, "bonus": 0, "skipped": 0, "errors": []}

@@ -8,7 +8,6 @@ fetch_reports.py — 东方财富研报采集模块
 import logging
 import time
 from datetime import datetime, date
-from typing import Optional
 
 import requests
 import psycopg2
@@ -254,8 +253,8 @@ def collect_reports_for_positions(ts_codes: list[str]) -> list[dict]:
 
     end_dt = date.today()
     begin_dt = date.fromordinal(end_dt.toordinal() - 7)
-    begin_str = begin_dt.isoformat()
-    end_str = end_dt.isoformat()
+    begin_dt.isoformat()
+    end_dt.isoformat()
 
     # 获取近7天全市场研报
     all_reports = collect_reports(days_back=7, save_to_db=True, max_pages=10)
@@ -319,8 +318,6 @@ def embed_reports(report_ids: list[int] = None):
 # ─── 可独立运行 ────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    import json
-    from pgcrypto_migration import get_credential
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     reports = collect_reports(days_back=3, save_to_db=True)

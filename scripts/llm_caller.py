@@ -1,6 +1,6 @@
 """
 llm_caller.py — DeepSeek API 调用模块
-支持 DeepSeek API（主）→ Ollama 本地模型（降级）
+支持 DeepSeek API（主）→ Ollama 本地模型（降级）→ 语义缓存 → 友好错误
 所有 chat() 方法返回 dict：{"content": str, "error": str|None}
 """
 
@@ -11,6 +11,7 @@ import time
 import re
 
 import openai
+from openai import RateLimitError, APITimeoutError, APIError as OpenAIAPIError
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -93,45 +94,110 @@ class DeepSeekClient:
         messages.append({"role": "user", "content": prompt})
 
         try:
-            logger.info(f"调用 DeepSeek API，Prompt 长度: {len(prompt)} chars")
-            start = time.time()
+            return self._call_deepseek_direct(messages, cache_key)
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.3,
-                max_tokens=2000,
-            )
+        except RateLimitError as e:
+            logger.warning(f"DeepSeek rate limit: {e}, trying Ollama")
+            return _call_ollama_fallback(system, prompt)
 
-            elapsed = time.time() - start
-            content = response.choices[0].message.content.strip()
-            usage = response.usage
+        except APITimeoutError as e:
+            logger.warning(f"DeepSeek timeout: {e}, trying Ollama")
+            return _call_ollama_fallback(system, prompt)
 
-            logger.info(f"DeepSeek 响应: {len(content)} chars, "
-                        f"耗时 {elapsed:.1f}s, "
-                        f"输入 {usage.prompt_tokens} tokens, "
-                        f"输出 {usage.completion_tokens} tokens")
-
-            # ── 成本追踪 ───────────────────────────
-            if _COST_TRACKING_ENABLED and _record_usage is not None:
-                _record_usage(
-                    model=self.model,
-                    input_tokens=usage.prompt_tokens,
-                    output_tokens=usage.completion_tokens,
-                )
-
-            result = {"content": content, "error": None}
-
-            # ── 缓存写入 ───────────────────────────
-            if _CACHE_ENABLED and _semantic_cache is not None and not result.get("error"):
-                _semantic_cache.set(cache_key, result)
-                logger.info("语义缓存已写入（DeepSeek）")
-
-            return result
+        except OpenAIAPIError as e:
+            err_str = str(e).lower()
+            if "context" in err_str or "maximum" in err_str or "length" in err_str:
+                logger.warning(f"DeepSeek context length error: {e}, trying compressed prompt")
+                return _call_with_compressed_context(system, prompt)
+            logger.error(f"DeepSeek API error: {e}")
+            return _call_ollama_fallback(system, prompt)
 
         except Exception as e:
             logger.error(f"DeepSeek API 调用失败: {e}")
-            return {"content": "", "error": str(e)}
+            return _call_ollama_fallback(system, prompt)
+
+    def _call_deepseek_direct(self, messages: list[dict], cache_key: str | None = None) -> dict:
+        """直接调用 DeepSeek API（不含缓存/降级逻辑，供内部和压缩重试用）"""
+        logger.info(f"调用 DeepSeek API，Prompt 长度: {sum(len(m.get('content','')) for m in messages)} chars")
+        start = time.time()
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2000,
+        )
+
+        elapsed = time.time() - start
+        content = response.choices[0].message.content.strip()
+        usage = response.usage
+
+        logger.info(f"DeepSeek 响应: {len(content)} chars, "
+                    f"耗时 {elapsed:.1f}s, "
+                    f"输入 {usage.prompt_tokens} tokens, "
+                    f"输出 {usage.completion_tokens} tokens")
+
+        # ── 成本追踪 ───────────────────────────
+        if _COST_TRACKING_ENABLED and _record_usage is not None:
+            _record_usage(
+                model=self.model,
+                input_tokens=usage.prompt_tokens,
+                output_tokens=usage.completion_tokens,
+            )
+
+        result = {"content": content, "error": None}
+
+        # ── 缓存写入 ───────────────────────────
+        if _CACHE_ENABLED and _semantic_cache is not None and not result.get("error") and cache_key:
+            _semantic_cache.set(cache_key, result)
+            logger.info("语义缓存已写入（DeepSeek）")
+
+        return result
+
+
+# ── LLM 降级辅助函数 ──────────────────────────────────────────────────────
+
+def _call_ollama_fallback(system: str, prompt: str) -> dict:
+    """Ollama 降级调用 — 失败后尝试缓存或返回友好错误"""
+    try:
+        ollama = OllamaClient()
+        if not ollama.is_available():
+            logger.warning("Ollama 不可用，尝试语义缓存")
+            return _fallback_to_cached_or_error(system, prompt)
+        return ollama.chat(prompt, system)
+    except Exception as e:
+        logger.error(f"Ollama 调用也失败: {e}")
+        return _fallback_to_cached_or_error(system, prompt)
+
+
+def _fallback_to_cached_or_error(system: str, prompt: str) -> dict:
+    """缓存命中则返回缓存，否则返回友好错误"""
+    if _CACHE_ENABLED and _semantic_cache is not None:
+        cache_key = f"ds:{system}:{prompt}" if system else f"ds::{prompt}"
+        cached = _semantic_cache.get(cache_key)
+        if cached:
+            logger.warning("LLM API 失败，使用缓存响应（降级）")
+            cached["content"] = f"[缓存回复]\n{cached['content']}"
+            return cached
+    return {"content": "暂时无法完成分析，请稍后重试。", "error": "LLM API 不可用"}
+
+
+def _call_with_compressed_context(system: str, prompt: str) -> dict:
+    """上下文超限时，截断 prompt 重试（最后降级手段）"""
+    try:
+        # 简单截断策略：保留前 3000 字符
+        MAX_CHARS = 3000
+        truncated_prompt = prompt[:MAX_CHARS] + "\n[...内容已截断...]"
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": truncated_prompt})
+        # 直接重试 API 调用（不做缓存）
+        client = DeepSeekClient()
+        return client._call_deepseek_direct(messages)
+    except Exception as e:
+        logger.error(f"压缩重试失败: {e}")
+        return _call_ollama_fallback(system, prompt)
 
 
 # ─── Ollama 本地模型（降级）───────────────────────────────────────────────

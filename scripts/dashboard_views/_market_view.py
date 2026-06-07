@@ -34,6 +34,33 @@ def render():
         _render_near_limit(threshold=-8.0, label="接近跌停 (≤-8%)")
 
 
+def _strip_ts_suffix(code: str) -> str:
+    """ts_code '600183.XSHG' / '562500.OF' → 6 位代码 '600183' / '562500'"""
+    if not isinstance(code, str):
+        return str(code) if code is not None else ""
+    return code.split(".")[0] if "." in code else code
+
+
+def _build_name_map() -> dict:
+    """{6位代码: 名称}"""
+    try:
+        from _shared import load_positions
+        return {str(p["代码"]): p["名称"] for p in load_positions()}
+    except Exception:
+        return {}
+
+
+def _attach_names(df: pd.DataFrame) -> pd.DataFrame:
+    """按 6 位代码（去掉 ts_code 后缀）匹配持仓名称，未匹配保留原代码"""
+    if df.empty or "代码" not in df.columns:
+        return df
+    name_map = _build_name_map()
+    keys = df["代码"].astype(str).map(lambda c: _strip_ts_suffix(c))
+    names = keys.map(lambda k: name_map.get(k, k))
+    df.insert(0, "名称", names)
+    return df
+
+
 def _get_quotes_df() -> pd.DataFrame:
     """从 PostgreSQL 读取最新一日的持仓行情"""
     try:
@@ -80,14 +107,8 @@ def _render_holdings_changes():
         st.info("暂无行情数据")
         return
 
-    # 关联持仓名称
-    try:
-        from _shared import load_positions
-        positions = load_positions()
-        name_map = {p["代码"]: p["名称"] for p in positions}
-        df.insert(0, "名称", df["代码"].map(name_map).fillna(df["代码"]))
-    except Exception:
-        df.insert(0, "名称", df["代码"])
+    # 关联持仓名称（去掉 ts_code 后缀做匹配）
+    _attach_names(df)
 
     # 涨幅颜色标记
     def color_arrow(val):
@@ -151,14 +172,8 @@ def _render_near_limit(threshold: float, label: str):
         st.info(f"持仓中暂无{label}的标的")
         return
 
-    # 关联持仓名称
-    try:
-        from _shared import load_positions
-        positions = load_positions()
-        name_map = {p["代码"]: p["名称"] for p in positions}
-        sub.insert(0, "名称", sub["代码"].map(name_map).fillna(sub["代码"]))
-    except Exception:
-        sub.insert(0, "名称", sub["代码"])
+    # 关联持仓名称（去掉 ts_code 后缀做匹配）
+    _attach_names(sub)
 
     st.dataframe(
         sub[["名称", "代码", "现价", "涨幅%", "成交量"]],

@@ -146,8 +146,16 @@ def _render_holdings_changes():
 
     st.divider()
 
+    # 数据源 ulist.np/get 不返回 high/low/volume → 用 0 占位
+    # 表格里改用 "—" 表示无数据，避免误导
+    df_display = df[["状态", "名称", "代码", "现价", "涨幅%", "最高", "最低"]].copy()
+    for col in ["最高", "最低"]:
+        df_display[col] = df_display[col].apply(
+            lambda v: f"{v:.2f}" if v and v > 0 else "—"
+        )
+    st.caption("💡 最高/最低暂为 0 是因行情采集源（东财 ulist.np/get）未返回该字段，待切换数据源后可显示。")
     st.dataframe(
-        df[["状态", "名称", "代码", "现价", "涨幅%", "最高", "最低"]],
+        df_display,
         width="stretch",
         hide_index=True,
     )

@@ -203,21 +203,40 @@ class StorageBackend:
         rows = 0
         for q in quotes:
             try:
+                # 兜底设计：
+                #   - INSERT VALUES 用 COALESCE(NULLIF(q.x, 0), close)：
+                #     q.x=0 时落库 close，>0 时落库 q.x。
+                #   - ON CONFLICT 用 q 原值（不用 EXCLUDED）作 > 0 守卫：
+                #     q.x=0 → 保留 DB 旧值；q.x>0 → 用 EXCLUDED 的兜底后值覆盖。
+                #     这样避免兜底值把已有真实 high/low 覆盖成 close。
                 cur.execute("""
                     INSERT INTO market.daily_quotes
                         (ts_code, trade_date, open_price, high_price, low_price,
                          close_price, volume, amount, change_pct, source)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (
+                        %s, %s,
+                        COALESCE(NULLIF(%s, 0), NULLIF(%s, 0)),
+                        COALESCE(NULLIF(%s, 0), NULLIF(%s, 0)),
+                        COALESCE(NULLIF(%s, 0), NULLIF(%s, 0)),
+                        %s, %s, %s, %s, %s
+                    )
                     ON CONFLICT (ts_code, trade_date) DO UPDATE SET
                         close_price = EXCLUDED.close_price,
                         change_pct = EXCLUDED.change_pct,
-                        volume = CASE WHEN EXCLUDED.volume > 0 THEN EXCLUDED.volume ELSE market.daily_quotes.volume END,
+                        high_price = CASE WHEN %s > 0 THEN EXCLUDED.high_price ELSE market.daily_quotes.high_price END,
+                        low_price  = CASE WHEN %s > 0 THEN EXCLUDED.low_price  ELSE market.daily_quotes.low_price  END,
+                        open_price = CASE WHEN %s > 0 THEN EXCLUDED.open_price ELSE market.daily_quotes.open_price END,
+                        volume     = CASE WHEN %s > 0 THEN EXCLUDED.volume     ELSE market.daily_quotes.volume     END,
                         source = EXCLUDED.source
                 """, (
                     q["ts_code"], q["trade_date"],
-                    q.get("open", 0), q.get("high", 0), q.get("low", 0),
-                    q["close"], q.get("volume", 0), q.get("amount", 0),
-                    q.get("change_pct", 0), q.get("source", "unknown")
+                    q.get("open", 0), q.get("close", 0),
+                    q.get("high", 0), q.get("close", 0),
+                    q.get("low", 0), q.get("close", 0),
+                    q.get("close", 0), q.get("volume", 0), q.get("amount", 0),
+                    q.get("change_pct", 0), q.get("source", "unknown"),
+                    # ON CONFLICT 守卫: q 原值（不用 EXCLUDED）
+                    q.get("high", 0), q.get("low", 0), q.get("open", 0), q.get("volume", 0),
                 ))
                 rows += 1
             except Exception as e:

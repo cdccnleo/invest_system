@@ -8,6 +8,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 from contextlib import contextmanager
 
 import psycopg2
@@ -28,28 +29,69 @@ HISTORY_DIR = os.environ.get("HISTORY_DIR", "/mnt/d/Hold/invest-data/history")
 FALLBACK_DB = "/tmp/investpilot_fallback.db"
 
 
-# ─── PostgreSQL 连接 ────────────────────────────────────────────────────────
+# ─── 数据库连接参数解析 ──────────────────────────────────────────────────────
 
-def get_pg_connection():
-    """建立 PostgreSQL 连接，失败则降级到 SQLite"""
-    # 优先从 credentials 模块获取（WSL2 WCM / 本地加密文件 / 环境变量）
+def _parse_database_url(url: str) -> Optional[dict]:
+    """解析 postgresql:// URL，提取连接参数。失败返回 None。"""
+    if not url or "***" in url:
+        return None
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme != "postgresql":
+            return None
+        return {
+            "host": parsed.hostname or "localhost",
+            "port": parsed.port or 5432,
+            "user": parsed.username or "postgres",
+            "password": parsed.password or "",
+            "dbname": parsed.path.lstrip("/") or "postgres",
+        }
+    except Exception:
+        return None
+
+
+def _get_db_connection_params() -> Optional[dict]:
+    """获取数据库连接参数。优先解析 DATABASE_URL，否则使用 DB_* 环境变量。"""
+    # 1. 尝试从 credentials 模块获取 DATABASE_URL
     db_url = None
     if _HAS_CREDENTIALS:
         db_url = get_credential("DATABASE_URL")
     if not db_url:
         db_url = DATABASE_URL
-    if not db_url or "***" in db_url:
-        if _HAS_CREDENTIALS:
-            db_url = get_credential("DB_PASSWORD")
-            if db_url:
-                db_url = f"postgresql://invest_admin:{db_url}@localhost:5432/investpilot"
 
-    if not db_url or "***" in str(db_url):
-        print("[WARN] DATABASE_URL 包含屏蔽值，无法连接，降级到 SQLite")
+    # 2. 解析 DATABASE_URL
+    params = _parse_database_url(db_url)
+    if params:
+        return params
+
+    # 3. 回退到 DB_* 环境变量
+    return {
+        "host": os.environ.get("DB_HOST", "localhost"),
+        "port": int(os.environ.get("DB_PORT", "5432")),
+        "user": os.environ.get("DB_USER", "postgres"),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "dbname": os.environ.get("DB_NAME", "investpilot"),
+    }
+
+
+# ─── PostgreSQL 连接 ────────────────────────────────────────────────────────
+
+def get_pg_connection():
+    """建立 PostgreSQL 连接，失败则降级到 SQLite"""
+    params = _get_db_connection_params()
+    if params is None:
+        print("[WARN] 无法获取数据库连接参数，降级到 SQLite")
         return None
 
     try:
-        conn = psycopg2.connect(db_url, connect_timeout=5)
+        conn = psycopg2.connect(
+            host=params["host"],
+            port=params["port"],
+            user=params["user"],
+            password=params["password"],
+            dbname=params["dbname"],
+            connect_timeout=5,
+        )
         conn.autocommit = True
         return conn
     except psycopg2.OperationalError as e:

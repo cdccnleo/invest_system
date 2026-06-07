@@ -31,6 +31,36 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── PWA 初始化：生成 service worker + 注入 manifest/link ──────────────────────
+def _init_pwa():
+    """生成 sw.js 并注入 PWA head 元素（manifest + viewport 覆盖 + SW 注册）。"""
+    try:
+        from pwa_service import generate_sw
+        generate_sw()
+    except Exception:
+        pass  # non-fatal — PWA is optional enhancement
+
+    # Inject manifest <link> and service-worker registration script.
+    # st.html renders directly into the Streamlit page body;
+    # we use a hidden marker so these elements end up in <head> context.
+    st.html(
+        f"""
+        <link rel="manifest" href="/static/manifest.json" />
+        <meta name="theme-color" content="#0ea5e9" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <script>
+        if ('serviceWorker' in navigator) {{
+          navigator.serviceWorker.register('/static/sw.js')
+            .then(reg => console.log('[PWA] SW registered:', reg.scope))
+            .catch(err => console.warn('[PWA] SW registration failed:', err));
+        }}
+        </script>
+        """
+    )
+
+_init_pwa()
+del _init_pwa
+
 # ── 仪表盘密码保护（session 级一次认证）───────────────────────────────────────
 _DASHBOARD_PASSWORD = os.environ.get(
     "DASHBOARD_PASSWORD",

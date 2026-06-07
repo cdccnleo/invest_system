@@ -95,10 +95,16 @@ def recent_scan_stats():
 
 
 def _render_report_overview():
-    """报告总览：按类型和日期筛选"""
+    """报告总览：按类型和日期筛选（支持分页）"""
     conn = _get_db_conn()
     if conn is None:
         return
+
+    # 初始化分页状态
+    if "kb_page" not in st.session_state:
+        st.session_state.kb_page = 1
+    if "kb_page_size" not in st.session_state:
+        st.session_state.kb_page_size = 20
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -108,7 +114,22 @@ def _render_report_overview():
     with col3:
         keyword = st.text_input("关键词搜索", placeholder="股票代码或关键词")
 
-    # 构建查询
+    # 分页控件行
+    col_size, col_nav, col_total = st.columns([1, 3, 1])
+    with col_size:
+        page_size = st.selectbox(
+            "每页条数",
+            [10, 20, 50, 100],
+            index=[10, 20, 50, 100].index(st.session_state.kb_page_size) if st.session_state.kb_page_size in [10, 20, 50, 100] else 1,
+            key="kb_page_size_select",
+            label_visibility="collapsed",
+        )
+        if page_size != st.session_state.kb_page_size:
+            st.session_state.kb_page_size = page_size
+            st.session_state.kb_page = 1
+            st.rerun()
+
+    # 构建查询条件
     try:
         cur = conn.cursor()
 
@@ -136,6 +157,47 @@ def _render_report_overview():
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
+        # 总数查询
+        cur.execute(f"""
+            SELECT COUNT(*) FROM ainvest_kb.parsed_reports pr WHERE {where_sql}
+        """, params)
+        total_count = cur.fetchone()[0]
+
+        if total_count == 0:
+            st.info("暂无匹配报告。请先执行知识库同步。")
+            cur.close()
+            conn.close()
+            return
+
+        # 计算分页
+        page_size = st.session_state.kb_page_size
+        total_pages = max(1, (total_count + page_size - 1) // page_size)
+        current_page = st.session_state.kb_page
+
+        if current_page > total_pages:
+            current_page = total_pages
+            st.session_state.kb_page = current_page
+
+        offset = (current_page - 1) * page_size
+
+        # 分页导航
+        with col_nav:
+            c_prev, c_page, c_next = st.columns([1, 2, 1])
+            with c_prev:
+                if st.button("◀ 上一页", disabled=(current_page <= 1), key="kb_prev"):
+                    st.session_state.kb_page -= 1
+                    st.rerun()
+            with c_page:
+                st.markdown(f"<div style='text-align:center;padding-top:5px'>第 <strong>{current_page}</strong> / {total_pages} 页</div>", unsafe_allow_html=True)
+            with c_next:
+                if st.button("下一页 ▶", disabled=(current_page >= total_pages), key="kb_next"):
+                    st.session_state.kb_page += 1
+                    st.rerun()
+
+        with col_total:
+            st.markdown(f"<div style='text-align:right;padding-top:5px'>共 <strong>{total_count}</strong> 条</div>", unsafe_allow_html=True)
+
+        # 主数据查询（带 LIMIT/OFFSET）
         cur.execute(f"""
             SELECT
                 pr.id,
@@ -150,17 +212,12 @@ def _render_report_overview():
             FROM ainvest_kb.parsed_reports pr
             WHERE {where_sql}
             ORDER BY pr.report_date DESC, pr.parsed_at DESC
-            LIMIT 200
-        """, params)
+            LIMIT %s OFFSET %s
+        """, params + [page_size, offset])
 
         rows = cur.fetchall()
 
-        if not rows:
-            st.info("暂无匹配报告。请先执行知识库同步。")
-            return
-
-        # 统计概览
-        total = len(rows)
+        # 统计概览（基于当前页筛选后的内存统计，供参考）
         type_counts = {}
         for r in rows:
             t = r[1]
@@ -168,7 +225,7 @@ def _render_report_overview():
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric("报告总数", total)
+            st.metric("报告总数", total_count)
         with c2:
             st.metric("事件分析", type_counts.get("events", 0))
         with c3:
@@ -273,12 +330,12 @@ def _render_raw_report(conn, report_id: int):
 
 
 def _render_by_stock():
-    """按标的查询关联知识"""
+    """按标的查询关联知识 — 懒加载版本"""
     conn = _get_db_conn()
     if conn is None:
         return
 
-    # 获取持仓列表
+    # 获取持仓列表（轻量查询，先展示）
     try:
         cur = conn.cursor()
         cur.execute("SELECT ts_code, stock_name FROM memory.target_memory_files ORDER BY ts_code")
@@ -293,32 +350,34 @@ def _render_by_stock():
         selected = st.selectbox("选择持仓标的", list(stock_options.keys()))
         selected_code = stock_options[selected]
 
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT
-                pr.id, pr.report_type, pr.title, pr.report_date,
-                pr.summary, pr.confidence_score, skl.relevance_score
-            FROM ainvest_kb.stock_kb_links skl
-            JOIN ainvest_kb.parsed_reports pr ON pr.id = skl.report_id
-            WHERE skl.ts_code = %s
-            ORDER BY skl.relevance_score DESC, pr.report_date DESC
-            LIMIT 50
-        """, (selected_code,))
-        rows = cur.fetchall()
-        cur.close()
+        # 懒加载：详情按需查询
+        reports_placeholder = st.empty()
+        if st.button("📊 加载关联报告", key="load_stock_reports"):
+            with reports_placeholder.container():
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT
+                        pr.id, pr.report_type, pr.title, pr.report_date,
+                        pr.summary, pr.confidence_score, skl.relevance_score
+                    FROM ainvest_kb.stock_kb_links skl
+                    JOIN ainvest_kb.parsed_reports pr ON pr.id = skl.report_id
+                    WHERE skl.ts_code = %s
+                    ORDER BY skl.relevance_score DESC, pr.report_date DESC
+                    LIMIT 50
+                """, (selected_code,))
+                rows = cur.fetchall()
+                cur.close()
 
-        if not rows:
-            st.info(f"📭 {selected} 暂无关联知识库报告")
-            return
-
-        st.markdown(f"**{selected}** 关联 {len(rows)} 份报告")
-
-        for rid, rtype, title, rdate, summary, conf, relevance in rows:
-            date_str = rdate.strftime("%Y-%m-%d") if rdate else "?"
-            with st.expander(f"[{date_str}] {title[:60]} (关联度: {relevance:.0%})"):
-                st.markdown(f"**摘要**: {summary or '(无摘要)'}")
-                if st.button("📊 查看信号", key=f"stock_sig_{rid}"):
-                    _render_report_signals(conn, rid)
+                if not rows:
+                    st.info(f"📭 {selected} 暂无关联知识库报告")
+                else:
+                    st.markdown(f"**{selected}** 关联 {len(rows)} 份报告")
+                    for rid, rtype, title, rdate, summary, conf, relevance in rows:
+                        date_str = rdate.strftime("%Y-%m-%d") if rdate else "?"
+                        with st.expander(f"[{date_str}] {title[:60]} (关联度: {relevance:.0%})"):
+                            st.markdown(f"**摘要**: {summary or '(无摘要)'}")
+                            if st.button("📊 查看信号", key=f"stock_sig_{rid}"):
+                                _render_report_signals(conn, rid)
 
     except Exception as e:
         st.error(f"查询失败: {e}")

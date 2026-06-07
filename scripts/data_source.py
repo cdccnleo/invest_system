@@ -54,7 +54,7 @@ class AkshareSource(DataSource):
 
     def check_availability(self) -> bool:
         try:
-            import akshare
+            import akshare  # noqa: F401  # 动态可用性检测
             return True
         except ImportError:
             return False
@@ -136,7 +136,7 @@ class AkshareHKSource(DataSource):
 
     def check_availability(self) -> bool:
         try:
-            import akshare
+            import akshare  # noqa: F401  # 动态可用性检测
             return True
         except ImportError:
             return False

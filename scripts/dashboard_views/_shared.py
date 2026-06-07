@@ -5,7 +5,6 @@ Dashboard shared utilities — 数据加载 / 数据库连接 / 行情查询
       那些职责由 __main__.py 全权负责。
 """
 import os
-import csv
 import streamlit as st
 from pathlib import Path
 
@@ -13,26 +12,25 @@ ROOT = Path(__file__).parent.parent.parent
 import sys as _sys
 _sys.path.insert(0, str(ROOT / "scripts"))
 
-POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
-
 
 def load_positions() -> list[dict]:
-    positions = []
-    if os.path.exists(POSITIONS_CSV):
-        with open(POSITIONS_CSV, encoding="utf-8") as f:
-            for row in csv.DictReader(f):
-                if not row.get("code"):
-                    continue
-                positions.append({
-                    "代码": str(row["code"]).zfill(6),
-                    "名称": row.get("name", ""),
-                    "类型": row.get("type", "stock"),
-                    "份额": float(row.get("shares", 0)),
-                    "成本": float(row.get("cost", 0)),
-                    "市值": float(row.get("market_value", 0)),
-                    "仓位%": float(row.get("weight", 0)),
-                })
-    return positions
+    """加载所有账号合并持仓（兼容旧接口）"""
+    from account_manager import get_all_positions
+    positions = get_all_positions()
+    # 转换为旧接口的列名格式
+    return [
+        {
+            "代码": p["code"],
+            "名称": p["name"],
+            "类型": p.get("type", "stock"),
+            "份额": p["shares"],
+            "成本": p["avg_cost"],
+            "市值": p["market_value"],
+            "仓位%": p.get("weight", 0),
+            "账号": p.get("account", "main"),
+        }
+        for p in positions
+    ]
 
 
 @st.cache_resource(ttl=3600)

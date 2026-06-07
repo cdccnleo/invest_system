@@ -1,0 +1,7 @@
+{
+  "main": {
+    "name": "主账户",
+    "positions_csv": "/mnt/d/Hold/invest-data/positions.csv",
+    "enabled": true
+  }
+}

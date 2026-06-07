@@ -16,12 +16,40 @@ _sys.path.insert(0, str(_Path(__file__).parent.parent))
 # ── 视图 1：持仓仪表板 ──────────────────────────────────────────────────────
 
 def render_portfolio_dashboard():
+    # 账号选择器
+    from account_manager import get_account_summary, get_active_accounts
+    account_summaries = get_account_summary()
+    active_accounts = get_active_accounts()
+    
+    col_acct_label, col_acct_select = st.columns([1, 3])
+    with col_acct_label:
+        st.markdown("**📂 账号**")
+    with col_acct_select:
+        if len(active_accounts) > 1:
+            account_options = ["全部"] + [f"{cfg.get('name', aid)} ({aid})" for aid, cfg in active_accounts]
+            account_keys = ["all"] + [aid for aid, _ in active_accounts]
+            selected_label = st.selectbox("选择账号", account_options, label_visibility="collapsed")
+            selected_account = account_keys[account_options.index(selected_label)]
+        else:
+            selected_account = "all"
+            if account_summaries:
+                st.caption(f"📂 {account_summaries[0]['name']}")
+
     positions = load_positions()
     if not positions:
         st.error("无持仓数据，请检查 positions.csv")
         return
 
     df = pd.DataFrame(positions)
+    
+    # 按账号筛选
+    if selected_account != "all":
+        df = df[df.get("账号", "main") == selected_account]
+    
+    if df.empty:
+        st.warning(f"账号「{selected_account}」无持仓数据")
+        return
+
     total_mv = df["市值"].sum()
 
     # ── 自动刷新 ────────────────────────────────────────

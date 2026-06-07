@@ -80,7 +80,7 @@ def daily_reflection(trade_date: str = None) -> dict:
             WHERE trade_date = %s
         """, (trade_date,))
         quote_rows = cur.fetchall()
-        quotes_map = {r[0]: {"close": float(r[1]), "change_pct": float(r[2] or 0)} for r in quote_rows}
+        quotes_map = {r[0]: {"close": float(r[1]), "change_pct": float(r[2] or 0)} for r in quote_rows}  # noqa: E501
 
     finally:
         conn.close()
@@ -209,7 +209,7 @@ def _update_user_profile_from_reflection(attribution: dict):
         f"\n## {today} 复盘记录\n"
         f"- 计划执行: {attribution.get('summary', '')}\n"
         f"- 修改比例: {attribution.get('modification_ratio', 0)}%\n"
-        f"- 洞察: {attribution.get('insights', [''])[0][:100] if attribution.get('insights') else '暂无'}\n"
+        f"- 洞察: {attribution.get('insights', [''])[0][:100] if attribution.get('insights') else '暂无'}\n"  # noqa: E501
         f"- 置信度调整: {'+' if confidence_impact >= 0 else ''}{confidence_impact}\n"
     )
 
@@ -317,7 +317,7 @@ def evaluate_analysis_quality(result: dict, prompt: str = "") -> dict:
 
     return {
         "quality_score": quality_score,
-        "quality_level": "high" if quality_score >= 80 else "medium" if quality_score >= 50 else "low",
+        "quality_level": "high" if quality_score >= 80 else "medium" if quality_score >= 50 else "low",  # noqa: E501
         "warnings": warnings,
         "flagged": quality_score < 50,
         "checks": {

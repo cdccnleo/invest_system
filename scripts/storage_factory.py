@@ -187,7 +187,7 @@ class StorageBackend:
                     ON CONFLICT (ts_code, trade_date) DO UPDATE SET
                         close_price = EXCLUDED.close_price,
                         change_pct = EXCLUDED.change_pct,
-                        volume = CASE WHEN EXCLUDED.volume > 0 THEN EXCLUDED.volume ELSE market.daily_quotes.volume END,
+                        volume = CASE WHEN EXCLUDED.volume > 0 THEN EXCLUDED.volume ELSE market.daily_quotes.volume END,  # noqa: E501
                         source = EXCLUDED.source
                 """, (
                     q["ts_code"], q["trade_date"],
@@ -306,7 +306,7 @@ class StorageBackend:
                     detail: dict = None, result: str = "SUCCESS") -> bool:
         detail = detail or {}
         if self._ensure_pg():
-            return self._write_audit_pg(event_type, operator, target_type, target_id, detail, result)
+            return self._write_audit_pg(event_type, operator, target_type, target_id, detail, result)  # noqa: E501
         return self._write_audit_sqlite(event_type, operator, detail)
 
     def _write_audit_pg(self, event_type, operator, target_type, target_id, detail, result) -> bool:

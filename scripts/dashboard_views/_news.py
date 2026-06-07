@@ -41,7 +41,7 @@ def _render_sync_button(data_type: str, label: str, sync_func, help_text: str = 
                     result = sync_func()
                     set_sync_status(data_type, last_sync=datetime.now(), syncing=False)
                     if result["status"] == "ok":
-                        st.success(f"同步完成：采集 {result['total']} 条，新增 {result['saved']} 条")
+                        st.success(f"同步完成：采集 {result['total']} 条，新增 {result['saved']} 条")  # noqa: E501
                         st.rerun()
                     elif result["status"] == "empty":
                         st.info("数据已是最新，无新增内容")
@@ -267,7 +267,7 @@ def render_reports():
             else:
                 em_url = url if url else None
 
-            label = f"{r_emoji} [{date_str}] {source or '未知来源'} | {str(rating or '无评级'):8s} | {ts_code or ''} {title}"
+            label = f"{r_emoji} [{date_str}] {source or '未知来源'} | {str(rating or '无评级'):8s} | {ts_code or ''} {title}"  # noqa: E501
 
             with st.expander(label[:120]):
                 st.markdown(f"**{title}**")

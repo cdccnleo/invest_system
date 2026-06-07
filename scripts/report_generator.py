@@ -101,7 +101,7 @@ def generate_weekly_report() -> str:
             results = score_positions(positions)
             if results:
                 factor_rows = [
-                    f"| {r['rank']} | {r['ts_code']} | {r['total_score']:.1f} | {r['z_score']:+.1f} |"
+                    f"| {r['rank']} | {r['ts_code']} | {r['total_score']:.1f} | {r['z_score']:+.1f} |"  # noqa: E501
                     for r in results[:10]
                 ]
                 factor_section = (

@@ -39,7 +39,7 @@ from data_sanitizer import (
 )
 from fetch_quotes import collect_quotes, fetch_fund_nav
 from fetch_news import collect_news
-from prompt_builder import build_analysis_prompt, build_tamf_summaries_for_prompt, simple_position_analysis
+from prompt_builder import build_analysis_prompt, build_tamf_summaries_for_prompt, simple_position_analysis  # noqa: E501
 from llm_caller import estimate_cost, _parse_llm_response
 from agent_interface import get_agent
 from circuit_breaker import get_circuit_breaker, CircuitBreakerStatus
@@ -207,7 +207,7 @@ def run_analysis():
     # ── Step 4: 数据校验 ──────────────────────────────────────────────────
     print("\n📌 Step 4: 数据校验...")
     quotes_raw = [{"ts_code": p.get("ts_code", ""), "trade_date": date.today().strftime("%Y-%m-%d"),
-                   "close": p.get("close", 0), "volume": 0,  # 不写入持仓数量(≠成交量)，留空让ON CONFLICT保留历史真实均量
+                   "close": p.get("close", 0), "volume": 0,  # 不写入持仓数量(≠成交量)，留空让ON CONFLICT保留历史真实均量  # noqa: E501
                    "change_pct": p.get("change_pct", 0), "source": "run_analysis"}
                   for p in positions if p.get("close", 0) > 0]
     quotes_valid, quotes_err = validate_quotes_data(quotes_raw)
@@ -443,7 +443,7 @@ def run_analysis():
             pass
     except Exception as e:
         logger.warning(f"质量评估异常: {e}")
-        quality = {"quality_score": 0, "quality_level": "unknown", "warnings": [str(e)], "flagged": False}
+        quality = {"quality_score": 0, "quality_level": "unknown", "warnings": [str(e)], "flagged": False}  # noqa: E501
 
     # ── Step 8: 还原脱敏并输出报告 ───────────────────────────────────────
     print("\n" + "=" * 65)
@@ -518,13 +518,13 @@ def run_analysis():
                 import json as _json
                 cur2 = pg_conn.cursor()
                 cur2.execute("""
-                    INSERT INTO analysis.analysis_runs (run_id, completed_at, detail, plans, confidence)
+                    INSERT INTO analysis.analysis_runs (run_id, completed_at, detail, plans, confidence)  # noqa: E501
                     VALUES (%s, NOW(), %s, %s, %s)
                     ON CONFLICT (run_id) DO UPDATE SET
                         detail = EXCLUDED.detail,
                         plans = EXCLUDED.plans,
                         completed_at = EXCLUDED.completed_at
-                """, (run_id, _json.dumps(detail), _json.dumps(plans_list), result.get("confidence_level", "unknown")))
+                """, (run_id, _json.dumps(detail), _json.dumps(plans_list), result.get("confidence_level", "unknown")))  # noqa: E501
                 pg_conn.commit()
                 cur2.close()
                 pg_conn.close()

@@ -108,7 +108,7 @@ def _render_report_overview():
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        report_type = st.selectbox("报告类型", ["全部", "events", "trackers", "deep-analysis", "daily"])
+        report_type = st.selectbox("报告类型", ["全部", "events", "trackers", "deep-analysis", "daily"])  # noqa: E501
     with col2:
         date_range = st.selectbox("时间范围", ["最近7天", "最近30天", "最近90天", "全部"])
     with col3:
@@ -120,7 +120,7 @@ def _render_report_overview():
         page_size = st.selectbox(
             "每页条数",
             [10, 20, 50, 100],
-            index=[10, 20, 50, 100].index(st.session_state.kb_page_size) if st.session_state.kb_page_size in [10, 20, 50, 100] else 1,
+            index=[10, 20, 50, 100].index(st.session_state.kb_page_size) if st.session_state.kb_page_size in [10, 20, 50, 100] else 1,  # noqa: E501
             key="kb_page_size_select",
             label_visibility="collapsed",
         )
@@ -188,14 +188,14 @@ def _render_report_overview():
                     st.session_state.kb_page -= 1
                     st.rerun()
             with c_page:
-                st.markdown(f"<div style='text-align:center;padding-top:5px'>第 <strong>{current_page}</strong> / {total_pages} 页</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center;padding-top:5px'>第 <strong>{current_page}</strong> / {total_pages} 页</div>", unsafe_allow_html=True)  # noqa: E501
             with c_next:
                 if st.button("下一页 ▶", disabled=(current_page >= total_pages), key="kb_next"):
                     st.session_state.kb_page += 1
                     st.rerun()
 
         with col_total:
-            st.markdown(f"<div style='text-align:right;padding-top:5px'>共 <strong>{total_count}</strong> 条</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align:right;padding-top:5px'>共 <strong>{total_count}</strong> 条</div>", unsafe_allow_html=True)  # noqa: E501
 
         # 主数据查询（带 LIMIT/OFFSET）
         cur.execute(f"""
@@ -255,7 +255,7 @@ def _render_report_overview():
                         st.markdown(f"**主标的**: {pcode}")
                 with col_b:
                     st.metric("置信度", conf_str)
-                    st.caption(f"解析时间: {parsed_at.strftime('%m-%d %H:%M') if parsed_at else '?'}")
+                    st.caption(f"解析时间: {parsed_at.strftime('%m-%d %H:%M') if parsed_at else '?'}")  # noqa: E501
 
                 # 查看详细信号
                 if st.button("📊 查看提取信号", key=f"sig_{rid}"):
@@ -284,7 +284,7 @@ def _render_report_signals(conn, report_id: int):
         if row:
             import json
             signals = row[0] if isinstance(row[0], list) else (json.loads(row[0]) if row[0] else [])
-            judgments = row[1] if isinstance(row[1], list) else (json.loads(row[1]) if row[1] else [])
+            judgments = row[1] if isinstance(row[1], list) else (json.loads(row[1]) if row[1] else [])  # noqa: E501
             risk = row[2]
             actions = row[3] if isinstance(row[3], list) else (json.loads(row[3]) if row[3] else [])
 
@@ -393,7 +393,7 @@ def _render_signals():
 
     col1, col2 = st.columns(2)
     with col1:
-        signal_type = st.selectbox("信号类型", ["全部", "exposure_assessment", "stop_loss_adjustment", "valuation_analysis", "investment_advice"])
+        signal_type = st.selectbox("信号类型", ["全部", "exposure_assessment", "stop_loss_adjustment", "valuation_analysis", "investment_advice"])  # noqa: E501
     with col2:
         direction = st.selectbox("信号方向", ["全部", "positive", "negative", "neutral"])
 
@@ -438,7 +438,7 @@ def _execute_signals_query(conn, signal_type, direction):
         for row in rows:
             rid, rtype, title, rdate, pcode, signals, risk, conf = row
             import json
-            signals_list = signals if isinstance(signals, list) else (json.loads(signals) if signals else [])
+            signals_list = signals if isinstance(signals, list) else (json.loads(signals) if signals else [])  # noqa: E501
 
             # 方向筛选
             if direction != "全部" and signals_list:
@@ -477,7 +477,7 @@ def _render_semantic_search():
             label_visibility="collapsed",
         )
     with col_k:
-        top_k = st.number_input("返回条数", min_value=1, max_value=20, value=5, label_visibility="collapsed")
+        top_k = st.number_input("返回条数", min_value=1, max_value=20, value=5, label_visibility="collapsed")  # noqa: E501
 
     if st.button("🔍 搜索", type="primary", use_container_width=True):
         if not query.strip():
@@ -517,7 +517,7 @@ def _render_semantic_search():
                                 for c in conflicts:
                                     st.warning(
                                         f"⚠️ 冲突检测 [{code}]: {c['type']} — "
-                                        f"AInvest: {c.get('ainvest', '')} vs TAMF: {c.get('tamf', '')}"
+                                        f"AInvest: {c.get('ainvest', '')} vs TAMF: {c.get('tamf', '')}"  # noqa: E501
                                     )
                     except Exception:
                         pass

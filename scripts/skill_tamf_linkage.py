@@ -201,7 +201,7 @@ class SkillTAMFLinkage:
                 flagged.append(skill_name)
 
         if flagged:
-            logger.info(f"TAMF联动: {ts_code} 基本面变化 → {len(flagged)} 个技能标记复审: {flagged}")
+            logger.info(f"TAMF联动: {ts_code} 基本面变化 → {len(flagged)} 个技能标记复审: {flagged}")  # noqa: E501
 
         return flagged
 

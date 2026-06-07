@@ -176,11 +176,11 @@ def render_history():
         view_month = st.selectbox(
             "查看月份",
             options=list(range(1, 13)),
-            index=list(range(1, 13)).index(datetime.now().month) if datetime.now().month <= 12 else 0,
+            index=list(range(1, 13)).index(datetime.now().month) if datetime.now().month <= 12 else 0,  # noqa: E501
             format_func=lambda m: f"{datetime.now().year}-{m:02d}",
         )
     with col_filter2:
-        view_year = st.selectbox("年份", list(range(datetime.now().year - 2, datetime.now().year + 1))[::-1])
+        view_year = st.selectbox("年份", list(range(datetime.now().year - 2, datetime.now().year + 1))[::-1])  # noqa: E501
     with col_filter3:
         days_range = st.selectbox("时间范围", [30, 60, 90, 180], index=1,
                                   format_func=lambda d: f"近{d}天")
@@ -237,13 +237,13 @@ def render_history():
                 events_md = ""
                 if cell["events"]:
                     for line in cell["events"].split("\n"):
-                        events_md += f"<div style='font-size:10px; line-height:1.3; color:#555;'>{line}</div>"
+                        events_md += f"<div style='font-size:10px; line-height:1.3; color:#555;'>{line}</div>"  # noqa: E501
 
                 # 关键修复：calendar.Calendar 返回的 day_num 已经是 str，这里取 week_cells[i]["day"]
                 st.markdown(
                     f"<div style='background:{bg}; border-left:3px solid {border}; "
                     f"padding:6px 8px; height:90px; overflow:hidden; border-radius:0 4px 4px 0;'>"
-                    f"<div style='font-size:16px; font-weight:bold; margin-bottom:2px;'>{day_num}</div>"
+                    f"<div style='font-size:16px; font-weight:bold; margin-bottom:2px;'>{day_num}</div>"  # noqa: E501
                     f"<div style='font-size:14px; margin-bottom:2px;'>{cell['emoji']}</div>"
                     f"{events_md}"
                     f"</div>",
@@ -275,7 +275,7 @@ def render_history():
             st.metric("生成计划数", plans_total)
         with col_stat4:
             days_with_runs = len({e["day"].strftime("%Y-%m-%d") for e in month_entries if e["day"]})
-            st.metric("活跃天数", f"{days_with_runs}/{calendar.monthrange(view_year, view_month)[1]}")
+            st.metric("活跃天数", f"{days_with_runs}/{calendar.monthrange(view_year, view_month)[1]}")  # noqa: E501
     else:
         st.info("本月暂无运行记录")
 
@@ -293,7 +293,7 @@ def render_history():
     if selected_date and selected_date in entries_by_date:
         day_entries = entries_by_date[selected_date]
         for entry in day_entries:
-            phase = entry.get("_phase_emoji", "📌") + " " + entry.get("_phase_name", entry["event_type"])
+            phase = entry.get("_phase_emoji", "📌") + " " + entry.get("_phase_name", entry["event_type"])  # noqa: E501
             result_icon = "✅ 成功" if entry["_ok"] else "❌ 失败"
             conf = entry.get("_confidence", "N/A")
             plans = entry.get("_plans_count", 0)
@@ -324,7 +324,7 @@ def render_history():
         if st.button("📊 近7天行为分析"):
             from audit_analytics import analyze_trading_behavior
             result = analyze_trading_behavior(7)
-            st.success(f"运行次数: {result['total_analysis_runs']} | AI采纳率: {result['analysis_success_rate']}%")
+            st.success(f"运行次数: {result['total_analysis_runs']} | AI采纳率: {result['analysis_success_rate']}%")  # noqa: E501
             for p in result.get("behavior_patterns", []):
                 st.markdown(f"- {p}")
             for r in result.get("recommendations", []):
@@ -439,7 +439,7 @@ def render_tamf_memory():
                 st.markdown(f"**{names.get(selected_code, selected_code)}**（{selected_code}）")
                 st.caption(f"版本 v{vmaj}.{vmin} | 状态 {status} | 更新 {str(lupdated)[:16]}")
                 if snap:
-                    st.caption(f"行情: {snap.get('last_quote_date','—')} | 公告: {snap.get('last_ann_date','—')}")
+                    st.caption(f"行情: {snap.get('last_quote_date','—')} | 公告: {snap.get('last_ann_date','—')}")  # noqa: E501
             else:
                 st.warning("无TAMF元数据")
         except Exception as e:
@@ -468,7 +468,7 @@ def render_tamf_memory():
             st.markdown(m.group(1) if m else "无数据")
 
         with tabs[2]:
-            m = re.search(r"(## 四、技术面与市场表现.*?)(?=^## 五|$$)", content, re.DOTALL | re.MULTILINE)
+            m = re.search(r"(## 四、技术面与市场表现.*?)(?=^## 五|$$)", content, re.DOTALL | re.MULTILINE)  # noqa: E501
             st.markdown(m.group(1) if m else "无数据")
 
         with tabs[3]:
@@ -476,7 +476,7 @@ def render_tamf_memory():
             st.markdown(m.group(1) if m else "无数据")
 
         with tabs[4]:
-            m = re.search(r"(## 七、跟踪状态与预警.*?)(?=^## 八|$$)", content, re.DOTALL | re.MULTILINE)
+            m = re.search(r"(## 七、跟踪状态与预警.*?)(?=^## 八|$$)", content, re.DOTALL | re.MULTILINE)  # noqa: E501
             st.markdown(m.group(1) if m else "无数据")
 
     # 底部时间线

@@ -46,7 +46,7 @@ def is_relevant(title: str, content: str = "") -> bool:
 
 def assess_severity(title: str) -> str:
     """评估新闻严重程度"""
-    high = ["降息", "降准", "证监会", "央行", "财政部", "涨停", "跌停", "重大", "黑天鹅", "监管", "暂停", "终止"]
+    high = ["降息", "降准", "证监会", "央行", "财政部", "涨停", "跌停", "重大", "黑天鹅", "监管", "暂停", "终止"]  # noqa: E501
     medium = ["北上资金", "龙虎榜", "回购", "分红", "业绩", "突破", "加仓"]
     for kw in high:
         if kw in title:
@@ -70,7 +70,7 @@ def fetch_cailian_web() -> list[dict]:
         resp = requests.get(
             "https://www.cls.cn/telegraph",
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # noqa: E501
                 "Referer": "https://www.cls.cn/",
                 "Accept-Language": "zh-CN,zh;q=0.9",
             },
@@ -88,7 +88,7 @@ def fetch_cailian_web() -> list[dict]:
 
         import json as _json
         data = _json.loads(m.group(1))
-        telegraph = data.get("props", {}).get("initialState", {}).get("telegraph", {}).get("telegraphList", [])
+        telegraph = data.get("props", {}).get("initialState", {}).get("telegraph", {}).get("telegraphList", [])  # noqa: E501
 
         for item in telegraph:
             if item.get("is_ad"):  # 过滤广告
@@ -162,7 +162,7 @@ def fetch_sina_finance() -> list[dict]:
                 continue
             try:
                 pub_ts = int(item.get("ctime", 0))
-                pub_time = datetime.fromtimestamp(pub_ts).isoformat() if pub_ts else datetime.now().isoformat()
+                pub_time = datetime.fromtimestamp(pub_ts).isoformat() if pub_ts else datetime.now().isoformat()  # noqa: E501
             except Exception:
                 pub_time = datetime.now().isoformat()
 

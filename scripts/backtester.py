@@ -523,7 +523,7 @@ class BacktestEngine:
         total_return = (equity_arr[-1] / self.cfg.initial_cash - 1) * 100
         n_days = len(dates)
         n_years = n_days / 252
-        annual_return = ((equity_arr[-1] / self.cfg.initial_cash) ** (1 / n_years) - 1) * 100 if n_years > 0 else 0
+        annual_return = ((equity_arr[-1] / self.cfg.initial_cash) ** (1 / n_years) - 1) * 100 if n_years > 0 else 0  # noqa: E501
 
         # 最大回撤
         peak = np.maximum.accumulate(equity_arr)
@@ -750,13 +750,13 @@ class MultiStrategyComparison:
                 f"¥{r.get('final_equity', 0):,.0f}",
             ])
 
-        col_widths = [max(len(str(row[i])) for row in rows + [headers]) for i in range(len(headers))]
+        col_widths = [max(len(str(row[i])) for row in rows + [headers]) for i in range(len(headers))]  # noqa: E501
 
         def sep():
             print("+" + "+".join("-" * (w + 2) for w in col_widths) + "+")
 
         def row_line(cells):
-            print("|" + "|".join(f" {str(cells[i]).ljust(col_widths[i])} " for i in range(len(cells))) + "|")
+            print("|" + "|".join(f" {str(cells[i]).ljust(col_widths[i])} " for i in range(len(cells))) + "|")  # noqa: E501
 
         sep()
         row_line(headers)
@@ -860,7 +860,7 @@ def main(argv: list[str] = None):
     print()
     print(f"═══ {ts_code} 回测报告 ═══")
     print(f"  策略:      {strategy_name} {params}")
-    print(f"  回测期:    {summary['start_date']} ~ {summary['end_date']} ({summary['trading_days']} 个交易日)")
+    print(f"  回测期:    {summary['start_date']} ~ {summary['end_date']} ({summary['trading_days']} 个交易日)")  # noqa: E501
     print(f"  初始资金:  ¥{summary['initial_cash']:,.0f}")
     print(f"  最终权益:  ¥{summary['final_equity']:,.2f}")
     print(f"  总收益率:  {summary['total_return_pct']:+.2f}%")

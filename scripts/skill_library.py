@@ -112,7 +112,7 @@ def generate_skill_draft(
 """
 
     agent = get_agent()
-    result = agent.chat(prompt, system="你是一个严谨的技能工程师，输出必须是有效JSON。", force_model="deepseek")
+    result = agent.chat(prompt, system="你是一个严谨的技能工程师，输出必须是有效JSON。", force_model="deepseek")  # noqa: E501
     raw_content = result.get("content", "")
 
     # 解析 JSON
@@ -235,7 +235,7 @@ class SkillLifecycle:
         if not draft_path.exists():
             return False
 
-        rejected_path = DRAFT_DIR / f"{draft_name}_rejected_{datetime.now().strftime('%Y%m%d%H%M')}.json"
+        rejected_path = DRAFT_DIR / f"{draft_name}_rejected_{datetime.now().strftime('%Y%m%d%H%M')}.json"  # noqa: E501
         draft_path.rename(rejected_path)
 
         # 记录拒绝原因
@@ -308,7 +308,7 @@ class SkillLifecycle:
             return False
 
         # 备份当前版本
-        backup_path = APPROVED_DIR / f"{skill_name}_backup_{datetime.now().strftime('%Y%m%d%H%M')}.md"
+        backup_path = APPROVED_DIR / f"{skill_name}_backup_{datetime.now().strftime('%Y%m%d%H%M')}.md"  # noqa: E501
         skill_path.rename(backup_path)
         logger.info(f"已备份当前版本到: {backup_path.name}")
 

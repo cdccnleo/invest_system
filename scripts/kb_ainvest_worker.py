@@ -609,14 +609,14 @@ def detect_knowledge_conflict(code: str, ainvest_signals: list[dict]) -> list[di
                 continue
 
             # 检测方向相反的信号
-            if direction in ("positive", "bullish", "买入", "增持") and                     any(kw in tamf_text for kw in ["减持", "卖出", "减仓", "negative", "bearish"]):
+            if direction in ("positive", "bullish", "买入", "增持") and                     any(kw in tamf_text for kw in ["减持", "卖出", "减仓", "negative", "bearish"]):  # noqa: E501
                 conflicts.append({
                     "type": "direction_conflict",
                     "severity": "high",
                     "ainvest": f"{signal.get('event_tag', '')} {signal.get('signal', '')}".strip(),
                     "tamf": "TAMF 近期存在减仓/卖出判断",
                 })
-            elif direction in ("negative", "bearish", "卖出", "减持") and                     any(kw in tamf_text for kw in ["增持", "买入", "加仓", "positive", "bullish"]):
+            elif direction in ("negative", "bearish", "卖出", "减持") and                     any(kw in tamf_text for kw in ["增持", "买入", "加仓", "positive", "bullish"]):  # noqa: E501
                 conflicts.append({
                     "type": "direction_conflict",
                     "severity": "high",

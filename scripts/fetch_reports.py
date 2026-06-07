@@ -15,7 +15,7 @@ import psycopg2
 logger = logging.getLogger("invest_system.fetch_reports")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # noqa: E501
     "Referer": "https://data.eastmoney.com/",
 }
 
@@ -116,7 +116,7 @@ def fetch_reports_page(
     data = resp.json()
 
     if data.get("code") is not None and data.get("code") != 0:
-        logger.warning(f"东方财富研报 API 错误: code={data.get('code')} msg={data.get('message', '')}")
+        logger.warning(f"东方财富研报 API 错误: code={data.get('code')} msg={data.get('message', '')}")  # noqa: E501
         return [], 0
 
     raw_reports = data.get("data", [])
@@ -291,7 +291,7 @@ def embed_reports(report_ids: list[int] = None):
                     SELECT id, title, summary, source
                     FROM research.research_reports
                     WHERE id = ANY(%s)
-                      AND id NOT IN (SELECT report_id FROM research.report_embeddings WHERE report_id IS NOT NULL)
+                      AND id NOT IN (SELECT report_id FROM research.report_embeddings WHERE report_id IS NOT NULL)  # noqa: E501
                 """, (report_ids,))
             else:
                 cur.execute("""

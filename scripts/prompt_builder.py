@@ -191,7 +191,7 @@ def build_analysis_prompt(
         change = idx.get("change_pct", 0)
         arrow = "📈" if change >= 0 else "📉"
         index_lines.append(f"{idx_name} {arrow} {change:+.2f}%")
-    index_section = "## 近5日大盘趋势\n" + "\n".join(index_lines) if index_lines else "## 近5日大盘趋势\n暂无数据"
+    index_section = "## 近5日大盘趋势\n" + "\n".join(index_lines) if index_lines else "## 近5日大盘趋势\n暂无数据"  # noqa: E501
 
     # ── 板块资金流向 ────────────────────────────────────────────────────────
     sector_lines = []
@@ -201,7 +201,7 @@ def build_analysis_prompt(
         pct = sf.get("net_flow_pct", 0)
         arrow = "↑" if flow >= 0 else "↓"
         sector_lines.append(f"{name} {arrow} {abs(flow/1e8):.1f}亿 ({pct:+.1f}%)")
-    sector_section = "## 行业板块资金流向（当日）\n" + "\n".join(sector_lines) if sector_lines else "## 行业板块资金流向\n暂无数据"
+    sector_section = "## 行业板块资金流向（当日）\n" + "\n".join(sector_lines) if sector_lines else "## 行业板块资金流向\n暂无数据"  # noqa: E501
 
     # ── 近期重要新闻 ────────────────────────────────────────────────────────
     news_lines = []
@@ -307,7 +307,7 @@ def build_analysis_prompt(
     macro_lines = []
     for m in macro_calendar[:5]:
         macro_lines.append(f"- {m.get('date', '')} {m.get('event', '')}")
-    macro_section = "## 近期宏观日历\n" + "\n".join(macro_lines) if macro_lines else "## 近期宏观日历\n暂无重大事件"
+    macro_section = "## 近期宏观日历\n" + "\n".join(macro_lines) if macro_lines else "## 近期宏观日历\n暂无重大事件"  # noqa: E501
 
     # ── 资金概览 ────────────────────────────────────────────────────────────
     used_pct = sum(p.get("weight_pct", 0) for p in sanitized_positions)

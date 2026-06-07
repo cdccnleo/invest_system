@@ -356,11 +356,11 @@ if __name__ == "__main__":
                 print(f"🔍 {sys.argv[2]} 有差异 ({r['diff_lines']}行):\n")
                 print(r["diff_text"])
             else:
-                print(f"✅ {sys.argv[2]} 无差异" if r["shadow_exists"] else f"⚠️ {sys.argv[2]} 无影子文件")
+                print(f"✅ {sys.argv[2]} 无差异" if r["shadow_exists"] else f"⚠️ {sys.argv[2]} 无影子文件")  # noqa: E501
         else:
             diffs = shadow.diff_all()
             for d in diffs:
-                status = "🔴 有差异" if d["has_diff"] else "✅ 无差异" if d["shadow_exists"] else "⚠️ 无影子文件"
+                status = "🔴 有差异" if d["has_diff"] else "✅ 无差异" if d["shadow_exists"] else "⚠️ 无影子文件"  # noqa: E501
                 detail = f" ({d['diff_lines']}行)" if d["has_diff"] else ""
                 print(f"{status} {d['code']}{detail}")
             if not diffs:
@@ -369,7 +369,7 @@ if __name__ == "__main__":
     elif cmd == "promote":
         if len(sys.argv) > 2:
             r = shadow.promote(sys.argv[2])
-            print(f"{'✅' if r['promoted'] else '❌'} 晋升 {'成功' if r['promoted'] else '失败'}: {sys.argv[2]}")
+            print(f"{'✅' if r['promoted'] else '❌'} 晋升 {'成功' if r['promoted'] else '失败'}: {sys.argv[2]}")  # noqa: E501
         else:
             print("用法: python tamf_shadow.py promote <code>")
 
@@ -378,7 +378,7 @@ if __name__ == "__main__":
         confirm = input().strip().lower()
         if confirm == "y":
             result = shadow.promote_all()
-            print(f"✅ 晋升完成: {result['promoted']}成功 / {result['failed']}失败 (共{result['total']}只)")
+            print(f"✅ 晋升完成: {result['promoted']}成功 / {result['failed']}失败 (共{result['total']}只)")  # noqa: E501
 
     elif cmd == "rollback":
         if len(sys.argv) > 2:

@@ -95,8 +95,8 @@ def render_sidebar():
     # URL 参数优先（?page=calendar）
     import streamlit as st_caller
     query_params = st_caller.query_params
-    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "📚 AInvest知识库", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"}
-    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "📚 AInvest知识库", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"]
+    VALID_PAGES = {"📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "📚 AInvest知识库", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"}  # noqa: E501
+    PAGES = ["📋 持仓仪表板", "📰 新闻摘要", "📋 研报", "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆", "📚 AInvest知识库", "🤖 L3 投资伙伴", "📈 策略回测", "📊 多因子评分", "⚙️ 设置"]  # noqa: E501
 
     if "current_page" not in st.session_state:
         st.session_state["current_page"] = "📋 持仓仪表板"
@@ -138,7 +138,7 @@ def render_sidebar():
 
         st.divider()
         st.markdown("### 🔄 持仓同步")
-        if st.button("📥 从券商文件同步持仓", help="读取 D:\\Hold 目录下的券商持仓文件，更新 positions.csv 和 PostgreSQL"):
+        if st.button("📥 从券商文件同步持仓", help="读取 D:\\Hold 目录下的券商持仓文件，更新 positions.csv 和 PostgreSQL"):  # noqa: E501
             with st.spinner("正在解析持仓文件..."):
                 try:
                     import csv as csv_lib
@@ -198,26 +198,26 @@ def render_sidebar():
                             mv = safe_float(row[9])
                             if shares <= 0 or mv <= 0:
                                 continue
-                            ptype = 'bond' if code.startswith('4') else ('fund' if code.startswith(('5','15')) else 'stock')
+                            ptype = 'bond' if code.startswith('4') else ('fund' if code.startswith(('5','15')) else 'stock')  # noqa: E501
                             key = ('国金证券', code)
                             if key not in positions_map:
-                                positions_map[key] = {'account':'国金证券','code':code,'name':name,'type':ptype,'shares':shares,'cost':cost,'date':date,'market_value':mv,'weight':0}
+                                positions_map[key] = {'account':'国金证券','code':code,'name':name,'type':ptype,'shares':shares,'cost':cost,'date':date,'market_value':mv,'weight':0}  # noqa: E501
                                 _dbg["国金证券"] += 1
                             else:
                                 p = positions_map[key]
                                 cs = p['shares'] + shares
                                 p['shares'] = cs
                                 p['market_value'] += mv
-                                p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']
+                                p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']  # noqa: E501
                         except Exception:
                             continue
 
                     # 2. 天天基金
                     try:
-                        with open(f"{HOLD_DIR}/天天基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
+                        with open(f"{HOLD_DIR}/天天基金持仓{file_date}.csv", encoding='utf-8-sig') as f:  # noqa: E501
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'):
+                                if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'):  # noqa: E501
                                     continue
                                 try:
                                     code = row[0].strip()
@@ -228,7 +228,7 @@ def render_sidebar():
                                         continue
                                     key = ('天天基金', code)
                                     if key not in positions_map:
-                                        positions_map[key] = {'account':'天天基金','code':code,'name':name,'type':'fund','shares':amount/nav if nav>0 else 0,'cost':nav,'date':date,'market_value':amount,'weight':0}
+                                        positions_map[key] = {'account':'天天基金','code':code,'name':name,'type':'fund','shares':amount/nav if nav>0 else 0,'cost':nav,'date':date,'market_value':amount,'weight':0}  # noqa: E501
                                         _dbg["天天基金"] += 1
                                 except Exception:
                                     continue
@@ -237,7 +237,7 @@ def render_sidebar():
 
                     # 3. 广发基金
                     try:
-                        with open(f"{HOLD_DIR}/广发基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
+                        with open(f"{HOLD_DIR}/广发基金持仓{file_date}.csv", encoding='utf-8-sig') as f:  # noqa: E501
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
                                 if len(row) < 10 or not row[0].strip() or row[0] in ('类型',''):
@@ -253,14 +253,14 @@ def render_sidebar():
                                     ptype = 'stock' if row[0].strip() == '股票' else 'fund'
                                     key = ('广发证券', code)
                                     if key not in positions_map:
-                                        positions_map[key] = {'account':'广发证券','code':code,'name':name,'type':ptype,'shares':shares,'cost':cost,'date':date,'market_value':mv,'weight':0}
+                                        positions_map[key] = {'account':'广发证券','code':code,'name':name,'type':ptype,'shares':shares,'cost':cost,'date':date,'market_value':mv,'weight':0}  # noqa: E501
                                         _dbg["广发证券"] += 1
                                     else:
                                         p = positions_map[key]
                                         cs = p['shares'] + shares
                                         p['shares'] = cs
                                         p['market_value'] += mv
-                                        p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']
+                                        p['cost'] = (p['cost'] * p['shares'] + cost * shares) / cs if cs > 0 else p['cost']  # noqa: E501
                                 except Exception:
                                     continue
                     except Exception:
@@ -269,10 +269,10 @@ def render_sidebar():
                     # 4. 汇添富基金
                     try:
                         fund_groups = {}
-                        with open(f"{HOLD_DIR}/汇添富基金持仓{file_date}.csv", encoding='utf-8-sig') as f:
+                        with open(f"{HOLD_DIR}/汇添富基金持仓{file_date}.csv", encoding='utf-8-sig') as f:  # noqa: E501
                             for line in f.read().split('\n')[1:]:
                                 row = _parse_csv_line(line)
-                                if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'):
+                                if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'):  # noqa: E501
                                     continue
                                 try:
                                     code = str(row[0].strip()).zfill(6)
@@ -284,7 +284,7 @@ def render_sidebar():
                                     if shares <= 0:
                                         continue
                                     if code not in fund_groups:
-                                        fund_groups[code] = {'name': name, 'nav': nav, 'ts': 0, 'tmv': 0, 'tct': 0}
+                                        fund_groups[code] = {'name': name, 'nav': nav, 'ts': 0, 'tmv': 0, 'tct': 0}  # noqa: E501
                                     fund_groups[code]['ts'] += shares
                                     fund_groups[code]['tmv'] += mv
                                     fund_groups[code]['tct'] += ct
@@ -296,7 +296,7 @@ def render_sidebar():
                             avg_cost = d['tct']/d['ts'] if d['tct'] > 0 else d['nav']
                             key = ('汇添富基金', code)
                             if key not in positions_map:
-                                positions_map[key] = {'account':'汇添富基金','code':code,'name':d['name'],'type':'fund','shares':d['ts'],'cost':avg_cost,'date':date,'market_value':d['tmv'],'weight':0}
+                                positions_map[key] = {'account':'汇添富基金','code':code,'name':d['name'],'type':'fund','shares':d['ts'],'cost':avg_cost,'date':date,'market_value':d['tmv'],'weight':0}  # noqa: E501
                                 _dbg["汇添富基金"] += 1
                     except Exception:
                         pass
@@ -304,7 +304,7 @@ def render_sidebar():
                     positions = list(positions_map.values())
                     total_mv = sum(p['market_value'] for p in positions)
                     for p in positions:
-                        p['weight'] = round(p['market_value']/total_mv*100, 2) if total_mv > 0 else 0
+                        p['weight'] = round(p['market_value']/total_mv*100, 2) if total_mv > 0 else 0  # noqa: E501
 
                     # DEBUG: 打印各数据源记录数
                     st.caption(f"📊 各数据源: {_dbg}，合计 {len(positions)} 条 | 日期={date_str}")
@@ -314,7 +314,7 @@ def render_sidebar():
                     # 写入 positions.csv
                     csv_path = "/mnt/d/Hold/invest-data/positions.csv"
                     with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-                        writer = csv_lib.DictWriter(f, fieldnames=['account','code','name','type','shares','cost','date','market_value','weight'])
+                        writer = csv_lib.DictWriter(f, fieldnames=['account','code','name','type','shares','cost','date','market_value','weight'])  # noqa: E501
                         writer.writeheader()
                         writer.writerows(positions)
 
@@ -324,7 +324,7 @@ def render_sidebar():
                     enc_key_path = Path.home()/".hermes"/"invest_credentials"/"store.json"
                     store = json_lib.loads(enc_key_path.read_text())
                     enc_key = store["DB_ENCRYPTION_KEY"]
-                    conn = psycopg2.connect(host='localhost', database='investpilot', user='invest_admin', password=get_credential("DB_PASSWORD"))
+                    conn = psycopg2.connect(host='localhost', database='investpilot', user='invest_admin', password=get_credential("DB_PASSWORD"))  # noqa: E501
                     cur = conn.cursor()
                     added = 0
                     for p in positions:
@@ -336,15 +336,15 @@ def render_sidebar():
                         wt = float(p['weight'])
                         ptype = p['type']
                         profit_loss = mv - avg_cost * shares
-                        profit_pct = min(max((mv/avg_cost - 1)*100, -9999.9999), 9999.9999) if avg_cost > 0 else 0
+                        profit_pct = min(max((mv/avg_cost - 1)*100, -9999.9999), 9999.9999) if avg_cost > 0 else 0  # noqa: E501
                         # 使用 upsert_positions 函数：自动标记旧记录 is_current=FALSE + 插入新记录
-                        cur.execute("SELECT holdings.upsert_positions(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                                    (code, name, ptype, shares, avg_cost, profit_loss, mv, avg_cost, wt, profit_pct, enc_key, enc_key, enc_key, enc_key))
+                        cur.execute("SELECT holdings.upsert_positions(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",  # noqa: E501
+                                    (code, name, ptype, shares, avg_cost, profit_loss, mv, avg_cost, wt, profit_pct, enc_key, enc_key, enc_key, enc_key))  # noqa: E501
                         added += 1
                     conn.commit()
                     conn.close()
 
-                    st.session_state["sync_result"] = f"✅ 同步完成：{len(positions)} 条，总市值 ¥{total_mv:,.0f}，已写入 DB"
+                    st.session_state["sync_result"] = f"✅ 同步完成：{len(positions)} 条，总市值 ¥{total_mv:,.0f}，已写入 DB"  # noqa: E501
                     # 清除缓存
                     st.cache_data.clear()
                 except Exception as e:

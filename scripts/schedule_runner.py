@@ -262,7 +262,7 @@ def _build_morning_report() -> str:
             news_count = detail.get("news", "?")
             ts = event_time.strftime("%H:%M") if event_time else ""
             return (f"✅ 盘前分析完成 | {ts}\n"
-                    f"📊 持仓: {positions_count} 只 | 行情: {quotes_count} 条 | 新闻: {news_count} 条\n"
+                    f"📊 持仓: {positions_count} 只 | 行情: {quotes_count} 条 | 新闻: {news_count} 条\n"  # noqa: E501
                     f"💰 详细报告已生成，请查看仪表盘或微信推送历史。")
     except Exception as e:
         logger.warning(f"读取分析结果失败: {e}")
@@ -475,7 +475,7 @@ def job_tamf_update():
     try:
         from tamf_updater import scheduled_update_all_holdings
         result = scheduled_update_all_holdings()
-        logger.info(f"TAMF更新完成: 更新{result['updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")
+        logger.info(f"TAMF更新完成: 更新{result['updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")  # noqa: E501
         # 自动提交TAMF文件变更
         try:
             from tamf_git_commit import commit_tamf_changes
@@ -508,7 +508,7 @@ def job_deep_analysis_weekly():
     try:
         from tamf_updater import scheduled_deep_analysis_weekly
         result = scheduled_deep_analysis_weekly()
-        logger.info(f"深度分析完成: 深度更新{result['deep_updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")
+        logger.info(f"深度分析完成: 深度更新{result['deep_updated']}个, 跳过{result['skipped']}个, 失败{result['failed']}个")  # noqa: E501
         if result["failed"] > 0:
             _safe_error_alert("⚠️ 周频深度分析部分失败",
                 f"深度更新{result['deep_updated']}个, 失败{result['failed']}个\n" +
@@ -637,7 +637,7 @@ def job_evening():
         storage.close()
 
         # 推送晚间报告
-        report = "🌙 晚间复盘分析已完成\n\n今日收盘后进行了二次分析，整合了全天新闻和市场情绪，请查看详细报告了解最新操作计划。"
+        report = "🌙 晚间复盘分析已完成\n\n今日收盘后进行了二次分析，整合了全天新闻和市场情绪，请查看详细报告了解最新操作计划。"  # noqa: E501
         send_notification("🌙 晚间复盘报告", report, level="INFO")
 
         # L3 主动对话 — 晚间触发器评估（风险升级/里程碑等）
@@ -786,7 +786,7 @@ def job_announcements_collection():
             # T2.3: 事件驱动TAMF更新 — 晚间公告即时写入TAMF
             try:
                 from tamf_updater import on_announcement_detected as _on_ann
-                tamf_types = {"分红", "送股", "配股", "季报", "中报", "年报", "风险提示", "退市风险"}
+                tamf_types = {"分红", "送股", "配股", "季报", "中报", "年报", "风险提示", "退市风险"}  # noqa: E501
                 tamf_cnt = 0
                 for a in anns:
                     ann_type = a.get("ann_type", "")
@@ -894,7 +894,7 @@ def job_skill_solidification():
         # Step 2: 收集现有草案（避免重复生成）
         sl = SkillLifecycle()
         existing_drafts = sl.list_drafts()
-        drafted_patterns = {d.get("_meta", {}).get("task_pattern", "").lower() for d in existing_drafts}
+        drafted_patterns = {d.get("_meta", {}).get("task_pattern", "").lower() for d in existing_drafts}  # noqa: E501
 
         new_drafts = []
 
@@ -941,7 +941,7 @@ def job_skill_solidification():
             send_notification("🧠 技能固化待审核", msg, level="INFO")
             logger.info(f"技能固化通知已推送: {len(new_drafts)} 个草案")
         else:
-            msg = f"🧠 技能固化检测完成\n\n{len(triggered)} 个任务满足固化条件，均已有草案，无需处理。"
+            msg = f"🧠 技能固化检测完成\n\n{len(triggered)} 个任务满足固化条件，均已有草案，无需处理。"  # noqa: E501
             send_notification("🧠 技能固化检测", msg, level="INFO")
 
         # 写入审计日志
@@ -1100,7 +1100,7 @@ def job_behavior_profile_update():
         patterns = profile.get("behavior_patterns", [])
         if any("激进" in p for p in patterns):
             send_notification("⚠️ L3 行为预警",
-                f"检测到您近期频繁修改AI计划（连续{profile.get('max_consecutive_mod_days', 0)}天修改），"
+                f"检测到您近期频繁修改AI计划（连续{profile.get('max_consecutive_mod_days', 0)}天修改），"  # noqa: E501
                 "建议适当减少干预，给AI计划更多信任空间。")
         elif profile.get("analysis_success_rate", 100) < 60:
             send_notification("⚠️ L3 行为预警",
@@ -1295,7 +1295,7 @@ def _infer_emotion(mod_count, view_pos_count, analysis_count,
     if error_count >= 5:
         return ("焦虑", f"当日{error_count}次操作失败，可能导致挫败感", "warning")
     if mod_count >= 8 and view_pos_count >= 15:
-        return ("恐慌", f"高修改({mod_count}次)+高频看持仓({view_pos_count}次)，可能处于市场恐慌", "critical")
+        return ("恐慌", f"高修改({mod_count}次)+高频看持仓({view_pos_count}次)，可能处于市场恐慌", "critical")  # noqa: E501
     if mod_count >= 10:
         return ("过度自信", f"当日{mod_count}次修改AI计划，可能过度交易", "warning")
     if mod_count >= 5 and analysis_count >= 10:
@@ -1402,7 +1402,7 @@ def job_stress_test():
                             "code": p["code"],
                             "name": p["name"],
                             "shock_pct": scenario_data.get("loss_pct", 0) / 100,
-                            "loss": round(p["market_value"] * scenario_data.get("loss_pct", 0) / 100, 2),
+                            "loss": round(p["market_value"] * scenario_data.get("loss_pct", 0) / 100, 2),  # noqa: E501
                         }
                         for p in positions
                     ],
@@ -1437,7 +1437,7 @@ def job_stress_test():
 
         # ── 4. 推送飞书报告 ──────────────────────────────────────────────────
         lines = [f"🧪 **每日压力测试报告**（{date.today()}）\n"]
-        lines.append(f"组合市值: ¥{total_mv:,.2f} | VaR(5日99%): ¥{result.get('var_5d_99', 0):,.2f}\n")
+        lines.append(f"组合市值: ¥{total_mv:,.2f} | VaR(5日99%): ¥{result.get('var_5d_99', 0):,.2f}\n")  # noqa: E501
 
         max_loss = 0
         worst_scenario = ""
@@ -1922,7 +1922,7 @@ if __name__ == "__main__":
                         help="daemon: 后台运行; once: 立即执行一次; tamf-shadow: 影子模式管理")
     parser.add_argument("--job", choices=["morning", "closing", "evening"], default="morning",
                         help="指定运行哪个任务")
-    parser.add_argument("--shadow-cmd", choices=["enable", "disable", "status", "diff", "promote-all", "rollback"],
+    parser.add_argument("--shadow-cmd", choices=["enable", "disable", "status", "diff", "promote-all", "rollback"],  # noqa: E501
                         help="TAMF 影子模式命令")
     args = parser.parse_args()
 
@@ -1953,15 +1953,15 @@ if __name__ == "__main__":
                         print(f"{'='*60}")
                         print(d["diff_text"][:2000])
                     else:
-                        print(f"✅ {d['code']} 无差异" if d["shadow_exists"] else f"⚠️ {d['code']} 无影子文件")
+                        print(f"✅ {d['code']} 无差异" if d["shadow_exists"] else f"⚠️ {d['code']} 无影子文件")  # noqa: E501
             elif args.shadow_cmd == "promote-all":
                 result = shadow.promote_all()
-                print(f"✅ 批量晋升完成: {result['promoted']}成功 / {result['failed']}失败 (共{result['total']}只)")
+                print(f"✅ 批量晋升完成: {result['promoted']}成功 / {result['failed']}失败 (共{result['total']}只)")  # noqa: E501
             elif args.shadow_cmd == "rollback":
                 count = shadow.rollback_all()
                 print(f"✅ 已回滚全部 {count} 个影子文件")
             else:
-                print("用法: python schedule_runner.py --mode tamf-shadow --shadow-cmd <enable|disable|status|diff>")
+                print("用法: python schedule_runner.py --mode tamf-shadow --shadow-cmd <enable|disable|status|diff>")  # noqa: E501
         except ImportError as e:
             print(f"❌ 影子模式模块不可用: {e}")
     elif args.mode == "once":

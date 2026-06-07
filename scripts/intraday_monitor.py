@@ -254,7 +254,7 @@ def format_anomaly_message(anomalies: list[dict]) -> str:
         "PRICE_ALERT+VOLUME+VOLUME",  # extra VOLUME from combined
     ) or (a.get("change_pct", 0) != 0 and a.get("alert_type", "") == "")]  # fallback
     # Simpler: split by whether change_pct != 0
-    price_vol_anomalies = [a for a in anomalies if a.get("change_pct", 0) != 0 or "VOLUME" in (a.get("alert_type") or "")]
+    price_vol_anomalies = [a for a in anomalies if a.get("change_pct", 0) != 0 or "VOLUME" in (a.get("alert_type") or "")]  # noqa: E501
     ma_cross_anomalies  = [a for a in anomalies if "CROSS" in (a.get("alert_type") or "")]
 
     lines = []
@@ -375,7 +375,7 @@ class IntradayMonitor:
             code = pos["code"].zfill(6)
             if code.startswith("15") or code.startswith("30") or code.startswith("00"):
                 ts = f"{code}.XSHE"
-            elif code.startswith("6") or code.startswith("5") or code.startswith("4") or code.startswith("8"):
+            elif code.startswith("6") or code.startswith("5") or code.startswith("4") or code.startswith("8"):  # noqa: E501
                 ts = f"{code}.XSHG"
             else:
                 ts = f"{code}.XSHE"
@@ -391,7 +391,7 @@ class IntradayMonitor:
                 code = pos["code"].zfill(6)
                 if code.startswith("15") or code.startswith("30") or code.startswith("00"):
                     ts = f"{code}.XSHE"
-                elif code.startswith("6") or code.startswith("5") or code.startswith("4") or code.startswith("8"):
+                elif code.startswith("6") or code.startswith("5") or code.startswith("4") or code.startswith("8"):  # noqa: E501
                     ts = f"{code}.XSHG"
                 else:
                     ts = f"{code}.XSHE"
@@ -484,7 +484,7 @@ class IntradayMonitor:
                 # 仅在交易时间扫描
                 now = datetime.now()
                 hour = now.hour
-                is_trading_hour = (hour == 9 and now.minute >= 30) or (10 <= hour < 11) or (hour == 13) or (hour == 14 and now.minute <= 55)
+                is_trading_hour = (hour == 9 and now.minute >= 30) or (10 <= hour < 11) or (hour == 13) or (hour == 14 and now.minute <= 55)  # noqa: E501
 
                 if is_trading_hour:
                     self.run_scan_and_alert()
@@ -529,7 +529,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     print("=== 盘中异动监控测试 ===")
-    print(f"阈值: 涨跌幅 > {ALERT_THRESHOLDS['price_change_pct']}% | 成交量 > {ALERT_THRESHOLDS['volume_surge_ratio']}x 均量")
+    print(f"阈值: 涨跌幅 > {ALERT_THRESHOLDS['price_change_pct']}% | 成交量 > {ALERT_THRESHOLDS['volume_surge_ratio']}x 均量")  # noqa: E501
     print(f"扫描间隔: {ALERT_THRESHOLDS['monitor_interval_sec']}秒")
 
     monitor = IntradayMonitor()

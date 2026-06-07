@@ -209,7 +209,7 @@ class PerformanceEvaluator:
             {"max_drawdown_pct": float, "peak_date": str, "trough_date": str, "duration_days": int}
         """
         if len(equity_curve) < 2:
-            return {"max_drawdown_pct": 0.0, "peak_date": None, "trough_date": None, "duration_days": 0}
+            return {"max_drawdown_pct": 0.0, "peak_date": None, "trough_date": None, "duration_days": 0}  # noqa: E501
 
         running_max = equity_curve.cummax()
         drawdown = (equity_curve - running_max) / running_max
@@ -286,7 +286,7 @@ class PerformanceEvaluator:
         生成完整绩效报告。
         """
         report = {
-            "annualized_return_pct": round(PerformanceEvaluator.annualized_return(equity_curve) * 100, 2),
+            "annualized_return_pct": round(PerformanceEvaluator.annualized_return(equity_curve) * 100, 2),  # noqa: E501
             "sharpe_ratio": round(PerformanceEvaluator.sharpe_ratio(returns), 2),
             "max_drawdown": PerformanceEvaluator.max_drawdown(equity_curve),
             "volatility_pct": round(float(returns.std() * math.sqrt(252) * 100), 2),
@@ -415,7 +415,7 @@ class StrategyRunner:
 
             report = PerformanceEvaluator.full_report(equity, daily_returns)
             report["strategy"] = strategy.name()
-            report["total_return_pct"] = round(float((equity.iloc[-1] / initial_capital - 1) * 100), 2)
+            report["total_return_pct"] = round(float((equity.iloc[-1] / initial_capital - 1) * 100), 2)  # noqa: E501
             results.append(report)
 
         return pd.DataFrame(results)

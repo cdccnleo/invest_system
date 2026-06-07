@@ -129,7 +129,7 @@ def backtest_strategy(
             shares[ts] = capital_per_stock / first_bar["close"]
             positions[ts] = capital_per_stock
 
-    prev_value = sum(shares[ts] * (price_data.get(ts, [{}])[0]["close"] if price_data.get(ts) else 0) for ts in ts_codes)
+    prev_value = sum(shares[ts] * (price_data.get(ts, [{}])[0]["close"] if price_data.get(ts) else 0) for ts in ts_codes)  # noqa: E501
     portfolio_values.append(prev_value)
 
     for d in dates[1:]:
@@ -139,7 +139,7 @@ def backtest_strategy(
             bar = next((b for b in series if b["date"] == d), None)
             if not bar or bar["close"] <= 0:
                 continue
-            prev_close = series[series.index(bar) - 1]["close"] if series.index(bar) > 0 else bar["close"]
+            prev_close = series[series.index(bar) - 1]["close"] if series.index(bar) > 0 else bar["close"]  # noqa: E501
             shares[ts] * bar["close"]
             daily_pnl += shares[ts] * (bar["close"] - prev_close)
 
@@ -150,7 +150,7 @@ def backtest_strategy(
     # 计算绩效指标
     import statistics
     total_return = (portfolio_values[-1] - initial_capital) / initial_capital
-    annual_return = total_return / (len(dates) / 252) if len(dates) > 252 else total_return * 252 / len(dates)
+    annual_return = total_return / (len(dates) / 252) if len(dates) > 252 else total_return * 252 / len(dates)  # noqa: E501
 
     # 夏普比率（假设无风险利率 3%）
     rf = 0.03
@@ -330,9 +330,9 @@ def aggregate_portfolio_results(results: list[dict]) -> dict:
     else:
         sharpe = 0.0
 
-    total_return_pct = (combined_curve[-1] - combined_curve[0]) / combined_curve[0] * 100 if combined_curve[0] > 0 else 0
+    total_return_pct = (combined_curve[-1] - combined_curve[0]) / combined_curve[0] * 100 if combined_curve[0] > 0 else 0  # noqa: E501
     n_days = min_len
-    annual_return_pct = total_return_pct / (n_days / 252) if n_days > 252 else total_return_pct * 252 / n_days
+    annual_return_pct = total_return_pct / (n_days / 252) if n_days > 252 else total_return_pct * 252 / n_days  # noqa: E501
 
     # 组合最大回撤（基于合并曲线）
     peak = combined_curve[0]
@@ -380,7 +380,7 @@ def print_comparison_table(comparison_table: list[dict]) -> None:
         print("+" + "+".join("-" * (w + 2) for w in col_widths) + "+")
 
     def row_line(cells):
-        print("|" + "|".join(f" {str(cells[i]).ljust(col_widths[i])} " for i in range(len(cells))) + "|")
+        print("|" + "|".join(f" {str(cells[i]).ljust(col_widths[i])} " for i in range(len(cells))) + "|")  # noqa: E501
 
     sep()
     row_line(headers)
@@ -409,7 +409,7 @@ class TechnicalIndicators:
         closes     : 收盘价序列（从旧到新）
         period     : 计算周期（默认20日）
         num_std    : 标准差倍数（默认2σ）
-        返回: [{"date": str, "close": float, "upper": float, "middle": float, "lower": float, "bandwidth": float, "position": float}, ...]
+        返回: [{"date": str, "close": float, "upper": float, "middle": float, "lower": float, "bandwidth": float, "position": float}, ...]  # noqa: E501
         position = (close - lower) / (upper - lower)，0~1表示价格在带内位置，>1突破上轨，<0突破下轨
         """
         results = []
@@ -926,21 +926,21 @@ if __name__ == "__main__":
     # 基金：510300（沪深300ETF）, 512000（券商ETF）, 159928（消费ETF）
     # 股票示例（随机分配市值）
     sample_positions = [
-        {"code": "510300", "name": "沪深300ETF",    "shares": 300000, "avg_cost": 3.85, "current_price": 3.92},
-        {"code": "512000", "name": "券商ETF",        "shares": 200000, "avg_cost": 1.12, "current_price": 1.08},
-        {"code": "159928", "name": "消费ETF",        "shares": 150000, "avg_cost": 1.05, "current_price": 1.09},
-        {"code": "600519", "name": "贵州茅台",        "shares": 200,    "avg_cost": 1680.0,"current_price": 1720.0},
-        {"code": "000858", "name": "五粮液",          "shares": 1200,   "avg_cost": 145.0, "current_price": 148.5},
-        {"code": "300750", "name": "宁德时代",        "shares": 500,    "avg_cost": 195.0, "current_price": 188.0},
-        {"code": "601318", "name": "中国平安",        "shares": 3000,   "avg_cost": 42.0,  "current_price": 44.2},
-        {"code": "600036", "name": "招商银行",        "shares": 4000,   "avg_cost": 32.0,  "current_price": 33.5},
-        {"code": "000001", "name": "平安银行",        "shares": 8000,   "avg_cost": 10.5,  "current_price": 10.8},
-        {"code": "600887", "name": "伊利股份",        "shares": 3500,   "avg_cost": 25.0,  "current_price": 26.2},
-        {"code": "002594", "name": "比亚迪",           "shares": 400,    "avg_cost": 240.0, "current_price": 235.0},
-        {"code": "300059", "name": "东方财富",        "shares": 2000,   "avg_cost": 18.0,  "current_price": 19.2},
-        {"code": "600030", "name": "中信证券",        "shares": 2500,   "avg_cost": 19.5,  "current_price": 20.8},
-        {"code": "601888", "name": "中国中免",        "shares": 300,    "avg_cost": 68.0,  "current_price": 71.5},
-        {"code": "600276", "name": "恒瑞医药",        "shares": 1500,   "avg_cost": 42.0,  "current_price": 40.5},
+        {"code": "510300", "name": "沪深300ETF",    "shares": 300000, "avg_cost": 3.85, "current_price": 3.92},  # noqa: E501
+        {"code": "512000", "name": "券商ETF",        "shares": 200000, "avg_cost": 1.12, "current_price": 1.08},  # noqa: E501
+        {"code": "159928", "name": "消费ETF",        "shares": 150000, "avg_cost": 1.05, "current_price": 1.09},  # noqa: E501
+        {"code": "600519", "name": "贵州茅台",        "shares": 200,    "avg_cost": 1680.0,"current_price": 1720.0},  # noqa: E501
+        {"code": "000858", "name": "五粮液",          "shares": 1200,   "avg_cost": 145.0, "current_price": 148.5},  # noqa: E501
+        {"code": "300750", "name": "宁德时代",        "shares": 500,    "avg_cost": 195.0, "current_price": 188.0},  # noqa: E501
+        {"code": "601318", "name": "中国平安",        "shares": 3000,   "avg_cost": 42.0,  "current_price": 44.2},  # noqa: E501
+        {"code": "600036", "name": "招商银行",        "shares": 4000,   "avg_cost": 32.0,  "current_price": 33.5},  # noqa: E501
+        {"code": "000001", "name": "平安银行",        "shares": 8000,   "avg_cost": 10.5,  "current_price": 10.8},  # noqa: E501
+        {"code": "600887", "name": "伊利股份",        "shares": 3500,   "avg_cost": 25.0,  "current_price": 26.2},  # noqa: E501
+        {"code": "002594", "name": "比亚迪",           "shares": 400,    "avg_cost": 240.0, "current_price": 235.0},  # noqa: E501
+        {"code": "300059", "name": "东方财富",        "shares": 2000,   "avg_cost": 18.0,  "current_price": 19.2},  # noqa: E501
+        {"code": "600030", "name": "中信证券",        "shares": 2500,   "avg_cost": 19.5,  "current_price": 20.8},  # noqa: E501
+        {"code": "601888", "name": "中国中免",        "shares": 300,    "avg_cost": 68.0,  "current_price": 71.5},  # noqa: E501
+        {"code": "600276", "name": "恒瑞医药",        "shares": 1500,   "avg_cost": 42.0,  "current_price": 40.5},  # noqa: E501
     ]
 
     # 计算总市值
@@ -960,21 +960,21 @@ if __name__ == "__main__":
     print("\n情景A — 连续跌停:")
     sa = report["scenarios"]["A_consecutive_limit_down"]
     print(f"  初始: ¥{sa['initial_value']:,.2f}")
-    print(f"  最终: ¥{sa['final_value']:,.2f}  |  损失: ¥{sa['absolute_loss']:,.2f} ({sa['loss_pct']:.2f}%)")
+    print(f"  最终: ¥{sa['final_value']:,.2f}  |  损失: ¥{sa['absolute_loss']:,.2f} ({sa['loss_pct']:.2f}%)")  # noqa: E501
     print(f"  每日值: {sa['daily_values']}")
 
     print("\n情景B — 流动性枯竭:")
     sb = report["scenarios"]["B_liquidity_crisis"]
     print(f"  初始: ¥{sb['initial_value']:,.2f}")
-    print(f"  最终: ¥{sb['final_value']:,.2f}  |  损失: ¥{sb['absolute_loss']:,.2f} ({sb['loss_pct']:.2f}%)")
+    print(f"  最终: ¥{sb['final_value']:,.2f}  |  损失: ¥{sb['absolute_loss']:,.2f} ({sb['loss_pct']:.2f}%)")  # noqa: E501
     print(f"  含滑点损失: ¥{sb['realistic_loss_with_slippage']:,.2f} (+5%冲击成本)")
 
     print("\n情景C — 大幅波动（5日）:")
     sc = report["scenarios"]["C_high_volatility_5d"]
     print(f"  初始: ¥{sc['initial_value']:,.2f}")
-    print(f"  最终: ¥{sc['final_value']:,.2f}  |  损失: ¥{sc['absolute_loss']:,.2f} ({sc['loss_pct']:.2f}%)")
+    print(f"  最终: ¥{sc['final_value']:,.2f}  |  损失: ¥{sc['absolute_loss']:,.2f} ({sc['loss_pct']:.2f}%)")  # noqa: E501
     print(f"  5日 95% VaR: ¥{sc['var_5d_95']:,.2f}  |  5日 99% VaR: ¥{sc['var_5d_99']:,.2f}")
-    print(f"  最大回撤: {sc['max_drawdown']['max_drawdown_pct']:.2f}%  |  恢复天数: {sc['max_drawdown']['recovery_days']}")
+    print(f"  最大回撤: {sc['max_drawdown']['max_drawdown_pct']:.2f}%  |  恢复天数: {sc['max_drawdown']['recovery_days']}")  # noqa: E501
     print(f"  模拟权益曲线: {sc['equity_curve']}")
 
     print("\n追加保证金预警:")

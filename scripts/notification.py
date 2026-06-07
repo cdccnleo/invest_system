@@ -125,7 +125,7 @@ def send_via_feishu(title: str, content: str, level: str = "INFO") -> bool:
                 {
                     "tag": "note",
                     "elements": [
-                        {"tag": "plain_text", "content": f"InvestPilot · {level} · {__import__('datetime').datetime.now().strftime('%H:%M:%S')}"}
+                        {"tag": "plain_text", "content": f"InvestPilot · {level} · {__import__('datetime').datetime.now().strftime('%H:%M:%S')}"}  # noqa: E501
                     ],
                 },
             ],

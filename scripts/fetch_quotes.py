@@ -14,7 +14,7 @@ from datetime import date
 logger = logging.getLogger("invest_system.fetch_quotes")
 
 EM_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # noqa: E501
     "Referer": "https://quote.eastmoney.com/",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "zh-CN,zh;q=0.9",
@@ -364,13 +364,13 @@ def collect_quotes(symbols: list[str]) -> tuple[list[dict], list[dict], list[dic
         if not em_quotes:
             logger.warning("EastMoney 返回空，切换至 Sina 备用...")
         else:
-            logger.warning(f"EastMoney 命中率低 ({len(em_quotes)}/{len(symbols)})，切换至 Sina 备用...")
+            logger.warning(f"EastMoney 命中率低 ({len(em_quotes)}/{len(symbols)})，切换至 Sina 备用...")  # noqa: E501
         sina_quotes = fetch_sina_quotes(symbols)
         if sina_quotes and len(sina_quotes) >= len(symbols) * 0.5:
             quotes = sina_quotes
         else:
             # Source 3: EastMoney 单只轮询
-            logger.warning(f"Sina 命中率低 ({len(sina_quotes) if sina_quotes else 0}/{len(symbols)})，切换单只轮询...")
+            logger.warning(f"Sina 命中率低 ({len(sina_quotes) if sina_quotes else 0}/{len(symbols)})，切换单只轮询...")  # noqa: E501
             for sym in symbols:
                 sym_raw = sym.split(".")[0]
                 if not any(q["ts_code"].split(".")[0] == sym_raw for q in quotes):

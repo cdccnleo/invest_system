@@ -54,7 +54,7 @@ def check_db_connectivity() -> dict:
         conn.close()
         latency = (time.time() - start) * 1000
         status = "ok" if latency < ALERT_THRESHOLDS["db_conn_ms"] else "slow"
-        return {"status": status, "latency_ms": round(latency, 1), "message": f"连接正常 ({latency:.1f}ms)"}
+        return {"status": status, "latency_ms": round(latency, 1), "message": f"连接正常 ({latency:.1f}ms)"}  # noqa: E501
     except Exception as e:
         latency = (time.time() - start) * 1000
         return {"status": "error", "latency_ms": round(latency, 1), "message": f"连接失败: {e}"}
@@ -97,7 +97,7 @@ def check_api_error_rate() -> dict:
         cur.execute("""
             SELECT
                 COUNT(*) as total,
-                SUM(CASE WHEN result = 'ERROR' OR detail::text LIKE '%error%' THEN 1 ELSE 0 END) as errors
+                SUM(CASE WHEN result = 'ERROR' OR detail::text LIKE '%error%' THEN 1 ELSE 0 END) as errors  # noqa: E501
             FROM audit.audit_log
             WHERE event_type IN ('LLM_CALL', 'ANALYSIS_COMPLETE', 'QUALITY_ASSESSMENT')
               AND event_time >= NOW() - INTERVAL '24 hours'
@@ -128,7 +128,7 @@ def check_schedule_health() -> dict:
         cur.execute("""
             SELECT event_type, MAX(event_time)
             FROM audit.audit_log
-            WHERE event_type IN ('SCHEDULED_MORNING_RUN', 'SCHEDULED_EVENING_RUN', 'DAILY_REFLECTION')
+            WHERE event_type IN ('SCHEDULED_MORNING_RUN', 'SCHEDULED_EVENING_RUN', 'DAILY_REFLECTION')  # noqa: E501
             GROUP BY event_type
             ORDER BY 2 DESC
         """)
@@ -293,5 +293,5 @@ if __name__ == "__main__":
     health = run_health_check()
     print(f"系统状态: {health['overall']}")
     for name, check in health["checks"].items():
-        icon = {"ok": "✅", "warning": "⚠️", "error": "❌", "critical": "🚨", "slow": "🐢"}.get(check["status"], "❓")
+        icon = {"ok": "✅", "warning": "⚠️", "error": "❌", "critical": "🚨", "slow": "🐢"}.get(check["status"], "❓")  # noqa: E501
         print(f"  {icon} {name}: {check.get('message', '')}")

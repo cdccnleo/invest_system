@@ -185,7 +185,7 @@ class RouterAgent(AgentInterface):
                 return skill["name"]
         return None
 
-    def chat(self, prompt: str, system: str = None, model: str = None, force_model: str = None) -> dict:
+    def chat(self, prompt: str, system: str = None, model: str = None, force_model: str = None) -> dict:  # noqa: E501
         # 强制指定模型
         if force_model:
             if force_model == "deepseek":

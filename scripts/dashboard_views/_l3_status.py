@@ -37,7 +37,7 @@ def render_l3_status():
     with col2:
         records = status["behavior_records"]
         st.metric("行为记录数", records)
-        target_tier = "萌芽 (≥10条)" if records < 10 else "激活 (≥50条)" if records < 50 else "成熟 (≥100条)"
+        target_tier = "萌芽 (≥10条)" if records < 10 else "激活 (≥50条)" if records < 50 else "成熟 (≥100条)"  # noqa: E501
         st.progress(min(records / 100, 1.0))
         st.caption(f"下一阶段: {target_tier}")
 
@@ -46,7 +46,7 @@ def render_l3_status():
         st.metric("压力测试次数", stress_count)
         if stress_count > 0:
             last_st = status["stress_tests"][0]
-            st.caption(f"最近测试: {last_st.get('executed_at', '?')[:10]} {last_st.get('scenario', '?')}")
+            st.caption(f"最近测试: {last_st.get('executed_at', '?')[:10]} {last_st.get('scenario', '?')}")  # noqa: E501
 
     # ── 数据积累进度 ──────────────────────────────────────────────────────
     st.divider()
@@ -74,7 +74,7 @@ def render_l3_status():
             last = t.get("last_triggered", "从未触发")
             if last and last != "None":
                 try:
-                    dt = datetime.fromisoformat(last.replace("Z", "+00:00") if "Z" in last else last)
+                    dt = datetime.fromisoformat(last.replace("Z", "+00:00") if "Z" in last else last)  # noqa: E501
                     last = dt.strftime("%m-%d %H:%M")
                 except ValueError:
                     pass
@@ -102,7 +102,7 @@ def render_l3_status():
         for st_item in stress_tests:
             dt_str = st_item.get("executed_at", "?")
             try:
-                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00") if "Z" in dt_str else dt_str)
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00") if "Z" in dt_str else dt_str)  # noqa: E501
                 dt_str = dt.strftime("%m-%d %H:%M")
             except ValueError:
                 pass
@@ -135,10 +135,10 @@ def render_l3_status():
             with st.spinner("正在评估触发器..."):
                 try:
                     result = engine.run_cycle()
-                    st.success(f"评估完成: {result['evaluated']} 个触发器, {result['triggered']} 个触发")
+                    st.success(f"评估完成: {result['evaluated']} 个触发器, {result['triggered']} 个触发")  # noqa: E501
                     for d in result["details"]:
-                        icon = {"triggered": "✅", "not_triggered": "➖", "push_failed": "⚠️", "error": "❌"}.get(d["status"], "?")
-                        st.caption(f"  {icon} [{d['trigger_type']}] {d['trigger_name']}: {d['status']}")
+                        icon = {"triggered": "✅", "not_triggered": "➖", "push_failed": "⚠️", "error": "❌"}.get(d["status"], "?")  # noqa: E501
+                        st.caption(f"  {icon} [{d['trigger_type']}] {d['trigger_name']}: {d['status']}")  # noqa: E501
                 except Exception as e:
                     st.error(f"评估失败: {e}")
             st.rerun()

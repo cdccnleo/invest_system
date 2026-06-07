@@ -417,7 +417,7 @@ if __name__ == "__main__":
     root = Path(__file__).parent.parent.resolve()
     sys.path.insert(0, str(root))
 
-    from scripts.context_compressor import compress_news, compress_reports, compress_context, count_tokens, MemoryTier
+    from scripts.context_compressor import compress_news, compress_reports, compress_context, count_tokens, MemoryTier  # noqa: E501
 
     # Test token counting
     test_text = "这是一个测试文本" * 50
@@ -426,7 +426,7 @@ if __name__ == "__main__":
 
     # Test news compression
     test_news = [
-        {"title": f"新闻{i}", "content": "x" * 200, "date": f"2026-05-{i:02d}", "importance": 0.5 + i * 0.01, "sentiment": 0.1 * i}
+        {"title": f"新闻{i}", "content": "x" * 200, "date": f"2026-05-{i:02d}", "importance": 0.5 + i * 0.01, "sentiment": 0.1 * i}  # noqa: E501
         for i in range(1, 31)
     ]
     result = compress_news(test_news, max_tokens=1500)
@@ -447,7 +447,7 @@ if __name__ == "__main__":
 
     # Test reports compression
     test_reports = [
-        {"title": f"研报{i}", "content": "x" * 300, "date": f"2026-05-{i:02d}", "institution": f"机构{i % 3}", "importance": 0.6}
+        {"title": f"研报{i}", "content": "x" * 300, "date": f"2026-05-{i:02d}", "institution": f"机构{i % 3}", "importance": 0.6}  # noqa: E501
         for i in range(1, 16)
     ]
     r2 = compress_reports(test_reports, max_tokens=800)

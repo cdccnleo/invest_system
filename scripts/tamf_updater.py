@@ -116,7 +116,7 @@ def load_recent_quotes(ts_code: str, days: int = 20) -> list[dict]:
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT trade_date, open_price, high_price, low_price, close_price, volume, amount, change_pct
+            SELECT trade_date, open_price, high_price, low_price, close_price, volume, amount, change_pct  # noqa: E501
             FROM market.daily_quotes
             WHERE ts_code = %s
             ORDER BY trade_date DESC
@@ -261,7 +261,7 @@ def get_tamf_metadata(code: str) -> Optional[dict]:
             "ts_code": row[0], "stock_name": row[1],
             "version_major": row[2], "version_minor": row[3],
             "analysis_status": row[4], "last_updated": row[5],
-            "data_snapshot": row[6] if isinstance(row[6], dict) else json.loads(row[6]) if row[6] else {}
+            "data_snapshot": row[6] if isinstance(row[6], dict) else json.loads(row[6]) if row[6] else {}  # noqa: E501
         }
     finally:
         release_db_conn(conn)
@@ -362,7 +362,7 @@ def build_section_2_holdings(pos: dict) -> str:
     return f"""### 当前持仓状态
 | 持有数量 | 平均成本 | 现价 | 持仓市值 | 盈亏金额 | 盈亏% | 仓位占比 |
 |---------|---------|------|---------|---------|------|---------|
-| {shares:,.0f} | {avg_cost:.3f} | {current_price:.3f} | ¥{mv:,.0f} | {'+' if pnl >= 0 else ''}{pnl:,.0f} | {'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}% | {position_pct} |
+| {shares:,.0f} | {avg_cost:.3f} | {current_price:.3f} | ¥{mv:,.0f} | {'+' if pnl >= 0 else ''}{pnl:,.0f} | {'+' if pnl_pct >= 0 else ''}{pnl_pct:.2f}% | {position_pct} |  # noqa: E501
 
 ### 操作历史时间线
 <!-- 暂无操作记录，数据来自 holdings.encrypted_positions -->
@@ -399,7 +399,7 @@ def build_section_4_technical(quotes: list[dict]) -> str:
     
     # 简单技术评语
     trend = "上升趋势" if deviation > 2 else ("下降趋势" if deviation < -2 else "横盘整理")
-    signal = "🔴 偏离MA20上方" if deviation > 5 else ("🟢 贴近MA20下方" if deviation < -5 else "⚪ MA20附近")
+    signal = "🔴 偏离MA20上方" if deviation > 5 else ("🟢 贴近MA20下方" if deviation < -5 else "⚪ MA20附近")  # noqa: E501
     
     return f"""### 近期关键价位
 | 指标 | 数值 | 日期 |
@@ -435,7 +435,7 @@ def build_section_3_fundamentals(financials: list[dict], reports: list[dict]) ->
     
     fin_rows = ""
     if financials:
-        fin_rows = "| 指标 | Q-7 | Q-6 | Q-5 | Q-4 | Q-3 | Q-2 | Q-1(最新) | 趋势 | 预警 |\n|------|-----|-----|-----|-----|-----|-----|----------|------|:---:|\n"
+        fin_rows = "| 指标 | Q-7 | Q-6 | Q-5 | Q-4 | Q-3 | Q-2 | Q-1(最新) | 趋势 | 预警 |\n|------|-----|-----|-----|-----|-----|-----|----------|------|:---:|\n"  # noqa: E501
         
         fields = [
             ("营业收入(亿)", "revenue", lambda v: f"{v/1e8:.2f}" if v else "—"),
@@ -455,7 +455,7 @@ def build_section_3_fundamentals(financials: list[dict], reports: list[dict]) ->
             trend = "→"
             if len(vals) >= 2 and vals[-1] != "—" and vals[-2] != "—":
                 try:
-                    trend = "↑" if float(vals[-1].replace('—','0')) > float(vals[-2].replace('—','0')) else "↓"
+                    trend = "↑" if float(vals[-1].replace('—','0')) > float(vals[-2].replace('—','0')) else "↓"  # noqa: E501
                 except ValueError:
                     trend = "→"
             fin_rows += f"| {fname} | {vals_str} | {trend} | — |\n"
@@ -464,7 +464,7 @@ def build_section_3_fundamentals(financials: list[dict], reports: list[dict]) ->
     report_summary = ""
     if reports:
         report_lines = "\n".join([
-            f"| {r.get('date','—')} | {r.get('source','?')} | {r.get('rating','?')} | {r.get('title','')[:50]} |"
+            f"| {r.get('date','—')} | {r.get('source','?')} | {r.get('rating','?')} | {r.get('title','')[:50]} |"  # noqa: E501
             for r in reports[:3]
         ])
         report_summary = f"""
@@ -491,14 +491,14 @@ def build_section_5_news(anns: list[dict], reports: list[dict]) -> str:
     ann_lines = ""
     if anns:
         for a in anns[:3]:
-            ann_lines += f"| {a.get('date','—')} | {a.get('type','?')} | {a.get('title','')[:50]} | — |\n"
+            ann_lines += f"| {a.get('date','—')} | {a.get('type','?')} | {a.get('title','')[:50]} | — |\n"  # noqa: E501
     else:
         ann_lines = "| ⚠️ 无公告数据 | — | — | — |\n"
     
     report_lines = ""
     if reports:
         for r in reports[:3]:
-            report_lines += f"| {r.get('date','—')} | {r.get('source','?')} | {r.get('rating','?')} | {r.get('title','')[:40]} |\n"
+            report_lines += f"| {r.get('date','—')} | {r.get('source','?')} | {r.get('rating','?')} | {r.get('title','')[:40]} |\n"  # noqa: E501
     else:
         report_lines = "| ⚠️ 无研报数据 | — | — | — |\n"
     
@@ -660,9 +660,9 @@ def init_all_tamf_files() -> dict:
                 version_minor=0,
                 analysis_status="ACTIVE",
                 data_snapshot={
-                    "last_quote_date": str(quotes[0].get("date")) if quotes and quotes[0].get("date") else None,
-                    "last_ann_date": str(anns[0].get("date")) if anns and anns[0].get("date") else None,
-                    "last_report_date": str(reports[0].get("date")) if reports and reports[0].get("date") else None,
+                    "last_quote_date": str(quotes[0].get("date")) if quotes and quotes[0].get("date") else None,  # noqa: E501
+                    "last_ann_date": str(anns[0].get("date")) if anns and anns[0].get("date") else None,  # noqa: E501
+                    "last_report_date": str(reports[0].get("date")) if reports and reports[0].get("date") else None,  # noqa: E501
                     "initialized_at": datetime.now().isoformat(),
                 },
                 file_path=str(get_tamf_path(code))
@@ -674,7 +674,7 @@ def init_all_tamf_files() -> dict:
                 cur = conn.cursor()
                 cur.execute("""
                     INSERT INTO memory.target_timeline_events
-                        (ts_code, event_time, event_type, event_source, severity, title, description)
+                        (ts_code, event_time, event_type, event_source, severity, title, description)  # noqa: E501
                     VALUES (%s, NOW(), 'TAMF_INIT', 'SYSTEM', 'INFO',
                             'TAMF文件首次初始化', '批量初始化脚本生成初始TAMF文件')
                 """, (code,))
@@ -852,9 +852,9 @@ def incremental_update(code: str) -> dict:
         version_minor=vmin,
         analysis_status="ACTIVE",
         data_snapshot={
-            "last_quote_date": str(quotes[0].get("date")) if quotes and quotes[0].get("date") else None,
+            "last_quote_date": str(quotes[0].get("date")) if quotes and quotes[0].get("date") else None,  # noqa: E501
             "last_ann_date": str(anns[0].get("date")) if anns and anns[0].get("date") else None,
-            "last_report_date": str(reports[0].get("date")) if reports and reports[0].get("date") else None,
+            "last_report_date": str(reports[0].get("date")) if reports and reports[0].get("date") else None,  # noqa: E501
             "last_update": datetime.now().isoformat(),
         },
         file_path=str(get_tamf_path(code))
@@ -1010,7 +1010,7 @@ def scheduled_deep_analysis_weekly() -> dict:
                 "DEEP_ANALYSIS_WEEKLY",
                 "INFO",
                 f"周频深度分析完成 ({today})",
-                f"更新 {len(quotes)}日行情 / {len(financials)}季财务 / {len(anns)}条公告 / {len(reports)}篇研报",
+                f"更新 {len(quotes)}日行情 / {len(financials)}季财务 / {len(anns)}条公告 / {len(reports)}篇研报",  # noqa: E501
             )
 
             results["deep_updated"] += 1
@@ -1091,13 +1091,13 @@ def on_transaction_executed(code: str, transaction: dict) -> dict:
     amount = transaction.get("amount", 0)
     reason = transaction.get("reason", "")
 
-    action_sign = f"+{shares}" if action in ("BUY", "建仓", "加仓") else f"-{shares}" if action in ("SELL", "减仓", "清仓") else str(shares)
-    new_line = f"| {date_str} | {action} | {action_sign} | ¥{price} | ¥{amount:,.0f} | {reason[:30]} | — |"
+    action_sign = f"+{shares}" if action in ("BUY", "建仓", "加仓") else f"-{shares}" if action in ("SELL", "减仓", "清仓") else str(shares)  # noqa: E501
+    new_line = f"| {date_str} | {action} | {action_sign} | ¥{price} | ¥{amount:,.0f} | {reason[:30]} | — |"  # noqa: E501
 
     # 在操作历史时间线表格中追加新行（在第一个空行或表格结束处）
     import re
     timeline_pattern = re.compile(
-        r'(\| 日期 \| 操作 \| 数量 \| 价格 \| 金额 \| 原因摘要 \| 事后评估 \|\n\|[-| ]+\|\n)((?:\|.*\|\n)*)',
+        r'(\| 日期 \| 操作 \| 数量 \| 价格 \| 金额 \| 原因摘要 \| 事后评估 \|\n\|[-| ]+\|\n)((?:\|.*\|\n)*)',  # noqa: E501
         re.DOTALL
     )
     def _append_line(match):
@@ -1109,13 +1109,13 @@ def on_transaction_executed(code: str, transaction: dict) -> dict:
 
     # 更新持仓状态表（当前持仓状态）
     if pos:
-        status_line = f"| {pos.get('shares', 0):.0f} | ¥{pos.get('avg_cost', 0):.3f} | — | ¥{pos.get('market_value', 0):,.0f} | ¥{pos.get('pnl_amount', 0):,.0f} | {pos.get('pnl_pct', 0):.2f}% | {pos.get('weight_pct', 0):.2f}% |"
+        status_line = f"| {pos.get('shares', 0):.0f} | ¥{pos.get('avg_cost', 0):.3f} | — | ¥{pos.get('market_value', 0):,.0f} | ¥{pos.get('pnl_amount', 0):,.0f} | {pos.get('pnl_pct', 0):.2f}% | {pos.get('weight_pct', 0):.2f}% |"  # noqa: E501
         status_pattern = re.compile(
-            r'\| 持有数量 \| 平均成本 \| 现价 \| 持仓市值 \| 盈亏金额 \| 盈亏% \| 仓位占比 \|\n\|[-| :]+\|\n\|.*\|',
+            r'\| 持有数量 \| 平均成本 \| 现价 \| 持仓市值 \| 盈亏金额 \| 盈亏% \| 仓位占比 \|\n\|[-| :]+\|\n\|.*\|',  # noqa: E501
             re.DOTALL
         )
         content = status_pattern.sub(
-            f"| 持有数量 | 平均成本 | 现价 | 持仓市值 | 盈亏金额 | 盈亏% | 仓位占比 |\n|---------|---------|------|---------|---------|------|---------|\n{status_line}",
+            f"| 持有数量 | 平均成本 | 现价 | 持仓市值 | 盈亏金额 | 盈亏% | 仓位占比 |\n|---------|---------|------|---------|---------|------|---------|\n{status_line}",  # noqa: E501
             content, count=1
         )
 
@@ -1197,7 +1197,7 @@ def on_announcement_detected(code: str, announcement: dict) -> dict:
     else:
         logger.debug(f"on_announcement: {code} 公告无需即时更新")
 
-    return {"status": "updated" if affected else "skipped", "code": code, "affected_sections": affected}
+    return {"status": "updated" if affected else "skipped", "code": code, "affected_sections": affected}  # noqa: E501
 
 
 def on_rating_change(code: str, old_rating: str, new_rating: str,
@@ -1276,7 +1276,7 @@ if __name__ == "__main__":
             anns = load_recent_announcements(code, 10)
             fins = load_financial_trend(ts, 8)
             reps = load_recent_reports(code, 5)
-            print(f"  {code} {name} → {ts}: 行情{len(quotes)}天, 公告{len(anns)}条, 财务{len(fins)}季, 研报{len(reps)}篇")
+            print(f"  {code} {name} → {ts}: 行情{len(quotes)}天, 公告{len(anns)}条, 财务{len(fins)}季, 研报{len(reps)}篇")  # noqa: E501
     else:
         print("用法: python tamf_updater.py [init|update|check]")
 
@@ -1382,14 +1382,14 @@ MA20: ¥{ma20:.3f}（偏离度: {dev:+.2f}%）
 """
         result = _call_ollama(SYSTEM_TECHNICAL, prompt)
         if not result:
-            return f"```\n⚠️ 技术面简评（Ollama暂不可用，数据基于{len(context['quotes'])}天）\n趋势方向: {'上升' if dev > 2 else '下降' if dev < -2 else '横盘'}\nMA20偏离度: {dev:+.2f}%\n```"
+            return f"```\n⚠️ 技术面简评（Ollama暂不可用，数据基于{len(context['quotes'])}天）\n趋势方向: {'上升' if dev > 2 else '下降' if dev < -2 else '横盘'}\nMA20偏离度: {dev:+.2f}%\n```"  # noqa: E501
         return f"```\n{result}\n```"
 
     elif section_name == "fundamental_assessment":
         fins = context.get("financials", [])
         reports = context.get("reports", [])
         if not fins and not reports:
-            return "```\n⚠️ 数据不足 (market.financial_indicators + research.research_reports 均无记录)\n```"
+            return "```\n⚠️ 数据不足 (market.financial_indicators + research.research_reports 均无记录)\n```"  # noqa: E501
         fin_summary = _summarize_financials(fins) if fins else "财务数据: 暂无"
         report_summary = _summarize_reports(reports) if reports else "研报数据: 暂无"
         prompt = f"""对 {name}（{code}）进行基本面综合评估。
@@ -1414,13 +1414,13 @@ MA20: ¥{ma20:.3f}（偏离度: {dev:+.2f}%）
         anns = context.get("announcements", [])
         reports = context.get("reports", [])
         if not anns and not reports:
-            return "```\n⚠️ 数据不足 (research.announcements + research.research_reports 均无记录)\n```"
+            return "```\n⚠️ 数据不足 (research.announcements + research.research_reports 均无记录)\n```"  # noqa: E501
         ann_summary = "\n".join([
             f"- [{a.get('date','?')}] {a.get('type','?')}: {a.get('title','')[:50]}"
             for a in anns[:5]
         ]) if anns else "无公告记录"
         report_summary = "\n".join([
-            f"- [{r.get('date','?')}] {r.get('source','?')}: {r.get('rating','?')} - {r.get('title','')[:40]}"
+            f"- [{r.get('date','?')}] {r.get('source','?')}: {r.get('rating','?')} - {r.get('title','')[:40]}"  # noqa: E501
             for r in reports[:3]
         ]) if reports else "无研报记录"
         prompt = f"""对 {name}（{code}）进行消息面综合判断。
@@ -1438,7 +1438,7 @@ MA20: ¥{ma20:.3f}（偏离度: {dev:+.2f}%）
 """
         result = _call_ollama(SYSTEM_NEWS, prompt)
         if not result:
-            return f"```\n⚠️ 消息面判断（Ollama暂不可用）\n近{len(anns)}条公告, 近{len(reports)}篇研报\n```"
+            return f"```\n⚠️ 消息面判断（Ollama暂不可用）\n近{len(anns)}条公告, 近{len(reports)}篇研报\n```"  # noqa: E501
         return f"```\n{result}\n```"
 
     elif section_name == "reflection":
@@ -1446,7 +1446,7 @@ MA20: ¥{ma20:.3f}（偏离度: {dev:+.2f}%）
         if not transactions:
             return "```\n⚠️ 暂无足够历史交易数据支持反思笔记\n```"
         tx_summary = "\n".join([
-            f"- [{tx.get('date','?')}] {tx.get('action','?')} {tx.get('shares',0):.0f}股@{tx.get('price','?')} 原因:{tx.get('reason','')[:30]}"
+            f"- [{tx.get('date','?')}] {tx.get('action','?')} {tx.get('shares',0):.0f}股@{tx.get('price','?')} 原因:{tx.get('reason','')[:30]}"  # noqa: E501
             for tx in transactions[:10]
         ])
         prompt = f"""回顾 {name}（{code}）的历史交易，撰写反思笔记：

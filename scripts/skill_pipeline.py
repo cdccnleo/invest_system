@@ -149,7 +149,7 @@ class SkillPipeline:
         logger.info(f"流水线 [{self.name}] 开始: {len(levels)} 层, {len(self.steps)} 步骤")
 
         for level_idx, level_steps in enumerate(levels):
-            logger.info(f"  执行第 {level_idx + 1}/{len(levels)} 层: {[s.name for s in level_steps]}")
+            logger.info(f"  执行第 {level_idx + 1}/{len(levels)} 层: {[s.name for s in level_steps]}")  # noqa: E501
 
             # 并行执行同层步骤
             if len(level_steps) > 1:
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     result = pipeline.run()
     print(f"\n流水线状态: {result['status']}")
     for name, r in result["results"].items():
-        icon = "✅" if r.status == StepStatus.COMPLETED else "❌" if r.status == StepStatus.FAILED else "⏭️"
+        icon = "✅" if r.status == StepStatus.COMPLETED else "❌" if r.status == StepStatus.FAILED else "⏭️"  # noqa: E501
         print(f"  {icon} {name}: {r.status.value} ({r.duration_ms:.0f}ms)")
         if r.error:
             print(f"      错误: {r.error}")

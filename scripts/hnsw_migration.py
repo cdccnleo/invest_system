@@ -60,7 +60,7 @@ def migrate_table(conn, schema_table: str, dry_run: bool = False) -> dict:
     # 实际索引名（从 pg_indexes 确认）
     IDX_MAP = {
         "research.news_embeddings":  {"old": "idx_news_embedding_cosine",  "new": "idx_news_hnsw"},
-        "research.report_embeddings": {"old": "idx_report_emb",             "new": "idx_report_hnsw"},
+        "research.report_embeddings": {"old": "idx_report_emb",             "new": "idx_report_hnsw"},  # noqa: E501
     }
     idx_old = IDX_MAP[schema_table]["old"]
     idx_new = IDX_MAP[schema_table]["new"]

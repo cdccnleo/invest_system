@@ -15,7 +15,7 @@ import psycopg2
 logger = logging.getLogger("invest_system.fetch_financial")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # noqa: E501
     "Referer": "https://emweb.securities.eastmoney.com/",
 }
 
@@ -73,7 +73,7 @@ def ensure_table():
                 id BIGSERIAL PRIMARY KEY,
                 ts_code VARCHAR(20) NOT NULL,          -- 股票代码，如 '300059'
                 report_date DATE NOT NULL,             -- 报告期
-                report_type VARCHAR(20),                -- 报告类型：年报/半年报/三季报/一季报/一季报
+                report_type VARCHAR(20),                -- 报告类型：年报/半年报/三季报/一季报/一季报  # noqa: E501
                 eps DECIMAL(20, 6),                   -- 每股收益(元)
                 bps DECIMAL(20, 6),                   -- 每股净资产(元)
                 roe DECIMAL(10, 4),                   -- 净资产收益率(%)
@@ -292,7 +292,7 @@ def format_financial_summary(ts_code: str, n: int = 4) -> str:
 
     lines = [f"## {ts_code} 财务摘要（近{n}期）"]
     for r in records:
-        dt = r["report_date"].isoformat() if hasattr(r["report_date"], "isoformat") else str(r["report_date"])
+        dt = r["report_date"].isoformat() if hasattr(r["report_date"], "isoformat") else str(r["report_date"])  # noqa: E501
         lines.append(
             f"- {dt} [{r.get('report_type', '')}]: "
             f"EPS={r.get('eps', 'N/A'):.3f} | "

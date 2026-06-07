@@ -49,7 +49,7 @@ def fetch_dividends(ts_code: str) -> list[dict]:
         "pageSize": 10,
         "pageNumber": 1,
         "reportName": "RPT_SHAREHOLDER_ALLOT_DETAILS",
-        "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,EX_DIVIDEND_DATE,DIVIDEND_RATIO_BEFORE,DIVIDEND_RATIO_AFTER,BONUS_IT_RATIO,ALLOT_PRICE,ALLOT_RATIO",
+        "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,EX_DIVIDEND_DATE,DIVIDEND_RATIO_BEFORE,DIVIDEND_RATIO_AFTER,BONUS_IT_RATIO,ALLOT_PRICE,ALLOT_RATIO",  # noqa: E501
         "filter": f'(SECURITY_CODE="{code}")',
     }
 
@@ -200,7 +200,7 @@ class CorporateActionHandler:
             action_date = p["action_date"]
             notifications.append(
                 f"{action_date} {name}({code}) {action_type}："
-                f"{'每股分红 ¥' + str(p.get('dividend_per_share', '')) if action_type == '分红' else action_type}"
+                f"{'每股分红 ¥' + str(p.get('dividend_per_share', '')) if action_type == '分红' else action_type}"  # noqa: E501
             )
         return notifications
 

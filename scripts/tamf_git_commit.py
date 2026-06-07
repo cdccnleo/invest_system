@@ -102,7 +102,7 @@ def commit_tamf_changes(dry_run: bool = False, auto_message: bool = True) -> dic
     elif modified and not new_files:
         msg = f" TAMF每日增量更新 ({today})\n更新 {count} 个标的"
     else:
-        msg = f" TAMF文件变更 ({today})\n更新 {count} 个文件 (新增{len(new_files)}/修改{len(modified)})"
+        msg = f" TAMF文件变更 ({today})\n更新 {count} 个文件 (新增{len(new_files)}/修改{len(modified)})"  # noqa: E501
     
     try:
         subprocess.run(

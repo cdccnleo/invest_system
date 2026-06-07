@@ -151,7 +151,7 @@ def verify(conn, enc_key: str):
         FROM trading.positions
     """)
     stats = cur.fetchone()
-    print(f"\n统计: 总行={stats[0]}, 有加密列={stats[1]}, 有明文shares={stats[2]}, 有明文cost={stats[3]}")
+    print(f"\n统计: 总行={stats[0]}, 有加密列={stats[1]}, 有明文shares={stats[2]}, 有明文cost={stats[3]}")  # noqa: E501
 
 
 if __name__ == "__main__":

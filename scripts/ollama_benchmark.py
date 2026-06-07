@@ -35,76 +35,76 @@ logger = logging.getLogger("ollama_benchmark")
 # 按类别分组，每类 5-10 题，覆盖白名单规则表的所有任务类型
 BENCHMARK_QUESTIONS = [
     # ── 持仓查询（ollama）────────────────────────────────────────────────
-    {"id": "Q01", "category": "持仓查询", "expected_model": "ollama", "question": "我的持仓目前盈亏多少？"},
-    {"id": "Q02", "category": "持仓查询", "expected_model": "ollama", "question": "招商银行目前的成本价是多少？"},
-    {"id": "Q03", "category": "持仓查询", "expected_model": "ollama", "question": "我账户里现金比例有多少？"},
-    {"id": "Q04", "category": "持仓查询", "expected_model": "ollama", "question": "东方财富的市值占比是多少？"},
-    {"id": "Q05", "category": "持仓查询", "expected_model": "ollama", "question": "我的总资产现在多少钱？"},
+    {"id": "Q01", "category": "持仓查询", "expected_model": "ollama", "question": "我的持仓目前盈亏多少？"},  # noqa: E501
+    {"id": "Q02", "category": "持仓查询", "expected_model": "ollama", "question": "招商银行目前的成本价是多少？"},  # noqa: E501
+    {"id": "Q03", "category": "持仓查询", "expected_model": "ollama", "question": "我账户里现金比例有多少？"},  # noqa: E501
+    {"id": "Q04", "category": "持仓查询", "expected_model": "ollama", "question": "东方财富的市值占比是多少？"},  # noqa: E501
+    {"id": "Q05", "category": "持仓查询", "expected_model": "ollama", "question": "我的总资产现在多少钱？"},  # noqa: E501
 
     # ── 行情查询（ollama）────────────────────────────────────────────────
-    {"id": "Q06", "category": "行情查询", "expected_model": "ollama", "question": "比亚迪现价多少？"},
-    {"id": "Q07", "category": "行情查询", "expected_model": "ollama", "question": "今天沪深300涨了多少？"},
-    {"id": "Q08", "category": "行情查询", "expected_model": "ollama", "question": "茅台今天收盘价是多少？"},
-    {"id": "Q09", "category": "行情查询", "expected_model": "ollama", "question": "招商银行的PE现在多少？"},
-    {"id": "Q10", "category": "行情查询", "expected_model": "ollama", "question": "恒瑞医药今天涨了还是跌了？"},
+    {"id": "Q06", "category": "行情查询", "expected_model": "ollama", "question": "比亚迪现价多少？"},  # noqa: E501
+    {"id": "Q07", "category": "行情查询", "expected_model": "ollama", "question": "今天沪深300涨了多少？"},  # noqa: E501
+    {"id": "Q08", "category": "行情查询", "expected_model": "ollama", "question": "茅台今天收盘价是多少？"},  # noqa: E501
+    {"id": "Q09", "category": "行情查询", "expected_model": "ollama", "question": "招商银行的PE现在多少？"},  # noqa: E501
+    {"id": "Q10", "category": "行情查询", "expected_model": "ollama", "question": "恒瑞医药今天涨了还是跌了？"},  # noqa: E501
 
     # ── 技术指标计算（ollama）────────────────────────────────────────────
-    {"id": "Q11", "category": "技术指标", "expected_model": "ollama", "question": "RSI指标现在什么水平？"},
-    {"id": "Q12", "category": "技术指标", "expected_model": "ollama", "question": "帮我算一下布林带"},
+    {"id": "Q11", "category": "技术指标", "expected_model": "ollama", "question": "RSI指标现在什么水平？"},  # noqa: E501
+    {"id": "Q12", "category": "技术指标", "expected_model": "ollama", "question": "帮我算一下布林带"},  # noqa: E501
     {"id": "Q13", "category": "技术指标", "expected_model": "ollama", "question": "MACD金叉了吗？"},
-    {"id": "Q14", "category": "技术指标", "expected_model": "ollama", "question": "均线系统怎么走？"},
-    {"id": "Q15", "category": "技术指标", "expected_model": "ollama", "question": "ATR指标值是多少？"},
+    {"id": "Q14", "category": "技术指标", "expected_model": "ollama", "question": "均线系统怎么走？"},  # noqa: E501
+    {"id": "Q15", "category": "技术指标", "expected_model": "ollama", "question": "ATR指标值是多少？"},  # noqa: E501
 
     # ── 通用计算（ollama）───────────────────────────────────────────────
-    {"id": "Q16", "category": "通用计算", "expected_model": "ollama", "question": "帮我算年化收益率"},
-    {"id": "Q17", "category": "通用计算", "expected_model": "ollama", "question": "夏普比率怎么算？"},
-    {"id": "Q18", "category": "通用计算", "expected_model": "ollama", "question": "最大回撤是多少？"},
-    {"id": "Q19", "category": "通用计算", "expected_model": "ollama", "question": "这个组合的胜率如何？"},
+    {"id": "Q16", "category": "通用计算", "expected_model": "ollama", "question": "帮我算年化收益率"},  # noqa: E501
+    {"id": "Q17", "category": "通用计算", "expected_model": "ollama", "question": "夏普比率怎么算？"},  # noqa: E501
+    {"id": "Q18", "category": "通用计算", "expected_model": "ollama", "question": "最大回撤是多少？"},  # noqa: E501
+    {"id": "Q19", "category": "通用计算", "expected_model": "ollama", "question": "这个组合的胜率如何？"},  # noqa: E501
     {"id": "Q20", "category": "通用计算", "expected_model": "ollama", "question": "盈亏比是多少？"},
 
     # ── 新闻/行情解释（ollama）───────────────────────────────────────────
-    {"id": "Q21", "category": "新闻摘要", "expected_model": "ollama", "question": "今天市场有什么重要新闻？"},
-    {"id": "Q22", "category": "新闻摘要", "expected_model": "ollama", "question": "今天大盘为什么涨？"},
-    {"id": "Q23", "category": "新闻摘要", "expected_model": "ollama", "question": "最近有什么利好？"},
-    {"id": "Q24", "category": "新闻摘要", "expected_model": "ollama", "question": "今天市场情绪怎么样？"},
-    {"id": "Q25", "category": "新闻摘要", "expected_model": "ollama", "question": "外资今天流入还是流出？"},
+    {"id": "Q21", "category": "新闻摘要", "expected_model": "ollama", "question": "今天市场有什么重要新闻？"},  # noqa: E501
+    {"id": "Q22", "category": "新闻摘要", "expected_model": "ollama", "question": "今天大盘为什么涨？"},  # noqa: E501
+    {"id": "Q23", "category": "新闻摘要", "expected_model": "ollama", "question": "最近有什么利好？"},  # noqa: E501
+    {"id": "Q24", "category": "新闻摘要", "expected_model": "ollama", "question": "今天市场情绪怎么样？"},  # noqa: E501
+    {"id": "Q25", "category": "新闻摘要", "expected_model": "ollama", "question": "外资今天流入还是流出？"},  # noqa: E501
 
     # ── 研报/公告提取（ollama）──────────────────────────────────────────
-    {"id": "Q26", "category": "研报提取", "expected_model": "ollama", "question": "最近有哪些券商研报？"},
-    {"id": "Q27", "category": "研报提取", "expected_model": "ollama", "question": "帮我总结一下最近的公告"},
-    {"id": "Q28", "category": "研报提取", "expected_model": "ollama", "question": "提取这只股票的关键数据"},
-    {"id": "Q29", "category": "研报提取", "expected_model": "ollama", "question": "最近有什么增持公告？"},
+    {"id": "Q26", "category": "研报提取", "expected_model": "ollama", "question": "最近有哪些券商研报？"},  # noqa: E501
+    {"id": "Q27", "category": "研报提取", "expected_model": "ollama", "question": "帮我总结一下最近的公告"},  # noqa: E501
+    {"id": "Q28", "category": "研报提取", "expected_model": "ollama", "question": "提取这只股票的关键数据"},  # noqa: E501
+    {"id": "Q29", "category": "研报提取", "expected_model": "ollama", "question": "最近有什么增持公告？"},  # noqa: E501
 
     # ── 行业分析（DeepSeek）────────────────────────────────────────────
-    {"id": "Q30", "category": "行业分析", "expected_model": "deepseek", "question": "半导体板块近期怎么看？"},
-    {"id": "Q31", "category": "行业分析", "expected_model": "deepseek", "question": "新能源赛道还有机会吗？"},
-    {"id": "Q32", "category": "行业分析", "expected_model": "deepseek", "question": "消费板块现在能不能布局？"},
-    {"id": "Q33", "category": "行业分析", "expected_model": "deepseek", "question": "医药行业最近有什么变化？"},
-    {"id": "Q34", "category": "行业分析", "expected_model": "deepseek", "question": "金融板块估值合理吗？"},
+    {"id": "Q30", "category": "行业分析", "expected_model": "deepseek", "question": "半导体板块近期怎么看？"},  # noqa: E501
+    {"id": "Q31", "category": "行业分析", "expected_model": "deepseek", "question": "新能源赛道还有机会吗？"},  # noqa: E501
+    {"id": "Q32", "category": "行业分析", "expected_model": "deepseek", "question": "消费板块现在能不能布局？"},  # noqa: E501
+    {"id": "Q33", "category": "行业分析", "expected_model": "deepseek", "question": "医药行业最近有什么变化？"},  # noqa: E501
+    {"id": "Q34", "category": "行业分析", "expected_model": "deepseek", "question": "金融板块估值合理吗？"},  # noqa: E501
 
     # ── 宏观分析（DeepSeek）────────────────────────────────────────────
-    {"id": "Q35", "category": "宏观分析", "expected_model": "deepseek", "question": "美联储降息对A股有什么影响？"},
-    {"id": "Q36", "category": "宏观分析", "expected_model": "deepseek", "question": "最近CPI数据怎么看？"},
-    {"id": "Q37", "category": "宏观分析", "expected_model": "deepseek", "question": "人民币汇率走势如何？"},
-    {"id": "Q38", "category": "宏观分析", "expected_model": "deepseek", "question": "当前经济形势怎么样？"},
-    {"id": "Q39", "category": "宏观分析", "expected_model": "deepseek", "question": "利率政策对市场有什么影响？"},
+    {"id": "Q35", "category": "宏观分析", "expected_model": "deepseek", "question": "美联储降息对A股有什么影响？"},  # noqa: E501
+    {"id": "Q36", "category": "宏观分析", "expected_model": "deepseek", "question": "最近CPI数据怎么看？"},  # noqa: E501
+    {"id": "Q37", "category": "宏观分析", "expected_model": "deepseek", "question": "人民币汇率走势如何？"},  # noqa: E501
+    {"id": "Q38", "category": "宏观分析", "expected_model": "deepseek", "question": "当前经济形势怎么样？"},  # noqa: E501
+    {"id": "Q39", "category": "宏观分析", "expected_model": "deepseek", "question": "利率政策对市场有什么影响？"},  # noqa: E501
 
     # ── 策略/决策（DeepSeek）────────────────────────────────────────────
-    {"id": "Q40", "category": "策略建议", "expected_model": "deepseek", "question": "东方财富现在可以加仓吗？"},
-    {"id": "Q41", "category": "策略建议", "expected_model": "deepseek", "question": "建议我现在卖出一部分吗？"},
-    {"id": "Q42", "category": "策略建议", "expected_model": "deepseek", "question": "帮我制定下周的操作计划"},
+    {"id": "Q40", "category": "策略建议", "expected_model": "deepseek", "question": "东方财富现在可以加仓吗？"},  # noqa: E501
+    {"id": "Q41", "category": "策略建议", "expected_model": "deepseek", "question": "建议我现在卖出一部分吗？"},  # noqa: E501
+    {"id": "Q42", "category": "策略建议", "expected_model": "deepseek", "question": "帮我制定下周的操作计划"},  # noqa: E501
     {"id": "Q43", "category": "策略建议", "expected_model": "deepseek", "question": "要不要止损？"},
-    {"id": "Q44", "category": "策略建议", "expected_model": "deepseek", "question": "帮我评估一下组合风险"},
+    {"id": "Q44", "category": "策略建议", "expected_model": "deepseek", "question": "帮我评估一下组合风险"},  # noqa: E501
 
     # ── 风控检查（ollama）───────────────────────────────────────────────
-    {"id": "Q45", "category": "风控检查", "expected_model": "ollama", "question": "我的仓位有没有超限？"},
-    {"id": "Q46", "category": "风控检查", "expected_model": "ollama", "question": "持仓集中度风险高吗？"},
-    {"id": "Q47", "category": "风控检查", "expected_model": "ollama", "question": "帮我检查合规情况"},
-    {"id": "Q48", "category": "风控检查", "expected_model": "ollama", "question": "现在杠杆率多少？"},
+    {"id": "Q45", "category": "风控检查", "expected_model": "ollama", "question": "我的仓位有没有超限？"},  # noqa: E501
+    {"id": "Q46", "category": "风控检查", "expected_model": "ollama", "question": "持仓集中度风险高吗？"},  # noqa: E501
+    {"id": "Q47", "category": "风控检查", "expected_model": "ollama", "question": "帮我检查合规情况"},  # noqa: E501
+    {"id": "Q48", "category": "风控检查", "expected_model": "ollama", "question": "现在杠杆率多少？"},  # noqa: E501
 
     # ── 情绪分析（ollama）───────────────────────────────────────────────
-    {"id": "Q49", "category": "情绪分析", "expected_model": "ollama", "question": "市场情绪偏向多头还是空头？"},
-    {"id": "Q50", "category": "情绪分析", "expected_model": "ollama", "question": "资金流向怎么样？"},
+    {"id": "Q49", "category": "情绪分析", "expected_model": "ollama", "question": "市场情绪偏向多头还是空头？"},  # noqa: E501
+    {"id": "Q50", "category": "情绪分析", "expected_model": "ollama", "question": "资金流向怎么样？"},  # noqa: E501
 ]
 
 
@@ -128,7 +128,7 @@ def _estimate_cost(prompt_tokens: int, completion_tokens: int, model: str) -> di
         return {"cost_cny": 0.0, "note": "本地运行，无直接 API 费用"}
     input_cost = prompt_tokens * 1.0 / 1_000_000
     output_cost = completion_tokens * 2.0 / 1_000_000
-    return {"cost_cny": round(input_cost + output_cost, 6), "input_cost": round(input_cost, 6), "output_cost": round(output_cost, 6)}
+    return {"cost_cny": round(input_cost + output_cost, 6), "input_cost": round(input_cost, 6), "output_cost": round(output_cost, 6)}  # noqa: E501
 
 
 def run_single_test(q: dict, model_type: str, timeout: int = 60) -> dict:
@@ -252,11 +252,11 @@ def run_benchmark(quick: bool = False, output_path: str = None) -> dict:
         print("  路由偏差明细:")
         for r in results:
             if not r["route_match"]:
-                print(f"    ⚠️ {r['id']} [{r['category']}] → 路由 {r['actual_route']}（期望 {r['expected_model']}）")
+                print(f"    ⚠️ {r['id']} [{r['category']}] → 路由 {r['actual_route']}（期望 {r['expected_model']}）")  # noqa: E501
 
     # 响应速度对比
-    ds_avg = sum(stats["deepseek"]["elapsed"]) / len(stats["deepseek"]["elapsed"]) if stats["deepseek"]["elapsed"] else 0
-    ol_avg = sum(stats["ollama"]["elapsed"]) / len(stats["ollama"]["elapsed"]) if stats["ollama"]["elapsed"] else 0
+    ds_avg = sum(stats["deepseek"]["elapsed"]) / len(stats["deepseek"]["elapsed"]) if stats["deepseek"]["elapsed"] else 0  # noqa: E501
+    ol_avg = sum(stats["ollama"]["elapsed"]) / len(stats["ollama"]["elapsed"]) if stats["ollama"]["elapsed"] else 0  # noqa: E501
     speed_ratio = ol_avg / ds_avg if ds_avg > 0 else 0
     print("\n  速度对比:")
     print(f"    DeepSeek 平均: {ds_avg:.2f}s")
@@ -272,14 +272,14 @@ def run_benchmark(quick: bool = False, output_path: str = None) -> dict:
         },
         "summary": {
             "deepseek": {
-                "success_rate": round(stats["deepseek"]["success"] / stats["deepseek"]["total"] * 100, 1),
+                "success_rate": round(stats["deepseek"]["success"] / stats["deepseek"]["total"] * 100, 1),  # noqa: E501
                 "avg_latency_s": round(ds_avg, 2),
-                "avg_response_chars": round(sum(stats["deepseek"]["chars"]) / len(stats["deepseek"]["chars"]), 0) if stats["deepseek"]["chars"] else 0,
+                "avg_response_chars": round(sum(stats["deepseek"]["chars"]) / len(stats["deepseek"]["chars"]), 0) if stats["deepseek"]["chars"] else 0,  # noqa: E501
             },
             "ollama": {
-                "success_rate": round(stats["ollama"]["success"] / stats["ollama"]["total"] * 100, 1),
+                "success_rate": round(stats["ollama"]["success"] / stats["ollama"]["total"] * 100, 1),  # noqa: E501
                 "avg_latency_s": round(ol_avg, 2),
-                "avg_response_chars": round(sum(stats["ollama"]["chars"]) / len(stats["ollama"]["chars"]), 0) if stats["ollama"]["chars"] else 0,
+                "avg_response_chars": round(sum(stats["ollama"]["chars"]) / len(stats["ollama"]["chars"]), 0) if stats["ollama"]["chars"] else 0,  # noqa: E501
             },
             "route_accuracy": round(route_acc, 1),
             "speed_ratio_ollama_vs_deepseek": round(speed_ratio, 2),

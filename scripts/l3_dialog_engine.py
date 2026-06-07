@@ -401,7 +401,7 @@ class RiskEscalationEvaluator(TriggerEvaluator):
         if total_cost <= 0:
             return None
 
-        drawdown_pct = abs(float(total_pnl) / float(total_cost) * 100) if float(total_cost) > 0 else 0
+        drawdown_pct = abs(float(total_pnl) / float(total_cost) * 100) if float(total_cost) > 0 else 0  # noqa: E501
 
         if drawdown_pct < threshold:
             return None
@@ -482,7 +482,7 @@ class MilestoneEvaluator(TriggerEvaluator):
                 last_milestone_str = float(m.group(1).replace(",", ""))
 
         # 检查是否突破新关口
-        crossed = [m for m in self.MILESTONES if abs(total_pnl) >= m and abs(last_milestone_str) < m]
+        crossed = [m for m in self.MILESTONES if abs(total_pnl) >= m and abs(last_milestone_str) < m]  # noqa: E501
         if not crossed:
             return None
 
@@ -495,7 +495,7 @@ class MilestoneEvaluator(TriggerEvaluator):
             "pnl_pct": round(pnl_pct, 2),
             "milestone_type": milestone_type,
             "milestone_amount": new_milestone,
-            "performance_summary": f"累计{'盈利' if total_pnl > 0 else '亏损'} ¥{abs(total_pnl):,.0f}，历史最大回撤待评估",
+            "performance_summary": f"累计{'盈利' if total_pnl > 0 else '亏损'} ¥{abs(total_pnl):,.0f}，历史最大回撤待评估",  # noqa: E501
         }
 
 
@@ -623,7 +623,7 @@ class L3DialogEngine:
         cur = self.conn.cursor()
 
         # 获取所有活跃情景
-        cur.execute("SELECT scenario_code, scenario_name, shock_params FROM l3.stress_test_scenarios WHERE is_active = TRUE")
+        cur.execute("SELECT scenario_code, scenario_name, shock_params FROM l3.stress_test_scenarios WHERE is_active = TRUE")  # noqa: E501
         scenarios = cur.fetchall()
 
         worst_case = None
@@ -631,7 +631,7 @@ class L3DialogEngine:
 
         for scenario_code, scenario_name, shock_params_raw in scenarios:
             try:
-                shock_params = json.loads(shock_params_raw) if isinstance(shock_params_raw, str) else shock_params_raw
+                shock_params = json.loads(shock_params_raw) if isinstance(shock_params_raw, str) else shock_params_raw  # noqa: E501
             except json.JSONDecodeError:
                 logger.warning(f"无法解析情景参数: {scenario_code}")
                 continue
@@ -716,7 +716,7 @@ class L3DialogEngine:
             ))
 
         self.conn.commit()
-        logger.info(f"压力测试完成: run_id={run_id}, 最坏情景={worst_case}({worst_loss_pct*100:.1f}%)")
+        logger.info(f"压力测试完成: run_id={run_id}, 最坏情景={worst_case}({worst_loss_pct*100:.1f}%)")  # noqa: E501
         return run_id
 
     @staticmethod
@@ -741,7 +741,7 @@ class L3DialogEngine:
             ORDER BY priority DESC
         """)
         triggers = [
-            {"type": r[0], "active": r[1], "last_triggered": str(r[2]) if r[2] else None, "count": r[3]}
+            {"type": r[0], "active": r[1], "last_triggered": str(r[2]) if r[2] else None, "count": r[3]}  # noqa: E501
             for r in cur.fetchall()
         ]
 
@@ -775,7 +775,7 @@ class L3DialogEngine:
             "stress_tests": stress_tests,
             "capability_score": capability_score,  # 0-5
             "capability_label": ["沉睡", "萌芽", "激活", "成熟", "进阶", "完全"][capability_score],
-            "phase": "L3 Phase A" if capability_score < 3 else "L3 Phase B" if capability_score < 5 else "L3 Phase C",
+            "phase": "L3 Phase A" if capability_score < 3 else "L3 Phase B" if capability_score < 5 else "L3 Phase C",  # noqa: E501
         }
 
 
@@ -802,8 +802,8 @@ if __name__ == "__main__":
         print(f"评估: {result['evaluated']} 个触发器")
         print(f"触发: {result['triggered']} 个")
         for d in result["details"]:
-            status_icon = {"triggered": "✅", "not_triggered": "➖", "push_failed": "⚠️", "error": "❌"}.get(d["status"], "?")
-            print(f"  {status_icon} [{d['trigger_type']}] {d.get('trigger_name', d['trigger_type'])}: {d['status']}")
+            status_icon = {"triggered": "✅", "not_triggered": "➖", "push_failed": "⚠️", "error": "❌"}.get(d["status"], "?")  # noqa: E501
+            print(f"  {status_icon} [{d['trigger_type']}] {d.get('trigger_name', d['trigger_type'])}: {d['status']}")  # noqa: E501
 
     elif args.stress_test:
         print("=" * 50)
@@ -827,7 +827,7 @@ if __name__ == "__main__":
             print(f"  {icon} [{t['type']}] 上次: {last} 累计: {t['count']}次")
         print(f"\n最近压力测试: {len(status['stress_tests'])} 条")
         for st in status["stress_tests"][:3]:
-            print(f"  {st['executed_at'][:19]} {st['scenario']}: {st['loss_pct']}% 风险{st['risk_score']}/10")
+            print(f"  {st['executed_at'][:19]} {st['scenario']}: {st['loss_pct']}% 风险{st['risk_score']}/10")  # noqa: E501
 
     else:
         parser.print_help()

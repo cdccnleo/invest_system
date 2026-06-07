@@ -118,7 +118,7 @@ def _get_positions_summary() -> str:
         row2 = cur.fetchone()
         active, total = row2 if row2 else (0, 0)
 
-        return f"- 持仓数量: {count or 0} 只\n- 活跃标的(近5日): {active or 0} 条\n- 最新数据日期: {latest_date or '无'}"
+        return f"- 持仓数量: {count or 0} 只\n- 活跃标的(近5日): {active or 0} 条\n- 最新数据日期: {latest_date or '无'}"  # noqa: E501
     except Exception as e:
         logger.warning(f"持仓摘要读取失败: {e}")
         return "- 暂无数据"
@@ -198,7 +198,7 @@ def generate_meta_memories() -> str:
 
             ts = event_time.strftime("%m-%d %H:%M")
             result_icon = "✅" if result == "SUCCESS" else "❌" if result == "FAILED" else "⚠️"
-            section_lines.append(f"- {ts} {result_icon} [{target_type}] {json.dumps(detail, ensure_ascii=False)[:80]}")
+            section_lines.append(f"- {ts} {result_icon} [{target_type}] {json.dumps(detail, ensure_ascii=False)[:80]}")  # noqa: E501
 
         sections.append("\n".join(section_lines))
 

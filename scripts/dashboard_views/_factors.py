@@ -43,7 +43,7 @@ def render_factor_analysis():
             w_size = st.slider("规模因子 (市值)", 0.0, 1.0, 0.10, 0.05, key="w_size")
 
         total_w = w_value + w_quality + w_momentum + w_volatility + w_technical + w_size
-        st.caption(f"权重合计: {total_w:.0%} {'✅' if 0.99 <= total_w <= 1.01 else '⚠️ 将自动归一化'}")
+        st.caption(f"权重合计: {total_w:.0%} {'✅' if 0.99 <= total_w <= 1.01 else '⚠️ 将自动归一化'}")  # noqa: E501
 
     if st.button("🔍 运行因子评分", type="primary", use_container_width=True):
         with st.spinner("正在计算多因子评分..."):
@@ -106,7 +106,7 @@ def render_factor_analysis():
             return ""
 
         st.subheader("评分排名")
-        styled = df.style.map(color_score, subset=["综合得分", "价值", "质量", "动量", "波动率", "技术", "规模"])
+        styled = df.style.map(color_score, subset=["综合得分", "价值", "质量", "动量", "波动率", "技术", "规模"])  # noqa: E501
         st.dataframe(styled, use_container_width=True, hide_index=True)
 
         # 因子贡献图

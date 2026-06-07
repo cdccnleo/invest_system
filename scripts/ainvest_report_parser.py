@@ -134,7 +134,7 @@ def extract_report_type_by_path(filepath: Path) -> str:
 def extract_structured_report(report_type: str, content: str, title: str) -> dict:
     """
     根据报告类型，提取结构化字段。
-    返回 dict，包含 summary, investment_signals, key_judgments, risk_assessment, operation_actions 等。
+    返回 dict，包含 summary, investment_signals, key_judgments, risk_assessment, operation_actions 等。  # noqa: E501
     """
     result = {
         "summary": None,
@@ -346,7 +346,7 @@ def _build_enrichment_prompt(report_data: dict, content: str) -> str:
 
 请以 JSON 格式输出以下字段:
 1. "summary": 报告摘要（50字以内）
-2. "investment_signals": 投资信号数组，每项包含 {{"type": "信号类型", "direction": "positive/negative/neutral", "description": "信号描述", "magnitude": 0.0-1.0}}
+2. "investment_signals": 投资信号数组，每项包含 {{"type": "信号类型", "direction": "positive/negative/neutral", "description": "信号描述", "magnitude": 0.0-1.0}}  # noqa: E501
 3. "key_judgments": 核心判断数组（每项30字以内）
 4. "risk_assessment": 风险评估（30字以内）
 5. "confidence_score": 你对提取结果的置信度 (0.0-1.0)

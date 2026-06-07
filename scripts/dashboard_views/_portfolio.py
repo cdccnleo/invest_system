@@ -113,7 +113,7 @@ def render_portfolio_dashboard():
         df_filtered["盈亏"] = df_filtered["市值"] - df_filtered["份额"] * df_filtered["成本"]
         df_filtered = df_filtered.sort_values("盈亏", ascending=ascending)
     elif sort_by == "盈亏%":
-        df_filtered["盈亏%"] = ((df_filtered["市值"] / (df_filtered["份额"] * df_filtered["成本"])) - 1) * 100
+        df_filtered["盈亏%"] = ((df_filtered["市值"] / (df_filtered["份额"] * df_filtered["成本"])) - 1) * 100  # noqa: E501
         df_filtered = df_filtered.sort_values("盈亏%", ascending=ascending)
     else:
         df_filtered = df_filtered.sort_values("名称", ascending=ascending)
@@ -242,17 +242,17 @@ def render_portfolio_dashboard():
 
         # 计算盈亏列（市值 - 份额 × 成本）
         df["盈亏"] = (df["市值"] - df["份额"] * df["成本"]).round(2)
-        df["盈亏%"] = (((df["市值"] / (df["份额"] * df["成本"])) - 1) * 100).round(2).replace([float("inf"), float("-inf")], 0).fillna(0)
+        df["盈亏%"] = (((df["市值"] / (df["份额"] * df["成本"])) - 1) * 100).round(2).replace([float("inf"), float("-inf")], 0).fillna(0)  # noqa: E501
 
         # 类型映射
         type_icon = {"fund": "📊", "stock": "🏦", "etf": "📈"}
         df["类型图标"] = df["类型"].map(type_icon).fillna("📋")
 
         display_df = df[["代码", "名称", "类型图标", "成本", "市值", "仓位%", "盈亏"]].copy()
-        display_df["成本"] = display_df["成本"].map(lambda x: f"¥{x:.4f}" if x < 100 else f"¥{x:.2f}")
+        display_df["成本"] = display_df["成本"].map(lambda x: f"¥{x:.4f}" if x < 100 else f"¥{x:.2f}")  # noqa: E501
         display_df["市值"] = display_df["市值"].map(lambda x: f"¥{x:,.2f}")
         display_df["仓位%"] = display_df["仓位%"].map(lambda x: f"{x:.2f}%")
-        display_df["盈亏"] = display_df["盈亏"].map(lambda x: f"{'+¥' if x >= 0 else '-¥'}{abs(x):,.2f}")
+        display_df["盈亏"] = display_df["盈亏"].map(lambda x: f"{'+¥' if x >= 0 else '-¥'}{abs(x):,.2f}")  # noqa: E501
 
         st.dataframe(
             display_df,

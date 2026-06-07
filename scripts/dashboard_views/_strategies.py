@@ -83,13 +83,13 @@ def render_strategy_comparison():
                              "volatility_pct", "max_drawdown"]],
                     use_container_width=True,
                     column_config={
-                        "total_return_pct": st.column_config.NumberColumn("总收益%", format="%.2f%%"),
+                        "total_return_pct": st.column_config.NumberColumn("总收益%", format="%.2f%%"),  # noqa: E501
                         "sharpe_ratio": st.column_config.NumberColumn("夏普比率", format="%.2f"),
-                        "volatility_pct": st.column_config.NumberColumn("年化波动%", format="%.2f%%"),
+                        "volatility_pct": st.column_config.NumberColumn("年化波动%", format="%.2f%%"),  # noqa: E501
                     }
                 )
 
-                st.caption(f"回测数据范围: {data.index[0]} ~ {data.index[-1]}，共 {len(data)} 个交易日")
+                st.caption(f"回测数据范围: {data.index[0]} ~ {data.index[-1]}，共 {len(data)} 个交易日")  # noqa: E501
 
             except Exception as e:
                 st.error(f"回测失败: {e}")
@@ -128,7 +128,7 @@ def render_strategy_comparison():
                     MACrossoverStrategy, grid, data, metric="sharpe_ratio"
                 )
 
-                st.success(f"最优参数: {result['best_params']}（夏普比率: {result['best_score']:.2f}）")
+                st.success(f"最优参数: {result['best_params']}（夏普比率: {result['best_score']:.2f}）")  # noqa: E501
 
                 if result["all_results"]:
                     param_df = pd.DataFrame(result["all_results"])
@@ -141,7 +141,7 @@ def render_strategy_comparison():
                         column_config={
                             "params_str": "参数组合",
                             "score": st.column_config.NumberColumn("夏普比率", format="%.2f"),
-                            "total_return_pct": st.column_config.NumberColumn("总收益%", format="%.2f%%"),
+                            "total_return_pct": st.column_config.NumberColumn("总收益%", format="%.2f%%"),  # noqa: E501
                         }
                     )
             except Exception as e:

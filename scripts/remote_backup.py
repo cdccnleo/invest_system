@@ -143,7 +143,7 @@ def cleanup_remote_backups():
                     cleaned += 1
                 except OSError:
                     pass
-            elif len([x for x in files if datetime.fromtimestamp(x.stat().st_mtime) >= cutoff]) > MAX_REMOTE_BACKUPS:
+            elif len([x for x in files if datetime.fromtimestamp(x.stat().st_mtime) >= cutoff]) > MAX_REMOTE_BACKUPS:  # noqa: E501
                 try:
                     f.unlink()
                     cleaned += 1

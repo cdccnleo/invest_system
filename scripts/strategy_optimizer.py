@@ -107,7 +107,7 @@ class BayesianOptimizer:
 
         z = (mu - y_best - xi) / sigma
         # 标准正态 CDF 近似
-        ei = (mu - y_best - xi) * (0.5 * (1 + np.tanh(0.7978845608028654 * z))) + sigma * np.exp(-z**2 / 2) / np.sqrt(2 * np.pi)
+        ei = (mu - y_best - xi) * (0.5 * (1 + np.tanh(0.7978845608028654 * z))) + sigma * np.exp(-z**2 / 2) / np.sqrt(2 * np.pi)  # noqa: E501
         return max(0.0, ei)
 
     def optimize(self) -> OptimizationResult:
@@ -270,7 +270,7 @@ def optimize_strategy_params(
         signals = strategy.generate_signals(pd.Series(price_data))
         evaluator = PerformanceEvaluator(signals)
         report = evaluator.full_report()
-        return report.get("sharpe_ratio", 0) * 0.5 - report.get("max_drawdown", 0.5) * 0.3 + report.get("win_rate", 0) * 0.2
+        return report.get("sharpe_ratio", 0) * 0.5 - report.get("max_drawdown", 0.5) * 0.3 + report.get("win_rate", 0) * 0.2  # noqa: E501
 
     if method == "grid" and len(param_spaces) <= 3:
         optimizer = GridSearchOptimizer(param_spaces, objective)

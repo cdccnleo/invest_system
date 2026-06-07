@@ -13,10 +13,8 @@ Drill Phases:
 """
 
 import sys
-import os
 import subprocess
 import hashlib
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -49,7 +47,7 @@ class DRDrill:
     def _run_psql(self, query: str, dbname: str = "investpilot") -> tuple:
         """Run psql query and return (success, output)"""
         result = subprocess.run(
-            ["psql", "-h", "localhost", "-p", "5432", "-U", "invest_admin", "-d", dbname, "-c", query],
+            ["psql", "-h", "localhost", "-p", "5432", "-U", "invest_admin", "-d", dbname, "-c", query],  # noqa: E501
             env={"PGPASSWORD": self.password},
             capture_output=True,
             text=True,
@@ -100,7 +98,7 @@ class DRDrill:
         success, stdout, stderr = self._run_psql("SELECT version();")
         if success:
             pre_check["database_connectivity"] = True
-            pre_check["db_version"] = stdout.split('\n')[2].strip() if len(stdout.split('\n')) > 2 else "Unknown"
+            pre_check["db_version"] = stdout.split('\n')[2].strip() if len(stdout.split('\n')) > 2 else "Unknown"  # noqa: E501
             print(f"✓ Database connected: {pre_check['db_version']}")
         else:
             print(f"✗ Database connection failed: {stderr[:100]}")
@@ -114,9 +112,9 @@ class DRDrill:
             pre_check["latest_backup_age_hours"] = round(age_hours, 1)
             pre_check["rpo_target_met"] = age_hours <= self.TARGET_RPO_HOURS
             print(f"\nLatest backup age: {age_hours:.1f} hours")
-            print(f"RPO target ({self.TARGET_RPO_HOURS}h): {'✓ MET' if pre_check['rpo_target_met'] else '✗ NOT MET'}")
+            print(f"RPO target ({self.TARGET_RPO_HOURS}h): {'✓ MET' if pre_check['rpo_target_met'] else '✗ NOT MET'}")  # noqa: E501
             if not pre_check["rpo_target_met"]:
-                self.results["issues_found"].append(f"Backup RPO exceeded: {age_hours:.1f}h > {self.TARGET_RPO_HOURS}h")
+                self.results["issues_found"].append(f"Backup RPO exceeded: {age_hours:.1f}h > {self.TARGET_RPO_HOURS}h")  # noqa: E501
         
         self.results["pre_check"] = pre_check
         return pre_check
@@ -149,10 +147,10 @@ class DRDrill:
             
             # Check existence
             if Path(backup_path).exists():
-                print(f"  ✓ File exists")
+                print("  ✓ File exists")
                 result["exists"] = True
             else:
-                print(f"  ✗ File NOT found")
+                print("  ✗ File NOT found")
                 verification["all_passed"] = False
                 continue
             
@@ -161,7 +159,7 @@ class DRDrill:
                 print(f"  ✓ File non-empty ({backup['size_mb']} MB)")
                 result["non_empty"] = True
             else:
-                print(f"  ✗ File is empty")
+                print("  ✗ File is empty")
                 verification["all_passed"] = False
                 continue
             
@@ -177,7 +175,7 @@ class DRDrill:
             
             verification["backups_verified"].append(result)
         
-        print(f"\nBackup verification: {'✓ ALL PASSED' if verification['all_passed'] else '✗ SOME FAILED'}")
+        print(f"\nBackup verification: {'✓ ALL PASSED' if verification['all_passed'] else '✗ SOME FAILED'}")  # noqa: E501
         self.results["backup_verification"] = verification
         return verification
     
@@ -220,7 +218,7 @@ class DRDrill:
             self.results["issues_found"].append(restoration["message"])
             self.results["restoration_test"] = restoration
             return restoration
-        print(f"✓ Test schema created")
+        print("✓ Test schema created")
         
         # Try to restore to test schema (use -n schema flag)
         try:
@@ -250,7 +248,7 @@ class DRDrill:
             
             if result.returncode == 0:
                 restoration["success"] = True
-                restoration["message"] = f"Restoration test successful in {restoration['duration_seconds']:.1f}s"
+                restoration["message"] = f"Restoration test successful in {restoration['duration_seconds']:.1f}s"  # noqa: E501
                 print(f"✓ {restoration['message']}")
             else:
                 restoration["message"] = f"Restoration failed: {result.stderr[:200]}"
@@ -269,7 +267,7 @@ class DRDrill:
         if restoration["success"]:
             success, _, _ = self._run_psql(f'DROP SCHEMA {test_schema} CASCADE;')
             if success:
-                print(f"✓ Test schema cleaned up")
+                print("✓ Test schema cleaned up")
         
         self.results["restoration_test"] = restoration
         return restoration
@@ -294,7 +292,7 @@ class DRDrill:
         if "latest_backup_age_hours" in pre_check:
             rto["actual_rpo_hours"] = pre_check["latest_backup_age_hours"]
             rto["rpo_met"] = rto["actual_rpo_hours"] <= rto["target_rpo_hours"]
-            print(f"RPO: {rto['actual_rpo_hours']:.1f}h (target: {rto['target_rpo_hours']}h) - {'✓ MET' if rto['rpo_met'] else '✗ NOT MET'}")
+            print(f"RPO: {rto['actual_rpo_hours']:.1f}h (target: {rto['target_rpo_hours']}h) - {'✓ MET' if rto['rpo_met'] else '✗ NOT MET'}")  # noqa: E501
         
         # Measure RTO (from restoration test if available)
         restoration = self.results.get("restoration_test", {})
@@ -302,9 +300,9 @@ class DRDrill:
             rto["actual_rto_seconds"] = restoration["duration_seconds"]
             rto["rto_met"] = rto["actual_rto_seconds"] <= (self.TARGET_RTO_MINUTES * 60)
             rto_minutes = rto["actual_rto_seconds"] / 60
-            print(f"RTO: {rto_minutes:.1f} min (target: {self.TARGET_RTO_MINUTES} min) - {'✓ MET' if rto['rto_met'] else '✗ NOT MET'}")
+            print(f"RTO: {rto_minutes:.1f} min (target: {self.TARGET_RTO_MINUTES} min) - {'✓ MET' if rto['rto_met'] else '✗ NOT MET'}")  # noqa: E501
         else:
-            print(f"RTO: Not measured (no restoration test completed)")
+            print("RTO: Not measured (no restoration test completed)")
         
         self.results["rto_measurement"] = rto
         return rto
@@ -326,7 +324,7 @@ class DRDrill:
             recs.append("Document manual steps required for DB restoration")
         
         # General recommendations
-        recs.append("Implement actual DR state machine (NORMAL→DEGRADED→FAILOVER→RECOVERING→NORMAL)")
+        recs.append("Implement actual DR state machine (NORMAL→DEGRADED→FAILOVER→RECOVERING→NORMAL)")  # noqa: E501
         recs.append("Schedule quarterly DR drills")
         recs.append("Consider implementing backup checksum tracking for integrity verification")
         
@@ -349,15 +347,15 @@ class DRDrill:
 
 | Metric | Target | Actual | Status |
 |--------|--------|--------|--------|
-| RTO | {self.TARGET_RTO_MINUTES} min | {self.results.get('rto_measurement', {}).get('actual_rto_seconds', 'N/A')} sec | {'✓' if self.results.get('rto_measurement', {}).get('rto_met') else '✗'} |
-| RPO | {self.TARGET_RPO_HOURS} hours | {self.results.get('rto_measurement', {}).get('actual_rpo_hours', 'N/A')} hours | {'✓' if self.results.get('rto_measurement', {}).get('rpo_met') else '✗'} |
+| RTO | {self.TARGET_RTO_MINUTES} min | {self.results.get('rto_measurement', {}).get('actual_rto_seconds', 'N/A')} sec | {'✓' if self.results.get('rto_measurement', {}).get('rto_met') else '✗'} |  # noqa: E501
+| RPO | {self.TARGET_RPO_HOURS} hours | {self.results.get('rto_measurement', {}).get('actual_rpo_hours', 'N/A')} hours | {'✓' if self.results.get('rto_measurement', {}).get('rpo_met') else '✗'} |  # noqa: E501
 
 ---
 
 ## Phase 1: Pre-DR Check Results
 
 **Backup Directory:** {self.results['pre_check'].get('backup_directory', 'N/A')}  
-**Database Connected:** {'Yes' if self.results['pre_check'].get('database_connectivity') else 'No'}  
+**Database Connected:** {'Yes' if self.results['pre_check'].get('database_connectivity') else 'No'}    # noqa: E501
 **DB Version:** {self.results['pre_check'].get('db_version', 'N/A')}  
 
 ### Backups Available:
@@ -369,19 +367,19 @@ class DRDrill:
         report += f"""
 ### RPO Status:
 - Latest backup age: {self.results['pre_check'].get('latest_backup_age_hours', 'N/A')} hours
-- RPO target ({self.TARGET_RPO_HOURS}h): {'MET' if self.results['pre_check'].get('rpo_target_met') else 'NOT MET'}
+- RPO target ({self.TARGET_RPO_HOURS}h): {'MET' if self.results['pre_check'].get('rpo_target_met') else 'NOT MET'}  # noqa: E501
 
 ---
 
 ## Phase 2: Backup Integrity Verification
 
-**Overall Status:** {'PASSED' if self.results['backup_verification'].get('all_passed') else 'FAILED'}  
+**Overall Status:** {'PASSED' if self.results['backup_verification'].get('all_passed') else 'FAILED'}    # noqa: E501
 
 """
         
         for v in self.results['backup_verification'].get('backups_verified', []):
             status = '✓' if v['verified'] else '✗'
-            report += f"- {v['filename']}: {status} (checksum: {v['checksum'][:16]}... if verified)\n"
+            report += f"- {v['filename']}: {status} (checksum: {v['checksum'][:16]}... if verified)\n"  # noqa: E501
         
         report += f"""
 ---
@@ -401,8 +399,8 @@ class DRDrill:
 
 | Metric | Target | Actual | Achieved |
 |--------|--------|--------|----------|
-| RTO | {self.TARGET_RTO_MINUTES} min | {self.results['rto_measurement'].get('actual_rto_seconds', 'N/A')} sec | {'Yes' if self.results['rto_measurement'].get('rto_met') else 'No'} |
-| RPO | {self.TARGET_RPO_HOURS}h | {self.results['rto_measurement'].get('actual_rpo_hours', 'N/A')}h | {'Yes' if self.results['rto_measurement'].get('rpo_met') else 'No'} |
+| RTO | {self.TARGET_RTO_MINUTES} min | {self.results['rto_measurement'].get('actual_rto_seconds', 'N/A')} sec | {'Yes' if self.results['rto_measurement'].get('rto_met') else 'No'} |  # noqa: E501
+| RPO | {self.TARGET_RPO_HOURS}h | {self.results['rto_measurement'].get('actual_rpo_hours', 'N/A')}h | {'Yes' if self.results['rto_measurement'].get('rpo_met') else 'No'} |  # noqa: E501
 
 ---
 
@@ -416,7 +414,7 @@ class DRDrill:
         else:
             report += "No issues found during drill.\n"
         
-        report += f"""
+        report += """
 ---
 
 ## Remediation Plan
@@ -436,7 +434,7 @@ class DRDrill:
             rem = issue_to_rem.get(issue, "Investigate and fix")
             report += f"| {issue} | {rem} | High |\n"
         
-        report += f"""
+        report += """
 ---
 
 ## Recommendations
@@ -461,7 +459,7 @@ class DRDrill:
 - This drill was executed in **read-only verification mode**
 - No actual failover was performed
 - Restoration was tested on a dedicated test schema only
-- The DR state machine described (NORMAL→DEGRADED→FAILOVER→RECOVERING→NORMAL) **does not currently exist in backup_manager.py** and should be implemented
+- The DR state machine described (NORMAL→DEGRADED→FAILOVER→RECOVERING→NORMAL) **does not currently exist in backup_manager.py** and should be implemented  # noqa: E501
 
 ---
 

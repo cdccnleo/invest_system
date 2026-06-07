@@ -42,7 +42,7 @@ def _get_db_conn():
     from pgcrypto_migration import get_credential
     cfg = dict(DB_CONFIG)
     cfg["password"] = get_credential("DB_PASSWORD")
-    return psycopg2.connect(**{k: v for k, v in cfg.items() if k in ("host", "user", "database", "password")})
+    return psycopg2.connect(**{k: v for k, v in cfg.items() if k in ("host", "user", "database", "password")})  # noqa: E501
 
 
 def get_pool():
@@ -153,7 +153,7 @@ def create_recommended_indexes(dry_run: bool = False) -> dict:
 
             # 创建索引
             try:
-                cur.execute(f'CREATE INDEX CONCURRENTLY IF NOT EXISTS "{idx_name}" ON {schema_table} ({columns})')
+                cur.execute(f'CREATE INDEX CONCURRENTLY IF NOT EXISTS "{idx_name}" ON {schema_table} ({columns})')  # noqa: E501
                 conn.commit()
                 created.append(idx_name)
                 logger.info(f"索引已创建: {idx_name}")

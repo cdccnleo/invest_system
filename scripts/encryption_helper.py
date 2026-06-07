@@ -312,7 +312,7 @@ def verify_encryption() -> dict:
         if abs(decrypted - test_value) < 0.001:
             return {"success": True, "message": "Encryption/decryption verified OK"}
         else:
-            return {"success": False, "message": f"Decryption mismatch: {decrypted} != {test_value}"}
+            return {"success": False, "message": f"Decryption mismatch: {decrypted} != {test_value}"}  # noqa: E501
     except Exception as e:
         return {"success": False, "message": f"Verification failed: {e}"}
     finally:
@@ -329,4 +329,4 @@ if __name__ == "__main__":
     positions = get_decrypted_positions()
     print(f"\nDecrypted {len(positions)} positions:")
     for p in positions[:3]:
-        print(f"  {p['code']} {p['name']}: shares={p['shares']}, avg_cost={p['avg_cost']}, profit={p['profit_loss']}")
+        print(f"  {p['code']} {p['name']}: shares={p['shares']}, avg_cost={p['avg_cost']}, profit={p['profit_loss']}")  # noqa: E501

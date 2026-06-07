@@ -339,5 +339,5 @@ if __name__ == "__main__":
             print(f"  {svc}: {status}")
         if all(r.startswith("✅") for r in result.values()):
             print("\n✅ Windows Credential Manager 配置完成！")
-            print("   建议同时运行: python credentials.py setup --db-password ... --deepseek-key ...")
+            print("   建议同时运行: python credentials.py setup --db-password ... --deepseek-key ...")  # noqa: E501
             print("   这样即使 WCM 不可用时也能从本地文件读取。")

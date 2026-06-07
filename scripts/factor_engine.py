@@ -74,7 +74,7 @@ def _get_price_data(ts_code: str, days: int = 120) -> pd.DataFrame:
         cur.close()
         if not rows:
             return pd.DataFrame()
-        df = pd.DataFrame(rows, columns=["trade_date", "open", "high", "low", "close", "volume", "change_pct"])
+        df = pd.DataFrame(rows, columns=["trade_date", "open", "high", "low", "close", "volume", "change_pct"])  # noqa: E501
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df["change_pct"] = pd.to_numeric(df["change_pct"], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce")

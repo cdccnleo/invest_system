@@ -303,7 +303,7 @@ def verify_migration():
             shares = decrypt_value(r[3], enc_key)
             cost = decrypt_value(r[4], enc_key)
             profit = decrypt_value(r[5], enc_key)
-            logger.info(f"  验证 {r[0]} {r[1]}: shares={shares}, cost={cost:.4f}, profit={profit:.2f}, mv={r[6]}")
+            logger.info(f"  验证 {r[0]} {r[1]}: shares={shares}, cost={cost:.4f}, profit={profit:.2f}, mv={r[6]}")  # noqa: E501
 
     conn.close()
     return total > 0
@@ -396,7 +396,7 @@ def process_corp_actions(announcements: list[dict]) -> dict:
     for ann in announcements:
         ann_type = ann.get("ann_type", "")
         title = ann.get("title", "")
-        code = str(ann.get("ts_code", "")).replace(".SH", "").replace(".SZ", "").replace(".XSHE", "")
+        code = str(ann.get("ts_code", "")).replace(".SH", "").replace(".SZ", "").replace(".XSHE", "")  # noqa: E501
 
         try:
             # 分红
@@ -428,7 +428,7 @@ def process_corp_actions(announcements: list[dict]) -> dict:
     conn.commit()
     cur.close()
     conn.close()
-    logger.info(f"公司行为处理: 分红{result['dividend']}笔 送股{result['bonus']}笔 跳过{result['skipped']}笔")
+    logger.info(f"公司行为处理: 分红{result['dividend']}笔 送股{result['bonus']}笔 跳过{result['skipped']}笔")  # noqa: E501
     return result
 
 

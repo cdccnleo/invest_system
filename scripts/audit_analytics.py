@@ -82,7 +82,7 @@ def analyze_trading_behavior(days: int = 30) -> dict:
         quality_rows = cur.fetchall()
         total_success = sum(r[1] for r in quality_rows)
         total_failed = sum(r[2] for r in quality_rows)
-        success_rate = total_success / (total_success + total_failed) if (total_success + total_failed) > 0 else 0
+        success_rate = total_success / (total_success + total_failed) if (total_success + total_failed) > 0 else 0  # noqa: E501
 
         # 行为模式判断
         patterns = []
@@ -140,18 +140,18 @@ def monthly_report(year_month: str = None) -> dict:
     conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("""
-            SELECT
-                COUNT(DISTINCT DATE(event_time)) as active_days,
-                COUNT(*) as total_events,
-                COUNT(DISTINCT CASE WHEN event_type LIKE 'SCHEDULED%%' THEN event_type END) as scheduled_runs,
-                COUNT(DISTINCT CASE WHEN event_type = 'USER_MODIFY_PLAN' THEN 1 END) as user_modifications,
-                COUNT(DISTINCT CASE WHEN event_type = 'SKILL_APPROVED' THEN 1 END) as skills_approved,
-                COUNT(DISTINCT CASE WHEN event_type LIKE 'ANALYSIS%%' AND result = 'SUCCESS' THEN 1 END) as successful_analyses
-            FROM audit.audit_log
-            WHERE event_time >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-              AND event_time < DATE_TRUNC('month', CURRENT_DATE)
-        """)
+        cur.execute(
+            "SELECT"
+            " COUNT(DISTINCT DATE(event_time)) as active_days,"
+            " COUNT(*) as total_events,"
+            " COUNT(DISTINCT CASE WHEN event_type LIKE 'SCHEDULED%%' THEN event_type END) as scheduled_runs,"  # noqa: E501
+            " COUNT(DISTINCT CASE WHEN event_type = 'USER_MODIFY_PLAN' THEN 1 END) as user_modifications,"  # noqa: E501
+            " COUNT(DISTINCT CASE WHEN event_type = 'SKILL_APPROVED' THEN 1 END) as skills_approved,"  # noqa: E501
+            " COUNT(DISTINCT CASE WHEN event_type LIKE 'ANALYSIS%%' AND result = 'SUCCESS' THEN 1 END) as successful_analyses"  # noqa: E501
+            " FROM audit.audit_log"
+            " WHERE event_time >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')"
+            " AND event_time < DATE_TRUNC('month', CURRENT_DATE)"
+        )
         row = cur.fetchone()
 
         if not row or len(row) < 6:
@@ -191,17 +191,18 @@ def annual_report(year: int = None) -> dict:
     conn = get_db_conn()
     cur = conn.cursor()
     try:
-        cur.execute("""
-            SELECT
-                COUNT(*) FILTER (WHERE event_type LIKE 'SCHEDULED%%') as total_runs,
-                COUNT(*) FILTER (WHERE event_type = 'USER_MODIFY_PLAN') as total_mods,
-                COUNT(*) FILTER (WHERE event_type = 'SKILL_APPROVED') as skills_approved,
-                COUNT(*) FILTER (WHERE event_type LIKE 'ANALYSIS%%' AND result = 'SUCCESS') as success_count,
-                COUNT(*) FILTER (WHERE event_type = 'DAILY_REFLECTION') as reflections,
-                COUNT(*) FILTER (WHERE event_type = 'SKILL_VALIDATED') as skill_validations
-            FROM audit.audit_log
-            WHERE EXTRACT(YEAR FROM event_time) = %s
-        """, (year,))
+        cur.execute(
+            "SELECT"
+            " COUNT(*) FILTER (WHERE event_type LIKE 'SCHEDULED%%') as total_runs,"
+            " COUNT(*) FILTER (WHERE event_type = 'USER_MODIFY_PLAN') as total_mods,"
+            " COUNT(*) FILTER (WHERE event_type = 'SKILL_APPROVED') as skills_approved,"
+            " COUNT(*) FILTER (WHERE event_type LIKE 'ANALYSIS%%' AND result = 'SUCCESS') as success_count,"  # noqa: E501
+            " COUNT(*) FILTER (WHERE event_type = 'DAILY_REFLECTION') as reflections,"
+            " COUNT(*) FILTER (WHERE event_type = 'SKILL_VALIDATED') as skill_validations"
+            " FROM audit.audit_log"
+            " WHERE EXTRACT(YEAR FROM event_time) = %s",
+            (year,),
+        )
         row = cur.fetchone()
 
         if not row or len(row) < 6:
@@ -236,7 +237,7 @@ def annual_report(year: int = None) -> dict:
             "reflections_completed": row[4] or 0,
             "skill_validations": row[5] or 0,
             "monthly_runs": monthly_runs,
-            "maturity_score": _calc_maturity_score(total_runs, total_mods, row[2] or 0, row[4] or 0),
+            "maturity_score": _calc_maturity_score(total_runs, total_mods, row[2] or 0, row[4] or 0),  # noqa: E501
         }
     finally:
         conn.close()

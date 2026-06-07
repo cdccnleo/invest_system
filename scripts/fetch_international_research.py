@@ -25,7 +25,7 @@ import xml.etree.ElementTree as ET
 logger = logging.getLogger("invest_system.fetch_international_research")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # noqa: E501
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
@@ -113,7 +113,7 @@ def _parse_wscn_rss() -> list[dict]:
             desc = re.sub(r'<[^>]+>', '', desc_raw).strip()[:300]
             link = (item.findtext('link') or '').strip()
             pub_text = (item.findtext('pubDate') or '')[:16]
-            author = (item.findtext('author') or item.findtext('dc:creator') or '华尔街见闻').strip()
+            author = (item.findtext('author') or item.findtext('dc:creator') or '华尔街见闻').strip()  # noqa: E501
 
             if not title:
                 continue
@@ -148,7 +148,7 @@ def _parse_wscn_rss() -> list[dict]:
                 'is_bank_related': bool(matched_banks),
             })
 
-        logger.info(f"华尔街见闻 RSS: {len(items)} 条, 投行相关: {sum(1 for a in articles if a['is_bank_related'])} 条")
+        logger.info(f"华尔街见闻 RSS: {len(items)} 条, 投行相关: {sum(1 for a in articles if a['is_bank_related'])} 条")  # noqa: E501
 
     except Exception as e:
         logger.warning(f"华尔街见闻 RSS 采集失败: {e}")
@@ -209,11 +209,11 @@ def _parse_benzinga_rss() -> list[dict]:
                 'source': 'Benzinga',
                 'source_type': 'financial_news',
                 'cited_institutions': list(set(cited_banks)),
-                'article_type': rating_type or ('macro' if any(kw in text for kw in MACRO_KEYWORDS) else 'general'),
+                'article_type': rating_type or ('macro' if any(kw in text for kw in MACRO_KEYWORDS) else 'general'),  # noqa: E501
                 'is_bank_related': bool(matched_banks),
             })
 
-        logger.info(f"Benzinga RSS: {len(items)} 条, 投行相关: {sum(1 for a in articles if a['is_bank_related'])} 条")
+        logger.info(f"Benzinga RSS: {len(items)} 条, 投行相关: {sum(1 for a in articles if a['is_bank_related'])} 条")  # noqa: E501
 
     except Exception as e:
         logger.warning(f"Benzinga RSS 采集失败: {e}")

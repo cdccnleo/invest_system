@@ -13,7 +13,7 @@ import requests
 logger = logging.getLogger("invest_system.fetch_ths")
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",  # noqa: E501
     "Referer": "https://www.10jqka.com.cn/",
 }
 
@@ -60,8 +60,8 @@ def is_relevant(title: str, content: str = "") -> bool:
 
 def assess_severity(title: str) -> str:
     """评估新闻严重程度"""
-    high = ["降息", "降准", "证监会", "央行", "财政部", "涨停", "跌停", "重大", "黑天鹅", "监管", "暂停", "终止", "核查", "问询"]
-    medium = ["北上资金", "龙虎榜", "回购", "分红", "业绩", "突破", "加仓", "减持", "增持", "战略", "合作"]
+    high = ["降息", "降准", "证监会", "央行", "财政部", "涨停", "跌停", "重大", "黑天鹅", "监管", "暂停", "终止", "核查", "问询"]  # noqa: E501
+    medium = ["北上资金", "龙虎榜", "回购", "分红", "业绩", "突破", "加仓", "减持", "增持", "战略", "合作"]  # noqa: E501
     for kw in high:
         if kw in title:
             return "HIGH"
@@ -97,12 +97,12 @@ def _fetch_page(page: int, page_size: int = PAGE_SIZE) -> list[dict]:
         # 时间戳转换
         try:
             pub_ts = int(item.get("ctime", 0))
-            pub_time = datetime.fromtimestamp(pub_ts).isoformat() if pub_ts else datetime.now().isoformat()
+            pub_time = datetime.fromtimestamp(pub_ts).isoformat() if pub_ts else datetime.now().isoformat()  # noqa: E501
         except Exception:
             pub_time = datetime.now().isoformat()
 
         # 提取关键词
-        matched_kws = [kw for kw in RELEVANT_KEYWORDS if kw in title or kw in item.get("digest", "")]
+        matched_kws = [kw for kw in RELEVANT_KEYWORDS if kw in title or kw in item.get("digest", "")]  # noqa: E501
 
         results.append({
             "title": title,

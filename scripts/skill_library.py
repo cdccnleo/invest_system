@@ -13,7 +13,7 @@ from datetime import datetime
 
 import psycopg2
 from dotenv import load_dotenv
-load_dotenv(str(Path(__file__).parent.parent / ".env"))
+load_dotenv(str(Path(__file__).parent.parent / ".env"))  # 仅用于非凭据路径变量（若有）
 
 logger = logging.getLogger("invest_system.skill_library")
 

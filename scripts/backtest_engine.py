@@ -12,7 +12,7 @@ from datetime import date, timedelta
 
 import psycopg2
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))  # 仅用于 POSITIONS_CSV 路径变量
 
 logger = logging.getLogger("invest_system.backtest")
 

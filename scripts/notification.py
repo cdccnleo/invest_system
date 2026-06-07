@@ -16,11 +16,25 @@ logger = logging.getLogger("invest_system.notification")
 # ── 内容长度限制 ───────────────────────────────────────────────────────────
 MAX_CONTENT_LEN =  1800  # 飞书卡片限制约2000字符，Server酱限制更严
 
-# ── 配置读取 ───────────────────────────────────────────────────────────────
-PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN", "")
-SERVERCHAN_SENDKEY = os.environ.get("SERVERCHAN_SENDKEY", "")
-FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK", "")
-BARK_URL = os.environ.get("BARK_URL", "")  # e.g. https://api.day.app/YOUR_KEY/
+# ── 配置读取（统一通过 credentials.py）────────────────────────────────────────
+try:
+    from credentials import get_credential
+    _HAS_CREDENTIALS = True
+except ImportError:
+    _HAS_CREDENTIALS = False
+
+def _get_notification_cred(key: str, default: str = "") -> str:
+    """通过 credentials.py 获取通知凭据，支持降级到环境变量"""
+    if _HAS_CREDENTIALS:
+        val = get_credential(key)
+        if val:
+            return val
+    return os.environ.get(key, default)
+
+PUSHPLUS_TOKEN = _get_notification_cred("PUSHPLUS_TOKEN", "")
+SERVERCHAN_SENDKEY = _get_notification_cred("SERVERCHAN_SENDKEY", "")
+FEISHU_WEBHOOK = _get_notification_cred("FEISHU_WEBHOOK", "")
+BARK_URL = _get_notification_cred("BARK_URL", "")
 
 
 # ── 消息格式 ───────────────────────────────────────────────────────────────

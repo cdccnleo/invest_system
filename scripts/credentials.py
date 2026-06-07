@@ -132,6 +132,12 @@ def get_credential(key: str, default: Optional[str] = None) -> Optional[str]:
       DEEPSEEK_API_KEY     — DeepSeek API Key
       DATABASE_URL         — 完整连接字符串（含密码）
       OLLAMA_API_KEY       — Ollama（通常不需要）
+      SERVERCHAN_SENDKEY   — Server酱微信推送 SendKey
+      FEISHU_WEBHOOK        — 飞书群机器人 Webhook URL
+      PUSHPLUS_TOKEN       — PUSHPLUS 推送 Token
+      BARK_URL             — Bark iOS 推送 URL
+      DB_ENCRYPTION_KEY    — AES-256 加密密钥（32字符hex）
+      DASHBOARD_PASSWORD   — 仪表盘访问密码
     """
     # 1. WCM（Windows 端）
     wcm_val = _wcm_get(key)
@@ -156,10 +162,10 @@ def get_credential(key: str, default: Optional[str] = None) -> Optional[str]:
         logger.debug(f"本地凭据文件命中: {key}")
         return creds[key]
 
-    # 4. 环境变量
+    # 4. 环境变量（仅回退，非主要来源）
     env_val = os.environ.get(key)
     if env_val and env_val != "***":
-        logger.debug(f"环境变量命中: {key}")
+        logger.debug(f"环境变量回退命中: {key}")
         return env_val
 
     logger.debug(f"凭据未找到: {key}")

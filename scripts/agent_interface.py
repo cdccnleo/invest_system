@@ -15,6 +15,21 @@ load_dotenv(_os.path.join(_os.path.dirname(__file__), "..", ".env"))
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+# ── credentials 支持 ──────────────────────────────────────────────────────────
+try:
+    from credentials import get_credential
+    _HAS_CREDENTIALS = True
+except ImportError:
+    _HAS_CREDENTIALS = False
+
+def _get_agent_cred(key: str, default: str = "") -> str:
+    """通过 credentials.py 获取 Agent 凭据，支持降级到环境变量"""
+    if _HAS_CREDENTIALS:
+        val = get_credential(key)
+        if val:
+            return val
+    return _os.environ.get(key, default)
+
 logger = logging.getLogger("invest_system.agent_interface")
 
 
@@ -55,8 +70,8 @@ class DeepSeekAgent(AgentInterface):
     def __init__(self, api_key: str = None, base_url: str = None):
         import os
         from llm_caller import get_llm_client
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
-        self.base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        self.api_key = api_key or _get_agent_cred("DEEPSEEK_API_KEY")
+        self.base_url = base_url or _get_agent_cred("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         self._client = get_llm_client()
 
     def chat(self, prompt: str, system: str = None, model: str = "deepseek-chat") -> dict:
@@ -91,8 +106,8 @@ class OllamaAgent(AgentInterface):
 
     def __init__(self, base_url: str = None, model: str = None):
         import os
-        self.base_url = base_url or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = model or os.environ.get("LOCAL_MODEL", "gemma4:e4b")
+        self.base_url = base_url or _get_agent_cred("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.model = model or _get_agent_cred("LOCAL_MODEL", "gemma4:e4b")
 
     def chat(self, prompt: str, system: str = None, model: str = None) -> dict:
         import json

@@ -54,10 +54,15 @@ def _get_quotes_df() -> pd.DataFrame:
             rows = cur.fetchall()
             if not rows:
                 return pd.DataFrame()
-            return pd.DataFrame(
+            df = pd.DataFrame(
                 rows,
                 columns=["代码", "日期", "现价", "涨幅%", "最高", "最低", "成交量"],
             )
+            # psycopg2 把 NUMERIC 返回为 Decimal，全部转 float 避免后续算术 TypeError
+            for col in ["现价", "涨幅%", "最高", "最低"]:
+                df[col] = df[col].astype(float)
+            df["成交量"] = df["成交量"].astype("int64")
+            return df
         finally:
             cur.close()
             storage.close()
@@ -161,7 +166,8 @@ def _render_near_limit(threshold: float, label: str):
         hide_index=True,
     )
 
-    # 距离阈值的距离
+    # 距离阈值的距离（涨幅% 来自 psycopg2 Numeric/Decimal，需先转 float）
+    sub["涨幅%"] = sub["涨幅%"].astype(float)
     if threshold > 0:
         sub["距涨停"] = (10.0 - sub["涨幅%"]).round(2)
         st.caption(f"💡 距 10% 涨停平均还需 +{sub['距涨停'].mean():.2f}%")

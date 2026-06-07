@@ -33,8 +33,14 @@ def load_positions() -> list[dict]:
     ]
 
 
-@st.cache_resource(ttl=3600)
 def get_db_connection():
+    """获取 PostgreSQL 连接（每次新建，避免缓存的连接被 PG 服务器关闭）
+
+    早期版本用 @st.cache_resource(ttl=3600) 缓存连接，但 cron job
+    / PG idle timeout / 服务重启会导致缓存的连接对象已关闭，
+    下次使用抛 'connection already closed' 异常。
+    psycopg2.connect() 本身开销小（~10ms），用每次新建更安全。
+    """
     import psycopg2
     try:
         from credentials import get_credential

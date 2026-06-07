@@ -8,7 +8,7 @@ import streamlit as st
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
-from ._shared import get_db_connection, ensure_plan_review_table, POSITIONS_CSV
+from ._shared import get_db_connection, ensure_plan_review_table
 
 def render_plan_review():
     """计划审核页面：读取历史分析中的 plans，滑块+勾选批准/否决，写入 plan_reviews 并记录到 audit_log"""  # noqa: E501
@@ -296,7 +296,13 @@ def render_settings():
     _render_theme_settings()
 
     st.markdown("### 数据源")
-    st.markdown(f"- 持仓文件: `{POSITIONS_CSV}`")
+    try:
+        from scripts.account_manager import load_accounts
+        accounts = load_accounts()
+        main_csv = accounts.get("main", {}).get("positions_csv", "未配置")
+    except Exception:
+        main_csv = "未配置"
+    st.markdown(f"- 持仓文件: `{main_csv}`")
     st.markdown("- 数据库: `postgresql://invest_admin@localhost:5432/investpilot`")
     st.markdown("- 行情: 东方财富基金 API + 新浪财经")
     st.markdown("- 新闻: 同花顺快讯 + 新浪财经 + 金十数据（财联社已停用）")

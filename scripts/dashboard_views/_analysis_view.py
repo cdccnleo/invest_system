@@ -2,8 +2,6 @@
 import streamlit as st
 import pandas as pd
 
-from ._shared import load_positions, get_db_connection
-
 
 def get_active_view_name() -> str:
     return "analysis"
@@ -45,6 +43,7 @@ def _render_factor_analysis():
 
 def _render_anomaly_detection():
     """异动监控 — 持仓股异常波动检测"""
+    from ._shared import load_positions
     st.subheader("⚠️ 持仓股异动监控")
 
     positions = load_positions()
@@ -57,86 +56,86 @@ def _render_anomaly_detection():
         st.info("当前无个股持仓")
         return
 
-    conn = get_db_connection()
-    if conn is None:
-        st.warning("无法连接数据库")
-        return
-
-    cur = conn.cursor()
     try:
-        # 取持仓股近5日行情
-        stock_codes = [f"{p['代码']}.XSHE" if not p['代码'].startswith(('5', '6'))
-                       else f"{p['代码']}.XSHG"
-                       for p in stocks]
-
-        placeholders = ",".join(["%s"] * len(stock_codes))
-        cur.execute(f"""
-            SELECT ts_code, trade_date, close_price, change_pct, volume
-            FROM market.daily_quotes
-            WHERE ts_code IN ({placeholders})
-              AND trade_date >= CURRENT_DATE - INTERVAL '5 days'
-            ORDER BY ts_code, trade_date DESC
-        """, stock_codes)
-        rows = cur.fetchall()
-
-        if not rows:
-            st.info("暂无近期行情数据")
+        from storage_factory import get_storage
+        storage = get_storage()
+        conn = storage._pg_conn
+        if conn is None:
+            st.warning("无法连接数据库")
             return
+        cur = conn.cursor()
+        try:
+            # 取持仓股近5日行情
+            stock_codes = [f"{p['代码']}.XSHE" if not p['代码'].startswith(('5', '6'))
+                           else f"{p['代码']}.XSHG"
+                           for p in stocks]
 
-        # 转换为DataFrame分析
-        df = pd.DataFrame(rows, columns=["代码", "日期", "收盘价", "涨跌幅%", "成交量"])
-        df["代码"] = df["代码"].str.replace(".XSHE", "").str.replace(".XSHG", "")
+            placeholders = ",".join(["%s"] * len(stock_codes))
+            cur.execute(f"""
+                SELECT ts_code, trade_date, close_price, change_pct, volume
+                FROM market.daily_quotes
+                WHERE ts_code IN ({placeholders})
+                  AND trade_date >= CURRENT_DATE - INTERVAL '5 days'
+                ORDER BY ts_code, trade_date DESC
+            """, stock_codes)
+            rows = cur.fetchall()
 
-        # 计算各股近5日波动情况
-        stock_stats = []
-        for code in df["代码"].unique():
-            code_df = df[df["代码"] == code].head(5)
-            if len(code_df) < 2:
-                continue
-            changes = code_df["涨跌幅%"].tolist()
-            max_up = max(changes) if changes else 0
-            max_down = min(changes) if changes else 0
-            volatility = (max(changes) - min(changes)) if changes else 0
-            name = next((p["名称"] for p in stocks if p["代码"] == code), code)
-            stock_stats.append({
-                "代码": code,
-                "名称": name,
-                "最大涨幅%": round(max_up, 2),
-                "最大跌幅%": round(max_down, 2),
-                "波动范围%": round(volatility, 2),
-                "近5日涨跌": "📈" if sum(changes) > 0 else "📉",
-            })
+            if not rows:
+                st.info("暂无近期行情数据")
+                return
 
-        stats_df = pd.DataFrame(stock_stats)
-        stats_df = stats_df.sort_values("波动范围%", ascending=False)
+            df = pd.DataFrame(rows, columns=["代码", "日期", "收盘价", "涨跌幅%", "成交量"])
+            df["代码"] = df["代码"].str.replace(".XSHE", "").str.replace(".XSHG", "")
 
-        # 标记异常波动
-        def flag_anomaly(vol):
-            if vol > 15:
-                return "🚨 异常波动"
-            elif vol > 10:
-                return "⚠️ 高波动"
-            return "✅ 正常"
+            stock_stats = []
+            for code in df["代码"].unique():
+                code_df = df[df["代码"] == code].head(5)
+                if len(code_df) < 2:
+                    continue
+                changes = code_df["涨跌幅%"].tolist()
+                max_up = max(changes) if changes else 0
+                max_down = min(changes) if changes else 0
+                volatility = (max(changes) - min(changes)) if changes else 0
+                name = next((p["名称"] for p in stocks if p["代码"] == code), code)
+                stock_stats.append({
+                    "代码": code,
+                    "名称": name,
+                    "最大涨幅%": round(max_up, 2),
+                    "最大跌幅%": round(max_down, 2),
+                    "波动范围%": round(volatility, 2),
+                    "近5日涨跌": "📈" if sum(changes) > 0 else "📉",
+                })
 
-        stats_df["状态"] = stats_df["波动范围%"].apply(flag_anomaly)
+            stats_df = pd.DataFrame(stock_stats)
+            stats_df = stats_df.sort_values("波动范围%", ascending=False)
 
-        st.dataframe(stats_df, use_container_width=True, hide_index=True)
+            def flag_anomaly(vol):
+                if vol > 15:
+                    return "🚨 异常波动"
+                elif vol > 10:
+                    return "⚠️ 高波动"
+                return "✅ 正常"
 
-        # 异常详情
-        anomaly_stocks = stats_df[stats_df["波动范围%"] > 10]
-        if not anomaly_stocks.empty:
-            st.divider()
-            st.markdown("### 🚨 异常波动详情")
-            for _, row in anomaly_stocks.iterrows():
-                with st.expander(f"{row['名称']} ({row['代码']}) - 波动 {row['波动范围%']}%"):
-                    st.markdown(f"- 最大涨幅: **{row['最大涨幅%']}%**")
-                    st.markdown(f"- 最大跌幅: **{row['最大跌幅%']}%**")
-                    st.markdown(f"- 波动范围: **{row['波动范围%']}%**")
+            stats_df["状态"] = stats_df["波动范围%"].apply(flag_anomaly)
+            st.dataframe(stats_df, use_container_width=True, hide_index=True)
 
+            anomaly_stocks = stats_df[stats_df["波动范围%"] > 10]
+            if not anomaly_stocks.empty:
+                st.divider()
+                st.markdown("### 🚨 异常波动详情")
+                for _, row in anomaly_stocks.iterrows():
+                    with st.expander(f"{row['名称']} ({row['代码']}) - 波动 {row['波动范围%']}%"):
+                        st.markdown(f"- 最大涨幅: **{row['最大涨幅%']}%**")
+                        st.markdown(f"- 最大跌幅: **{row['最大跌幅%']}%**")
+                        st.markdown(f"- 波动范围: **{row['波动范围%']}%**")
+
+        except Exception as e:
+            st.error(f"异动监控加载失败: {e}")
+        finally:
+            cur.close()
+            storage.close()
     except Exception as e:
-        st.error(f"异动监控加载失败: {e}")
-    finally:
-        conn.close()
+        st.error(f"数据库连接失败: {e}")
 
 
 def _render_stock_selector():
@@ -167,44 +166,49 @@ def _render_stock_selector():
 
     if st.button("🔍 开始筛选", type="primary", use_container_width=True):
         with st.spinner("正在筛选标的..."):
-            conn = get_db_connection()
-            if conn is None:
-                st.warning("无法连接数据库")
-                return
-
-            cur = conn.cursor()
             try:
-                cur.execute("""
-                    SELECT ts_code, name, close_price, market_cap, pe_ttm,
-                           roe, revenue_growth, industry
-                    FROM market.stock_basics
-                    WHERE close_price BETWEEN %s AND %s
-                      AND market_cap BETWEEN %s AND %s
-                      AND (pe_ttm BETWEEN %s AND %s OR pe_ttm < 0)
-                      AND roe >= %s
-                      AND revenue_growth >= %s
-                    ORDER BY roe DESC, market_cap DESC
-                    LIMIT 50
-                """, (*price_range, *market_cap_range, *pe_range,
-                      roe_threshold, growth_threshold))
-                rows = cur.fetchall()
-
-                if not rows:
-                    st.info("暂无符合条件标的")
+                from storage_factory import get_storage
+                storage = get_storage()
+                conn = storage._pg_conn
+                if conn is None:
+                    st.warning("无法连接数据库")
                     return
+                cur = conn.cursor()
+                try:
+                    cur.execute("""
+                        SELECT ts_code, name, close_price, market_cap, pe_ttm,
+                               roe, revenue_growth, industry
+                        FROM market.stock_basics
+                        WHERE close_price BETWEEN %s AND %s
+                          AND market_cap BETWEEN %s AND %s
+                          AND (pe_ttm BETWEEN %s AND %s OR pe_ttm < 0)
+                          AND roe >= %s
+                          AND revenue_growth >= %s
+                        ORDER BY roe DESC, market_cap DESC
+                        LIMIT 50
+                    """, (*price_range, *market_cap_range, *pe_range,
+                          roe_threshold, growth_threshold))
+                    rows = cur.fetchall()
 
-                df = pd.DataFrame(
-                    rows,
-                    columns=["代码", "名称", "现价", "市值(亿)", "PE", "ROE%", "净利润增长%", "行业"]
-                )
+                    if not rows:
+                        st.info("暂无符合条件标的")
+                        return
 
-                if sector_filter:
-                    df = df[df["行业"].isin(sector_filter)]
+                    df = pd.DataFrame(
+                        rows,
+                        columns=["代码", "名称", "现价", "市值(亿)", "PE", "ROE%", "净利润增长%", "行业"]
+                    )
 
-                st.success(f"筛选出 {len(df)} 只标的")
-                st.dataframe(df, use_container_width=True, hide_index=True)
+                    if sector_filter:
+                        df = df[df["行业"].isin(sector_filter)]
 
+                    st.success(f"筛选出 {len(df)} 只标的")
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+                except Exception as e:
+                    st.error(f"选股失败: {e}")
+                finally:
+                    cur.close()
+                    storage.close()
             except Exception as e:
-                st.error(f"选股失败: {e}")
-            finally:
-                conn.close()
+                st.error(f"数据库连接失败: {e}")

@@ -214,9 +214,66 @@ def render_plan_review():
 
 # ── 视图 8：设置 ───────────────────────────────────────────────────────
 
+def _inject_theme_css(theme: str):
+    """Inject CSS custom properties for runtime theme switching."""
+    if theme == "dark":
+        css = """
+        <style>
+        :root {
+            --primary-color: #0ea5e9;
+            --background-color: #0d1117;
+            --secondary-background-color: #161b22;
+            --text-color: #e6edf3;
+        }
+        /* Main background */
+        .stApp { background-color: #0d1117; }
+        /* Sidebar */
+        [data-testid="stSidebar"] { background-color: #161b22; }
+        /* Cards and containers */
+        .stMetric, .stExpander, [data-testid="stDecoration"] { background-color: #161b22; }
+        /* Text colors */
+        h1, h2, h3, h4, p, span { color: #e6edf3 !important; }
+        /* Table stripes */
+        tbody tr:nth-child(odd) { background-color: #161b22; }
+        /* Override streamlit default white backgrounds */
+        .st-cp, .st-c1, .st-c2, .st-c3, .st-c4, .st-c5, .st-c6 { background-color: transparent !important; }
+        </style>
+        """
+    else:
+        css = """
+        <style>
+        :root {
+            --primary-color: #0ea5e9;
+            --background-color: #ffffff;
+            --secondary-background-color: #f0f2f6;
+            --text-color: #31333f;
+        }
+        .stApp { background-color: #ffffff; }
+        [data-testid="stSidebar"] { background-color: #f0f2f6; }
+        </style>
+        """
+    st.html(css)
+
+
+def _render_theme_settings():
+    """Render theme switcher in settings page."""
+    themes = {"深色": "dark", "浅色": "light"}
+    current = st.session_state.get("theme", "dark")
+    current_idx = 0 if current == "dark" else 1
+
+    selected = st.selectbox("🎨 主题", list(themes.keys()), index=current_idx)
+    theme = themes[selected]
+    st.session_state["theme"] = theme
+    _inject_theme_css(theme)
+    st.divider()
+
+
 def render_settings():
     st.markdown("## ⚙️ 系统设置")
     st.info("配置管理面板（Phase 2 v0.1）")
+
+    # Theme switcher
+    _render_theme_settings()
 
     st.markdown("### 数据源")
     st.markdown(f"- 持仓文件: `{POSITIONS_CSV}`")

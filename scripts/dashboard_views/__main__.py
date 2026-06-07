@@ -78,6 +78,41 @@ def _check_auth():
         st.stop()
 
 
+# ── 主题初始化（必须在页面渲染前）─────────────────────────────────────────
+if "theme" not in st.session_state:
+    st.session_state["theme"] = "dark"
+
+_current_theme = st.session_state["theme"]
+if _current_theme == "dark":
+    st.html("""
+    <style>
+    :root {
+        --primary-color: #0ea5e9;
+        --background-color: #0d1117;
+        --secondary-background-color: #161b22;
+        --text-color: #e6edf3;
+    }
+    .stApp { background-color: #0d1117; }
+    [data-testid="stSidebar"] { background-color: #161b22; }
+    h1, h2, h3, h4, p, span { color: #e6edf3 !important; }
+    tbody tr:nth-child(odd) { background-color: #161b22; }
+    .st-cp, .st-c1, .st-c2, .st-c3, .st-c4, .st-c5, .st-c6 { background-color: transparent !important; }
+    </style>
+    """)
+else:
+    st.html("""
+    <style>
+    :root {
+        --primary-color: #0ea5e9;
+        --background-color: #ffffff;
+        --secondary-background-color: #f0f2f6;
+        --text-color: #31333f;
+    }
+    .stApp { background-color: #ffffff; }
+    [data-testid="stSidebar"] { background-color: #f0f2f6; }
+    </style>
+    """)
+
 # 初始化 session_state 中的 auth flag
 if "dashboard_auth_ok" not in st.session_state:
     st.session_state["dashboard_auth_ok"] = False

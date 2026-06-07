@@ -35,6 +35,14 @@ except ImportError:
     _semantic_cache = None
     _CACHE_ENABLED = False
 
+# ── LLM 成本追踪 ─────────────────────────────────────────────────────────
+try:
+    from llm_cost_tracker import record_usage as _record_usage
+    _COST_TRACKING_ENABLED = True
+except ImportError:
+    _record_usage = None
+    _COST_TRACKING_ENABLED = False
+
 
 def _deepseek_api_key() -> str:
     """获取 DeepSeek API Key（优先 credentials 模块，其次环境变量）"""
@@ -103,6 +111,14 @@ class DeepSeekClient:
                         f"耗时 {elapsed:.1f}s, "
                         f"输入 {usage.prompt_tokens} tokens, "
                         f"输出 {usage.completion_tokens} tokens")
+
+            # ── 成本追踪 ───────────────────────────
+            if _COST_TRACKING_ENABLED and _record_usage is not None:
+                _record_usage(
+                    model=self.model,
+                    input_tokens=usage.prompt_tokens,
+                    output_tokens=usage.completion_tokens,
+                )
 
             result = {"content": content, "error": None}
 

@@ -28,6 +28,7 @@ load_dotenv(str(ROOT / ".env"))
 from run_analysis import run_analysis, enrich_positions_with_quotes
 from embedding_service import daily_embedding_job
 from storage_factory import get_storage
+from llm_cost_tracker import get_daily_stats, get_monthly_stats, format_cost_report
 def _safe_error_alert(title: str, detail: str):
     """发送错误告警，失败时不抛异常"""
     try:
@@ -968,6 +969,53 @@ def job_skill_solidification():
             pass
 
 
+def job_llm_cost_report():
+    """
+    22:30 LLM 成本日报 —
+    汇总当日 DeepSeek API 调用次数、Token 消耗与估算费用，推送微信/飞书。
+    """
+    logger.info("=" * 50)
+    logger.info("22:30 LLM 成本日报启动")
+    try:
+        today_str = datetime.now().strftime("%Y%m%d")
+        daily_stats = get_daily_stats(today_str)
+
+        if daily_stats["calls"] == 0:
+            logger.info("今日无 LLM 调用，跳过成本推送")
+            return
+
+        # 同时获取当月累计
+        year_month = datetime.now().strftime("%Y%m")
+        monthly_stats = get_monthly_stats(year_month)
+
+        # 组装推送文本
+        daily_report = format_cost_report(daily_stats, period="daily")
+
+        # 合并日报告 + 月报告
+        combined = (
+            f"{daily_report}\n\n"
+            f"📅 本月累计 ({year_month})\n"
+            f"💰 月累计费用: ¥{monthly_stats['cost_cny']:.4f}\n"
+            f"📞 月累计调用: {monthly_stats['calls']} 次\n"
+            f"📊 月均费用/次: ¥{monthly_stats['avg_cost_per_call']:.4f}\n"
+            f"📅 有效天数: {monthly_stats['days_with_usage']} 天"
+        )
+
+        send_notification("💰 LLM 成本日报", combined, level="INFO")
+        logger.info(
+            f"LLM 成本日报已推送: 今日 ¥{daily_stats['cost_cny']:.4f} "
+            f"({daily_stats['calls']}次), 本月 ¥{monthly_stats['cost_cny']:.4f}"
+        )
+
+    except Exception as e:
+        logger.error(f"LLM 成本日报异常: {e}")
+        _safe_error_alert("🔴 LLM 成本日报异常", f"错误: {e}")
+        try:
+            send_job_failure("LLM 成本日报", str(e))
+        except Exception:
+            pass
+
+
 def job_skill_spot_check():
     """
     每周日 21:00 自动抽查已批准技能的静默退化。
@@ -1735,6 +1783,15 @@ def start_scheduler():
         CronTrigger(hour=22, minute=0, timezone="Asia/Shanghai"),
         id="skill_solidification",
         name="技能固化工作流 (22:00)",
+        replace_existing=True,
+    )
+
+    # 22:30 LLM 成本日报（每日 Token/费用统计推送）
+    _scheduler.add_job(
+        job_llm_cost_report,
+        CronTrigger(hour=22, minute=30, timezone="Asia/Shanghai"),
+        id="llm_cost_report_daily",
+        name="LLM 成本日报 (22:30)",
         replace_existing=True,
     )
 

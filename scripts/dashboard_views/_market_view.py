@@ -1,4 +1,4 @@
-"""行情概览视图 — 涨跌停、热点板块"""
+"""行情概览视图 — 持仓标的涨跌幅、热点板块、接近涨跌停"""
 import streamlit as st
 import pandas as pd
 
@@ -8,150 +8,163 @@ def get_active_view_name() -> str:
 
 
 def render():
-    """渲染行情概览页面 — 涨跌停、热点板块"""
+    """渲染行情概览页面 — 行情数据可视化
+
+    子页面（与 sidebar 持仓仪表板不重复）：
+      🔥 持仓涨幅 — 持仓标的当日/近 N 日涨跌幅
+      🚀 接近涨停 — 持仓中 change_pct >= 8% 的标的
+      💥 接近跌停 — 持仓中 change_pct <= -8% 的标的
+    """
     st.header("📈 行情概览")
+    st.caption("聚焦持仓标的的行情数据 · 完整持仓分析见侧边栏'📋 持仓仪表板'")
 
     # ── 子页面选择 ────────────────────────────────────────────────
     sub_tab = st.radio(
         "子页面",
-        ["📋 持仓总览", "🔄 涨跌停", "🔥 热点板块"],
+        ["🔥 持仓涨幅", "🚀 接近涨停", "💥 接近跌停"],
         horizontal=True,
         label_visibility="collapsed",
     )
 
-    if sub_tab == "📋 持仓总览":
-        _render_portfolio_overview()
-    elif sub_tab == "🔄 涨跌停":
-        _render_limit_up_down()
-    elif sub_tab == "🔥 热点板块":
-        _render_hot_sectors()
+    if sub_tab == "🔥 持仓涨幅":
+        _render_holdings_changes()
+    elif sub_tab == "🚀 接近涨停":
+        _render_near_limit(threshold=8.0, label="接近涨停 (≥8%)")
+    else:
+        _render_near_limit(threshold=-8.0, label="接近跌停 (≤-8%)")
 
 
-def _render_portfolio_overview():
-    """持仓总览 — 调用现有持仓仪表板"""
-    from _portfolio import render_portfolio_dashboard
-    render_portfolio_dashboard()
-
-
-def _render_limit_up_down():
-    """涨跌停榜 — 全市场涨跌停股票"""
-    st.subheader("🔄 涨跌停榜")
-
+def _get_quotes_df() -> pd.DataFrame:
+    """从 PostgreSQL 读取最新一日的持仓行情"""
     try:
         from storage_factory import get_storage
         storage = get_storage()
+        if not storage._ensure_pg() or storage._pg_conn is None:
+            return pd.DataFrame()
         conn = storage._pg_conn
-        if conn is None:
-            st.warning("无法连接数据库")
-            return
-        cur = conn.cursor()
-        try:
-            # 涨停榜
-            st.markdown("### 🟢 涨停股票")
-            cur.execute("""
-                SELECT ts_code, name, close_price, change_pct, amplitude_pct, reason
-                FROM market.limit_up_quotes
-                WHERE trade_date = CURRENT_DATE
-                ORDER BY change_pct DESC, amplitude_pct DESC
-                LIMIT 20
-            """)
-            up_rows = cur.fetchall()
-
-            if up_rows:
-                df_up = pd.DataFrame(
-                    up_rows,
-                    columns=["代码", "名称", "现价", "涨幅%", "振幅%", "涨停原因"]
-                )
-                st.dataframe(df_up, use_container_width=True, hide_index=True)
-            else:
-                st.info("今日暂无涨停数据")
-
-            st.divider()
-
-            # 跌停榜
-            st.markdown("### 🔴 跌停股票")
-            cur.execute("""
-                SELECT ts_code, name, close_price, change_pct, amplitude_pct, reason
-                FROM market.limit_down_quotes
-                WHERE trade_date = CURRENT_DATE
-                ORDER BY change_pct ASC, amplitude_pct DESC
-                LIMIT 20
-            """)
-            down_rows = cur.fetchall()
-
-            if down_rows:
-                df_down = pd.DataFrame(
-                    down_rows,
-                    columns=["代码", "名称", "现价", "跌幅%", "振幅%", "跌停原因"]
-                )
-                st.dataframe(df_down, use_container_width=True, hide_index=True)
-            else:
-                st.info("今日暂无跌停数据")
-
-        except Exception as e:
-            st.error(f"加载涨跌停数据失败: {e}")
-        finally:
-            cur.close()
-            storage.close()
-    except Exception as e:
-        st.error(f"数据库连接失败: {e}")
-
-
-def _render_hot_sectors():
-    """热点板块 — 行业/概念涨跌排名"""
-    st.subheader("🔥 热点板块")
-
-    try:
-        from storage_factory import get_storage
-        storage = get_storage()
-        conn = storage._pg_conn
-        if conn is None:
-            st.warning("无法连接数据库")
-            return
         cur = conn.cursor()
         try:
             cur.execute("""
-                SELECT industry_code, industry_name, avg_change_pct, stock_count,
-                       lead_stocks, change_rank
-                FROM market.industry_heatmap
-                WHERE trade_date = CURRENT_DATE
-                ORDER BY avg_change_pct DESC
-                LIMIT 30
+                SELECT ts_code, trade_date, close_price, change_pct,
+                       high_price, low_price, volume
+                FROM market.daily_quotes
+                WHERE trade_date = (SELECT MAX(trade_date) FROM market.daily_quotes)
+                ORDER BY change_pct DESC
             """)
             rows = cur.fetchall()
-
             if not rows:
-                st.info("暂无板块行情数据")
-                return
-
-            df = pd.DataFrame(
+                return pd.DataFrame()
+            return pd.DataFrame(
                 rows,
-                columns=["板块代码", "板块名称", "平均涨幅%", "成分股数", "领涨股", "排名"]
+                columns=["代码", "日期", "现价", "涨幅%", "最高", "最低", "成交量"],
             )
-
-            def color_change(val):
-                if val > 3:
-                    return "🟢🟢"
-                elif val > 1:
-                    return "🟢"
-                elif val < -3:
-                    return "🔴🔴"
-                elif val < -1:
-                    return "🔴"
-                return "⚪"
-
-            df["涨跌"] = df["平均涨幅%"].apply(color_change)
-
-            st.dataframe(
-                df[["排名", "板块名称", "涨跌", "平均涨幅%", "成分股数", "领涨股"]],
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        except Exception as e:
-            st.error(f"加载热点板块失败: {e}")
         finally:
             cur.close()
             storage.close()
     except Exception as e:
-        st.error(f"数据库连接失败: {e}")
+        st.error(f"行情加载失败: {e}")
+        return pd.DataFrame()
+
+
+def _render_holdings_changes():
+    """持仓涨幅榜 — 持仓标的按当日涨跌幅排序"""
+    st.subheader("🔥 持仓涨幅榜")
+
+    df = _get_quotes_df()
+    if df.empty:
+        st.info("暂无行情数据")
+        return
+
+    # 关联持仓名称
+    try:
+        from _shared import load_positions
+        positions = load_positions()
+        name_map = {p["代码"]: p["名称"] for p in positions}
+        df.insert(0, "名称", df["代码"].map(name_map).fillna(df["代码"]))
+    except Exception:
+        df.insert(0, "名称", df["代码"])
+
+    # 涨幅颜色标记
+    def color_arrow(val):
+        if pd.isna(val):
+            return "⚪"
+        if val >= 9:
+            return "🚀"
+        if val >= 5:
+            return "🔥"
+        if val >= 1:
+            return "🟢"
+        if val <= -9:
+            return "💀"
+        if val <= -5:
+            return "🔴🔴"
+        if val <= -1:
+            return "🔴"
+        return "⚪"
+
+    df["状态"] = df["涨幅%"].apply(color_arrow)
+
+    # KPI 卡片
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("持仓标的", f"{len(df)} 只")
+    with col2:
+        up = (df["涨幅%"] > 0).sum()
+        st.metric("上涨家数", f"{up} 只", delta=f"+{up}/{len(df)}")
+    with col3:
+        down = (df["涨幅%"] < 0).sum()
+        st.metric("下跌家数", f"{down} 只", delta=f"-{down}/{len(df)}")
+    with col4:
+        avg = df["涨幅%"].mean()
+        st.metric("平均涨幅", f"{avg:+.2f}%")
+
+    st.divider()
+
+    st.dataframe(
+        df[["状态", "名称", "代码", "现价", "涨幅%", "最高", "最低"]],
+        width="stretch",
+        hide_index=True,
+    )
+
+
+def _render_near_limit(threshold: float, label: str):
+    """接近涨跌停 — 持仓中涨跌幅接近阈值的标的"""
+    direction = "涨" if threshold > 0 else "跌"
+    st.subheader(f"{'🚀' if threshold > 0 else '💥'} 持仓{label}")
+
+    df = _get_quotes_df()
+    if df.empty:
+        st.info("暂无行情数据")
+        return
+
+    if threshold > 0:
+        sub = df[df["涨幅%"] >= threshold].sort_values("涨幅%", ascending=False)
+    else:
+        sub = df[df["涨幅%"] <= threshold].sort_values("涨幅%", ascending=True)
+
+    if sub.empty:
+        st.info(f"持仓中暂无{label}的标的")
+        return
+
+    # 关联持仓名称
+    try:
+        from _shared import load_positions
+        positions = load_positions()
+        name_map = {p["代码"]: p["名称"] for p in positions}
+        sub.insert(0, "名称", sub["代码"].map(name_map).fillna(sub["代码"]))
+    except Exception:
+        sub.insert(0, "名称", sub["代码"])
+
+    st.dataframe(
+        sub[["名称", "代码", "现价", "涨幅%", "成交量"]],
+        width="stretch",
+        hide_index=True,
+    )
+
+    # 距离阈值的距离
+    if threshold > 0:
+        sub["距涨停"] = (10.0 - sub["涨幅%"]).round(2)
+        st.caption(f"💡 距 10% 涨停平均还需 +{sub['距涨停'].mean():.2f}%")
+    else:
+        sub["距跌停"] = (sub["涨幅%"] - (-10.0)).round(2)
+        st.caption(f"💡 距 -10% 跌停平均还需 {sub['距跌停'].mean():.2f}%")

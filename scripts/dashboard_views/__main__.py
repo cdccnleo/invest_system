@@ -13,20 +13,10 @@ st.set_page_config(page_title="InvestPilot Dashboard", page_icon="📊", layout=
 
 # ── Auth & Theme ────────────────────────────────────────────────────────────
 from _auth import check_auth
+from _theme import apply_auto_theme
 
-if "theme" not in st.session_state:
-    st.session_state["theme"] = "dark"
-theme = st.session_state["theme"]
-
-css = """<style>
-:root{--primary-color:#0ea5e9;--background-color:#0d1117;--secondary-background-color:#161b22;--text-color:#e6edf3}
-.stApp{background-color:#0d1117}[data-testid="stSidebar"]{background-color:#161b22}
-h1,h2,h3,h4,p,span{color:#e6edf3!important}tbody tr:nth-child(odd){background-color:#161b22}
-</style>""" if theme == "dark" else """<style>
-:root{--primary-color:#0ea5e9;--background-color:#fff;--secondary-background-color:#f0f2f6;--text-color:#31333f}
-.stApp{background-color:#fff}[data-testid="stSidebar"]{background-color:#f0f2f6}
-</style>"""
-st.html(css)
+# 应用自动主题（盘中深色/盘后浅色，支持手动覆盖）
+apply_auto_theme()
 
 if "dashboard_auth_ok" not in st.session_state:
     st.session_state["dashboard_auth_ok"] = False

@@ -257,14 +257,34 @@ def _inject_theme_css(theme: str):
 
 def _render_theme_settings():
     """Render theme switcher in settings page."""
+    from _theme import get_auto_theme
+
     themes = {"深色": "dark", "浅色": "light"}
-    current = st.session_state.get("theme", "dark")
+    current = st.session_state.get("manual_theme_override") or get_auto_theme()
     current_idx = 0 if current == "dark" else 1
 
     selected = st.selectbox("🎨 主题", list(themes.keys()), index=current_idx)
     theme = themes[selected]
-    st.session_state["theme"] = theme
-    _inject_theme_css(theme)
+
+    col_auto, col_manual = st.columns(2)
+    with col_auto:
+        auto_label = "✅ 自动" if not st.session_state.get("manual_theme_override") else "自动"
+        if st.button(f"{auto_label}（根据时间自动切换）", use_container_width=True):
+            # 清除手动覆盖，恢复自动
+            if "manual_theme_override" in st.session_state:
+                del st.session_state["manual_theme_override"]
+            st.rerun()
+    with col_manual:
+        if st.button("🔧 手动锁定", use_container_width=True):
+            st.session_state["manual_theme_override"] = theme
+
+    # 显示当前状态
+    if st.session_state.get("manual_theme_override"):
+        st.caption(f"🔒 已锁定为: {'深色' if theme == 'dark' else '浅色'}")
+    else:
+        from _theme import is_trading_time
+        status = "🟢 交易时段（深色）" if is_trading_time() else "⚪ 盘后（浅色）"
+        st.caption(f"{status} | 自动主题")
     st.divider()
 
 

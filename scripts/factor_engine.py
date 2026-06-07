@@ -66,7 +66,7 @@ def _get_price_data(ts_code: str, days: int = 120) -> pd.DataFrame:
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT trade_date, open, high, low, close, volume, change_pct
+            SELECT trade_date, open_price, high_price, low_price, close_price, volume, change_pct
             FROM market.daily_quotes
             WHERE ts_code = %s
               AND trade_date >= %s
@@ -77,6 +77,9 @@ def _get_price_data(ts_code: str, days: int = 120) -> pd.DataFrame:
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame(rows, columns=["trade_date", "open", "high", "low", "close", "volume", "change_pct"])  # noqa: E501
+        df["open"] = pd.to_numeric(df["open"], errors="coerce")
+        df["high"] = pd.to_numeric(df["high"], errors="coerce")
+        df["low"] = pd.to_numeric(df["low"], errors="coerce")
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df["change_pct"] = pd.to_numeric(df["change_pct"], errors="coerce")
         df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
@@ -641,7 +644,10 @@ def score_positions(positions: list[dict]) -> list[dict]:
     for p in positions:
         if p.get("type") == "fund":
             continue
-        code = p.get("code", "").zfill(6)
+        # 兼容中文键（"代码"）和英文键（"code"）
+        code = str(p.get("code") or p.get("代码") or "").zfill(6)
+        if not code or code == "000000":
+            continue
         if code.startswith("15") or code.startswith("30") or code.startswith("00"):
             ts_code = f"{code}.XSHE"
         elif code.startswith("5") or code.startswith("6"):

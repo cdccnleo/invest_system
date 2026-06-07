@@ -60,7 +60,10 @@ def render_factor_analysis():
             price_map = {}
             name_map = {}
             for p in stocks:
-                code = p.get("code", "").zfill(6)
+                # 兼容中文键（"代码"）和英文键（"code"）
+                code = str(p.get("code") or p.get("代码") or "").zfill(6)
+                if not code or code == "000000":
+                    continue  # 跳过无代码记录（基金/退债等不应进入因子评分）
                 if code.startswith("15") or code.startswith("30") or code.startswith("00"):
                     ts_code = f"{code}.XSHE"
                 elif code.startswith("5") or code.startswith("6"):

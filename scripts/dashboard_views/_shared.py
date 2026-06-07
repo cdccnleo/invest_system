@@ -60,44 +60,52 @@ def get_db_connection():
 
 @st.cache_data(ttl=60)
 def get_latest_quotes_from_db(codes: list[str]) -> dict:
-    """从 PostgreSQL 读取最新行情"""
-    conn = get_db_connection()
-    if conn is None:
-        return {}
-
-    cur = conn.cursor()
-    placeholders = ",".join(["%s"] * len(codes))
+    """从 PostgreSQL 读取最新行情（每次创建临时连接，不缓存连接对象）"""
     try:
-        cur.execute(f"""
-            SELECT ts_code, close_price, change_pct, trade_date
-            FROM market.daily_quotes
-            WHERE ts_code IN ({placeholders})
-              AND trade_date = CURRENT_DATE
-        """, codes)
-        return {row[0]: {"close": row[1], "change_pct": row[2], "date": row[3]}
-                for row in cur.fetchall()}
+        from storage_factory import get_storage
+        storage = get_storage()
+        conn = storage._pg_conn
+        if conn is None:
+            return {}
+        cur = conn.cursor()
+        placeholders = ",".join(["%s"] * len(codes))
+        try:
+            cur.execute(f"""
+                SELECT ts_code, close_price, change_pct, trade_date
+                FROM market.daily_quotes
+                WHERE ts_code IN ({placeholders})
+                  AND trade_date = CURRENT_DATE
+            """, codes)
+            return {row[0]: {"close": row[1], "change_pct": row[2], "date": row[3]}
+                    for row in cur.fetchall()}
+        finally:
+            cur.close()
+            storage.close()
     except Exception:
         return {}
-    finally:
-        conn.close()
 
 
 @st.cache_data(ttl=120)
 def get_news_count() -> int:
-    conn = get_db_connection()
-    if conn is None:
-        return 0
-    cur = conn.cursor()
+    """统计7日内新闻数量（每次创建临时连接，不缓存连接对象）"""
     try:
-        cur.execute("""
-            SELECT COUNT(*) FROM research.news_articles
-            WHERE published_at >= CURRENT_DATE - INTERVAL '7 days'
-        """)
-        return cur.fetchone()[0] or 0
+        from storage_factory import get_storage
+        storage = get_storage()
+        conn = storage._pg_conn
+        if conn is None:
+            return 0
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT COUNT(*) FROM research.news_articles
+                WHERE published_at >= CURRENT_DATE - INTERVAL '7 days'
+            """)
+            return cur.fetchone()[0] or 0
+        finally:
+            cur.close()
+            storage.close()
     except Exception:
         return 0
-    finally:
-        conn.close()
 
 
 # ── 手动同步状态管理 ────────────────────────────────────────────────────────

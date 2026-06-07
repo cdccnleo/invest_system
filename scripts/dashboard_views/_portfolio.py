@@ -8,6 +8,7 @@ from ._shared import get_latest_quotes_from_db, load_positions
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from datetime import date
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
@@ -119,7 +120,7 @@ def render_portfolio_dashboard():
         df_filtered = df_filtered.sort_values("名称", ascending=ascending)
 
     # ── 导出按钮 ─────────────────────────────────────────
-    export_col1, export_col2 = st.columns([1, 1])
+    export_col1, export_col2, export_col3 = st.columns([1, 1, 1])
     with export_col1:
         csv_data = df_filtered[["代码", "名称", "成本", "市值", "仓位%", "份额"]].copy()
         csv_data["盈亏"] = csv_data["市值"] - csv_data["份额"] * csv_data["成本"]
@@ -132,6 +133,22 @@ def render_portfolio_dashboard():
             mime="text/csv",
             use_container_width=True,
         )
+
+    with export_col2:
+        try:
+            from report_generator import generate_excel_report
+            excel_path = generate_excel_report(positions)
+            with open(excel_path, "rb") as f:
+                excel_bytes = f.read()
+            st.download_button(
+                "📊 导出 Excel",
+                data=excel_bytes,
+                file_name=f"portfolio_{date.today().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.button("📊 导出 Excel", disabled=True, help=f"导出失败: {e}")
 
     # 初始化持仓调整 session_state
     if "holdings_adjustments" not in st.session_state:

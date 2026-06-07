@@ -29,6 +29,9 @@ python-dotenv==1.2.1
 streamlit==1.57.0
 plotly==6.7.0
 
+# Excel 导出
+openpyxl>=3.1.0
+
 # ── 核心脚本无其他外部依赖 ────────────────────────────────────────────────
 # storage_factory 支持 DATABASE_URL 环境变量（postgresql://user:pass@host:port/db）
 #   也支持独立 DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME 环境变量回退

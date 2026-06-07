@@ -39,9 +39,8 @@ def render_ainvest_kb():
         _render_settings()
 
 
-@st.cache_resource(ttl=3600)
 def _get_db_conn():
-    """获取数据库连接"""
+    """获取数据库连接（不复用：调用方会关闭，传缓存的连接会导致下次使用时报'connection already closed'）"""
     from storage_factory import get_pg_connection
     conn = get_pg_connection()
     if conn is None:

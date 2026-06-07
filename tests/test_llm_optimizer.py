@@ -90,7 +90,7 @@ class TestTokenCompressor:
 
     def test_remove_redundant_info(self):
         """冗余信息去除 — context_compressor 函数可导入"""
-        from context_compressor import compress_news, compress_reports, estimate_tokens
+        from context_compressor import compress_news, compress_reports, count_tokens
         assert callable(compress_news)
         assert callable(compress_reports)
-        assert callable(estimate_tokens)
+        assert callable(count_tokens)

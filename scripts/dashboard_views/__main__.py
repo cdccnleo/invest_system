@@ -70,14 +70,19 @@ with st.sidebar:
     c2.metric("新闻(7日)", get_news_count())
     st.divider()
     st.markdown("### 📁 导航")
-    idx = PAGES.index(st.session_state["current_page"])
-    sel = st.selectbox("📁 导航", PAGES, index=idx, label_visibility="visible")
+    # 把 selectbox 绑定到 session_state，避免 rerun 后 widget state 回滚
+    sel = st.selectbox(
+        "📁 导航",
+        PAGES,
+        index=PAGES.index(st.session_state["current_page"]),
+        key="nav_selectbox",
+        label_visibility="visible",
+    )
+    # 同步到 current_page（widget state 即权威源）
+    st.session_state["current_page"] = sel
     st.divider()
     from datetime import datetime
     st.caption(f"最后更新: {datetime.now().strftime('%H:%M:%S')}")
-    if sel != st.session_state["current_page"]:
-        st.session_state["current_page"] = sel
-        st.rerun()
 
 # ── Main ───────────────────────────────────────────────────────────────────
 page = st.session_state["current_page"]

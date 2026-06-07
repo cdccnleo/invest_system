@@ -97,9 +97,10 @@ def get_news_count() -> int:
     try:
         from storage_factory import get_storage
         storage = get_storage()
-        conn = storage._pg_conn
-        if conn is None:
+        # 必须先调 _ensure_pg() 懒加载连接，否则 _pg_conn 是 None
+        if not storage._ensure_pg() or storage._pg_conn is None:
             return 0
+        conn = storage._pg_conn
         cur = conn.cursor()
         try:
             cur.execute("""

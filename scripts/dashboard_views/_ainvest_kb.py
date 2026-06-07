@@ -39,7 +39,7 @@ def render_ainvest_kb():
         _render_settings()
 
 
-@st.cache_data(ttl=3600)
+@st.cache_resource(ttl=3600)
 def _get_db_conn():
     """获取数据库连接"""
     from storage_factory import get_pg_connection

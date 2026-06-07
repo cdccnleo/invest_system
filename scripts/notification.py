@@ -310,6 +310,23 @@ def send_warning_alert(title: str, detail: str) -> dict:
     return send_notification(title, detail, level="WARNING")
 
 
+def send_health_report(content: str, status: str = "healthy") -> dict:
+    """
+    发送每日健康报告
+    status: "healthy" | "warning" | "critical"
+    """
+    level_map = {"healthy": "INFO", "warning": "WARNING", "critical": "ERROR"}
+    level = level_map.get(status, "INFO")
+    return send_notification("🏥 每日健康报告", content, level=level)
+
+
+def send_job_failure(job_name: str, error: str) -> dict:
+    """发送任务失败告警"""
+    title = f"🔴 任务失败: {job_name}"
+    detail = f"**任务**: {job_name}\n**错误**: {error}"
+    return send_notification(title, detail, level="ERROR")
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 

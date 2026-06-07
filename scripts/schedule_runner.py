@@ -64,11 +64,158 @@ def _guard_trading_day(job_name: str):
         return False
     return True
 
+
+# ── 健康检查函数 ────────────────────────────────────────────────────────────
+
+def check_services_health() -> dict:
+    """
+    检查核心服务状态
+    返回: dict with status for DB/streamlit/watchdog
+    """
+    health = {
+        "db": "healthy",
+        "streamlit": "healthy",
+        "watchdog": "healthy",
+        "jobs": {},
+        "today_events": 0,
+        "today_errors": 0,
+    }
+
+    # 1. DB connection check
+    try:
+        storage = get_storage()
+        conn = storage._ensure_pg()
+        if conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+            health["db"] = "healthy"
+        else:
+            health["db"] = "critical"
+        storage.close()
+    except Exception as e:
+        health["db"] = f"critical: {e}"
+
+    # 2. Streamlit check (port 8501)
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        result = sock.connect_ex(("127.0.0.1", 8501))
+        sock.close()
+        health["streamlit"] = "healthy" if result == 0 else "warning"
+    except Exception as e:
+        health["streamlit"] = f"warning: {e}"
+
+    # 3. Watchdog check (parent process is this scheduler)
+    try:
+        import os
+        import psutil
+        current_pid = os.getpid()
+        parent = psutil.Process(current_pid).parent()
+        if parent and "python" in parent.name().lower():
+            health["watchdog"] = "healthy"
+        else:
+            health["watchdog"] = "warning"
+    except Exception as e:
+        health["watchdog"] = f"warning: {e}"
+
+    # 4. Check last successful run times for each job
+    try:
+        storage = get_storage()
+        conn = storage._ensure_pg()
+        if conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT event_type, result, event_time
+                FROM audit.audit_log
+                WHERE event_time >= CURRENT_DATE
+                ORDER BY event_time DESC
+                LIMIT 100
+            """)
+            rows = cur.fetchall()
+            cur.close()
+            health["today_events"] = len(rows)
+            health["today_errors"] = sum(1 for r in rows if r[1] and "FAIL" in str(r[1]))
+
+            # Get last success per job
+            job_types = [
+                "SCHEDULED_MORNING_RUN", "SCHEDULED_CLOSING_RUN",
+                "SCHEDULED_EVENING_RUN", "SCHEDULED_MIDDAY_RUN",
+            ]
+            for jt in job_types:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT event_time FROM audit.audit_log
+                    WHERE event_type = %s AND result = 'SUCCESS'
+                    ORDER BY event_time DESC LIMIT 1
+                """, (jt,))
+                row = cur.fetchone()
+                cur.close()
+                health["jobs"][jt] = row[0].isoformat() if row else "从未成功"
+            storage.close()
+    except Exception as e:
+        logger.warning(f"健康检查审计日志读取失败: {e}")
+
+    return health
+
+
+def format_health_report(health: dict) -> str:
+    """格式化健康报告文本"""
+    lines = []
+
+    # 服务状态
+    status_icon = {"healthy": "✅", "warning": "⚠️", "critical": "🔴"}
+    db_icon = status_icon.get(health["db"], "⚠️")
+    st_icon = status_icon.get(health["streamlit"], "⚠️")
+    wd_icon = status_icon.get(health["watchdog"], "⚠️")
+
+    lines.append(f"{db_icon} 数据库: {health['db']}")
+    lines.append(f"{st_icon} Streamlit: {health['streamlit']}")
+    lines.append(f"{wd_icon} Watchdog: {health['watchdog']}")
+    lines.append("")
+
+    # 今日统计
+    lines.append(f"📊 今日事件: {health['today_events']}")
+    lines.append(f"❌ 今日错误: {health['today_errors']}")
+    lines.append("")
+
+    # 各任务最后成功时间
+    lines.append("🕐 任务最后成功:")
+    for jt, ts in health.get("jobs", {}).items():
+        job_name = jt.replace("SCHEDULED_", "").replace("_RUN", "")
+        lines.append(f"  • {job_name}: {ts}")
+
+    return "\n".join(lines)
+
+
+def job_health_report():
+    """08:30 每日健康报告"""
+    logger.info("每日健康报告开始")
+    try:
+        health = check_services_health()
+
+        # Determine overall status
+        if "critical" in str(health["db"]) or "critical" in str(health["watchdog"]):
+            status = "critical"
+        elif "warning" in str(health["db"]) or "warning" in str(health["streamlit"]):
+            status = "warning"
+        else:
+            status = "healthy"
+
+        report = format_health_report(health)
+        send_health_report(report, status=status)
+        logger.info(f"健康报告已发送 (状态: {status})")
+    except Exception as e:
+        logger.error(f"健康报告异常: {e}")
+        _safe_error_alert("🔴 健康报告生成失败", f"错误: {e}")
+
+
 # ── 工作流定义 ────────────────────────────────────────────────────────────
 from fetch_reports import collect_reports
 from skill_library import check_skill_triggers, generate_skill_draft, SkillLifecycle
 from skill_library import TRIGGER_DAYS, TRIGGER_MIN_CALLS
-from notification import send_notification, send_error_alert
+from notification import send_notification, send_error_alert, send_health_report, send_job_failure
 from intraday_monitor import IntradayMonitor, format_anomaly_message
 from fetch_financial import collect_financial_for_positions
 from fetch_announcements import fetch_all_positions_announcements
@@ -191,6 +338,10 @@ def job_morning():
     except Exception as e:
         logger.error(f"盘前工作流异常: {e}")
         _safe_error_alert("🔴 盘前工作流异常", f"错误: {e}")
+        try:
+            send_job_failure("盘前工作流", str(e))
+        except Exception:
+            pass
 
 
 def _parallel_collect_close_data(stock_codes: list, anns_days_window: int = 30) -> dict:
@@ -309,6 +460,10 @@ def job_closing():
     except Exception as e:
         logger.error(f"盘后工作流异常: {e}")
         _safe_error_alert("🔴 盘后工作流异常", f"错误: {e}")
+        try:
+            send_job_failure("盘后工作流", str(e))
+        except Exception:
+            pass
 
 
 def job_tamf_update():
@@ -340,6 +495,10 @@ def job_tamf_update():
     except Exception as e:
         logger.error(f"TAMF更新异常: {e}")
         _safe_error_alert("🔴 TAMF更新异常", f"错误: {e}")
+        try:
+            send_job_failure("TAMF更新", str(e))
+        except Exception:
+            pass
 
 
 def job_deep_analysis_weekly():
@@ -359,6 +518,10 @@ def job_deep_analysis_weekly():
     except Exception as e:
         logger.error(f"周频深度分析异常: {e}")
         _safe_error_alert("🔴 周频深度分析异常", f"错误: {e}")
+        try:
+            send_job_failure("周频深度分析", str(e))
+        except Exception:
+            pass
 
 
 def job_reports_collection():
@@ -405,6 +568,10 @@ def job_reports_collection():
     except Exception as e:
         logger.error(f"研报采集工作流异常: {e}")
         _safe_error_alert("🔴 研报采集工作流异常", f"错误: {e}")
+        try:
+            send_job_failure("研报采集", str(e))
+        except Exception:
+            pass
 
 
 def _detect_rating_changes():
@@ -486,6 +653,7 @@ def job_evening():
         logger.error(f"晚间工作流异常: {e}")
         try:
             _safe_error_alert("🔴 晚间工作流异常", f"错误: {e}")
+            send_job_failure("晚间工作流", str(e))
         except Exception as push_err:
             logger.error(f"推送错误告警失败: {push_err}")
 
@@ -578,6 +746,10 @@ def job_midday():
     except Exception as e:
         logger.error(f"午间快讯工作流异常: {e}")
         _safe_error_alert("🔴 午间快讯异常", f"错误: {e}")
+        try:
+            send_job_failure("午间快讯", str(e))
+        except Exception:
+            pass
 
 
 def job_announcements_collection():
@@ -646,6 +818,10 @@ def job_announcements_collection():
     except Exception as e:
         logger.error(f"公告采集工作流异常: {e}")
         _safe_error_alert("🔴 公告采集工作流异常", f"错误: {e}")
+        try:
+            send_job_failure("公告采集", str(e))
+        except Exception:
+            pass
 
 
 def job_intraday_monitoring():
@@ -692,6 +868,7 @@ def job_intraday_monitoring():
     except Exception as e:
         logger.error(f"异动监控异常: {e}")
         _safe_error_alert("🔴 异动监控异常", str(e))
+        send_job_failure("盘中异动监控", str(e))
 
 
 def job_skill_solidification():
@@ -785,6 +962,10 @@ def job_skill_solidification():
     except Exception as e:
         logger.error(f"技能固化工作流异常: {e}")
         _safe_error_alert("🔴 技能固化工作流异常", f"错误: {e}")
+        try:
+            send_job_failure("技能固化", str(e))
+        except Exception:
+            pass
 
 
 def job_skill_spot_check():
@@ -869,6 +1050,10 @@ def job_skill_spot_check():
     except Exception as e:
         logger.error(f"技能抽查异常: {e}")
         _safe_error_alert("🔴 技能抽查异常", f"错误: {e}")
+        try:
+            send_job_failure("技能抽查", str(e))
+        except Exception:
+            pass
 
 
 def job_behavior_profile_update():
@@ -938,6 +1123,10 @@ def job_behavior_profile_update():
     except Exception as e:
         logger.error(f"行为画像更新异常: {e}")
         _safe_error_alert("🔴 行为画像更新异常", f"错误: {e}")
+        try:
+            send_job_failure("行为画像更新", str(e))
+        except Exception:
+            pass
 
 
 def _build_profile_rows(profile: dict) -> list[tuple]:
@@ -993,6 +1182,10 @@ def job_behavior_insights():
     except Exception as e:
         logger.error(f"行为洞察周报异常: {e}")
         _safe_error_alert("🔴 行为洞察周报异常", f"错误: {e}")
+        try:
+            send_job_failure("行为洞察周报", str(e))
+        except Exception:
+            pass
 
 
 def job_user_emotion_sensing():
@@ -1087,6 +1280,10 @@ def job_user_emotion_sensing():
     except Exception as e:
         logger.error(f"用户情绪感知异常: {e}")
         _safe_error_alert("🔴 用户情绪感知异常", f"错误: {e}")
+        try:
+            send_job_failure("用户情绪感知", str(e))
+        except Exception:
+            pass
 
 
 def _infer_emotion(mod_count, view_pos_count, analysis_count,
@@ -1267,6 +1464,7 @@ def job_stress_test():
     except Exception as e:
         logger.error(f"压力测试异常: {e}")
         _safe_error_alert("🔴 压力测试异常", f"错误: {e}")
+        send_job_failure("压力测试", str(e))
 
 
 def job_weekly_backtest():
@@ -1360,6 +1558,7 @@ def job_weekly_backtest():
     except Exception as e:
         logger.error(f"回测报告异常: {e}")
         _safe_error_alert("🔴 回测报告异常", f"错误: {e}")
+        send_job_failure("周线回测", str(e))
 
 
 def _get_recent_skill_calls(task_pattern: str, limit: int = 10) -> list[dict]:
@@ -1444,6 +1643,15 @@ def start_scheduler():
         CronTrigger(hour=8, minute=30, timezone="Asia/Shanghai"),
         id="morning_routine",
         name="盘前工作流 (08:30)",
+        replace_existing=True,
+    )
+
+    # 08:30 每日健康报告（与盘前并行）
+    _scheduler.add_job(
+        job_health_report,
+        CronTrigger(hour=8, minute=30, timezone="Asia/Shanghai"),
+        id="health_report_daily",
+        name="每日健康报告 (08:30)",
         replace_existing=True,
     )
 

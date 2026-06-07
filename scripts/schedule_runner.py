@@ -218,6 +218,7 @@ from skill_library import check_skill_triggers, generate_skill_draft, SkillLifec
 from skill_library import TRIGGER_DAYS, TRIGGER_MIN_CALLS
 from notification import send_notification, send_error_alert, send_health_report, send_job_failure
 from intraday_monitor import IntradayMonitor, format_anomaly_message
+from intraday_alert_correlator import job_intraday_linked_alert
 from fetch_financial import collect_financial_for_positions
 from fetch_announcements import fetch_all_positions_announcements
 from l3_dialog_engine import L3DialogEngine
@@ -2052,6 +2053,16 @@ def start_scheduler():
         IntervalTrigger(minutes=5, timezone="Asia/Shanghai"),
         id="intraday_monitoring",
         name="盘中异动监控 (每5分钟)",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+
+    # 盘中异动关联扫描（每30分钟，仅交易时段）
+    _scheduler.add_job(
+        job_intraday_linked_alert,
+        IntervalTrigger(minutes=30, timezone="Asia/Shanghai"),
+        id="intraday_linked_alert",
+        name="盘中异动关联扫描 (每30分钟)",
         replace_existing=True,
         misfire_grace_time=60,
     )

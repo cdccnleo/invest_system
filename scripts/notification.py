@@ -272,6 +272,47 @@ def send_via_bark(title: str, content: str, level: str = "INFO") -> bool:
     return False
 
 
+# ── 通道 5：钉钉/企业微信（盘中异动关联告警）───────────────────────────────
+
+def send_linked_alert(alert: dict):
+    """发送关联异动告警到钉钉/企业微信（不再使用Server酱）"""
+    import requests
+
+    content = (
+        f"🚨 持仓异动关联告警\n\n"
+        f"标的: {alert['name']}({alert['ts_code']})\n"
+        f"涨跌幅: {alert['change_pct']:+.2f}%\n"
+        f"行业: {alert['industry']}\n"
+        f"时间: {alert['time']}\n"
+    )
+    if alert["linked"]:
+        content += f"\n关联持仓({len(alert['linked'])}只):\n"
+        for lp in alert["linked"][:5]:
+            content += f"  • {lp['name']}({lp['code']})\n"
+
+    # 发送到钉钉
+    dingtalk_webhook = _get_notification_cred("DINGTALK_WEBHOOK", "")
+    if dingtalk_webhook:
+        try:
+            requests.post(dingtalk_webhook, json={
+                "msgtype": "text",
+                "text": {"content": content}
+            }, timeout=10)
+        except Exception as e:
+            logger.warning(f"钉钉推送失败: {e}")
+
+    # 发送到企业微信
+    wxwebhook = _get_notification_cred("WECHAT_WEBHOOK", "")
+    if wxwebhook:
+        try:
+            requests.post(wxwebhook, json={
+                "msgtype": "text",
+                "text": {"content": content}
+            }, timeout=10)
+        except Exception as e:
+            logger.warning(f"企业微信推送失败: {e}")
+
+
 # ── 主推送入口 ────────────────────────────────────────────────────────────
 
 def send_notification(

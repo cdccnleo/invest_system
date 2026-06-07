@@ -17,6 +17,8 @@ def load_positions() -> list[dict]:
     """加载所有账号合并持仓（兼容旧接口）"""
     from account_manager import get_all_positions
     positions = get_all_positions()
+    # 计算每条持仓的仓位%（市值/总市值*100），account_manager 不提供 weight
+    total_mv = sum(p.get("market_value", 0) for p in positions) or 1
     # 转换为旧接口的列名格式
     return [
         {
@@ -26,7 +28,7 @@ def load_positions() -> list[dict]:
             "份额": p["shares"],
             "成本": p["avg_cost"],
             "市值": p["market_value"],
-            "仓位%": p.get("weight", 0),
+            "仓位%": (p["market_value"] / total_mv * 100) if p.get("market_value") else 0,
             "账号": p.get("account", "main"),
         }
         for p in positions

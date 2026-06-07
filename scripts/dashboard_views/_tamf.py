@@ -8,7 +8,7 @@ from datetime import datetime
 import sys
 import streamlit as st
 import pandas as pd
-from ._shared import get_db_connection
+from _shared import get_db_connection
 
 # ── 视图 3：历史决策日历 ────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 """研报阅读视图 — 研报阅读页"""
 
-from ._news import render_reports
+from _news import render_reports
 
 
 def get_active_view_name() -> str:

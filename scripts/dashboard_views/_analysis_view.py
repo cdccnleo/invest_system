@@ -31,19 +31,19 @@ def render():
 
 def _render_strategy_backtest():
     """策略回测 — 调用现有策略对比面板"""
-    from ._strategies import render_strategy_comparison
+    from _strategies import render_strategy_comparison
     render_strategy_comparison()
 
 
 def _render_factor_analysis():
     """多因子评分 — 调用现有因子分析面板"""
-    from ._factors import render_factor_analysis
+    from _factors import render_factor_analysis
     render_factor_analysis()
 
 
 def _render_anomaly_detection():
     """异动监控 — 持仓股异常波动检测"""
-    from ._shared import load_positions
+    from _shared import load_positions
     st.subheader("⚠️ 持仓股异动监控")
 
     positions = load_positions()

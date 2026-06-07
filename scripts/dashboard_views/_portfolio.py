@@ -4,7 +4,7 @@ Generated from dashboard.py (411-623 lines)
 Each function accesses streamlit via st (passed through from main module).
 """
 
-from ._shared import get_latest_quotes_from_db, load_positions
+from _shared import get_latest_quotes_from_db, load_positions
 import streamlit as st
 import pandas as pd
 import plotly.express as px

@@ -6,7 +6,7 @@ Each function accesses streamlit via st (passed through from main module).
 
 import streamlit as st
 from datetime import datetime
-from ._shared import get_db_connection, get_sync_status, set_sync_status
+from _shared import get_db_connection, get_sync_status, set_sync_status
 
 
 # ── 手动同步按钮通用组件 ────────────────────────────────────────────────────

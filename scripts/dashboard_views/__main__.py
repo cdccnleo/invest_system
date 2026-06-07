@@ -8,6 +8,10 @@ import streamlit as st
 
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+# Streamlit 把 __main__.py 作为脚本运行，__package__ 为空 → 子模块相对导入失败。
+# 统一改用绝对导入（见各 _xxx.py），把 dashboard_views 目录加入 sys.path
+# 使 from _xxx import ... 能解析到同包内的兄弟模块。
+sys.path.insert(0, str(ROOT / "scripts" / "dashboard_views"))
 
 st.set_page_config(page_title="InvestPilot Dashboard", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 

@@ -29,7 +29,7 @@ def render():
 
 def _render_portfolio_overview():
     """持仓总览 — 调用现有持仓仪表板"""
-    from ._portfolio import render_portfolio_dashboard
+    from _portfolio import render_portfolio_dashboard
     render_portfolio_dashboard()
 
 

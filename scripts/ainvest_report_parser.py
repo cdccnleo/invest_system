@@ -28,6 +28,8 @@ from pathlib import Path
 from datetime import datetime, date
 from typing import Optional
 
+from scripts.utils import read_file_with_encoding
+
 logger = logging.getLogger("invest_system.ainvest_parser")
 
 # ── 路径常量 ────────────────────────────────────────────────
@@ -284,7 +286,7 @@ def _extract_table_section(content: str, table_keyword: str, row_filter: str = "
         return None
     
     if row_filter:
-        filtered = [l for l in table_lines if re.search(row_filter, l)]
+        filtered = [line for line in table_lines if re.search(row_filter, line)]
         if filtered:
             return "\n".join(filtered)
     
@@ -381,14 +383,7 @@ def parse_single_report(filepath: Path) -> Optional[dict]:
     返回 None 表示解析失败。
     """
     # 多编码尝试读取
-    content = None
-    for encoding in ['utf-8', 'gbk', 'cp936', 'utf-8-sig']:
-        try:
-            content = filepath.read_text(encoding=encoding)
-            break
-        except (UnicodeDecodeError, UnicodeError):
-            continue
-    
+    content = read_file_with_encoding(filepath)
     if content is None:
         logger.error(f"无法解码文件: {filepath}")
         return None

@@ -3,11 +3,15 @@ embedding_service.py — 向量记忆系统
 基于 pgvector + Ollama nomic-embed-text，实现新闻/研报的语义检索
 """
 
-import os, json, time, logging
+import os
+import json
+import time
+import logging
 import urllib.request
 import psycopg2
-from datetime import datetime
 from typing import Optional
+
+from scripts.utils import chunk_text
 
 logger = logging.getLogger("invest_system.embedding")
 
@@ -109,7 +113,7 @@ def embed_news_articles(article_ids: list[int] = None, limit: int = 50):
     embedded = 0
     for art_id, title, content in articles:
         text = f"{title}。{content or ''}"
-        chunks = _chunk_text(text, max_chars=500)
+        chunks = chunk_text(text, max_chars=500)
 
         for chunk_idx, chunk in enumerate(chunks):
             emb = get_embedding(chunk)
@@ -133,69 +137,47 @@ def embed_news_articles(article_ids: list[int] = None, limit: int = 50):
     return embedded
 
 
-def _chunk_text(text: str, max_chars: int = 500) -> list[str]:
-    """简单分块：按句号/换行切分，合并到 max_chars"""
-    sentences = text.replace("\n", "。").split("。")
-    chunks, current = [], ""
-    for s in sentences:
-        s = s.strip()
-        if not s:
-            continue
-        if len(current) + len(s) < max_chars:
-            current += ("。" if current else "") + s
-        else:
-            if current:
-                chunks.append(current)
-            current = s
-    if current:
-        chunks.append(current)
-    return chunks
-
-    # 公开别名（供 kb_ainvest_worker.py 等外部模块使用）
-    chunk_text = _chunk_text
-
-
-    def search_similar_news(query: str, top_k: int = 5, min_score: float = 0.5) -> list[dict]:
+def search_similar_news(query: str, top_k: int = 5, min_score: float = 0.5) -> list[dict]:
         """语义搜索相似新闻
         返回: [{article_id, title, content, similarity, published_at}, ...]
         """
         query_emb = get_embedding(query)
-    if query_emb is None:
-        logger.warning("Query embedding 生成失败")
-        return []
+        if query_emb is None:
+            logger.warning("Query embedding 生成失败")
+            return []
 
-    conn = get_db_conn()
-    cur = conn.cursor()
-    try:
-        cur.execute("""
-            SELECT
-                ne.article_id,
-                na.title,
-                LEFT(ne.content_chunk, 300),
-                1 - (ne.embedding <=> %s::vector) AS similarity,
-                na.published_at
-            FROM research.news_embeddings ne
-            JOIN research.news_articles na ON na.id = ne.article_id
-            WHERE 1 - (ne.embedding <=> %s::vector) > %s
-            ORDER BY ne.embedding <=> %s::vector
-            LIMIT %s
-        """, (query_emb, query_emb, min_score, query_emb, top_k))
+        conn = get_db_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT
+                    ne.article_id,
+                    na.title,
+                    LEFT(ne.content_chunk, 300),
+                    1 - (ne.embedding <=> %s::vector) AS similarity,
+                    na.published_at
+                FROM research.news_embeddings ne
+                JOIN research.news_articles na ON na.id = ne.article_id
+                WHERE 1 - (ne.embedding <=> %s::vector) > %s
+                ORDER BY ne.embedding <=> %s::vector
+                LIMIT %s
+            """, (query_emb, query_emb, min_score, query_emb, top_k))
 
-        results = []
-        for row in cur.fetchall():
-            results.append({
-                "article_id": row[0],
-                "title": row[1],
-                "content_chunk": row[2],
-                "similarity": round(float(row[3]), 4),
-                "published_at": row[4].isoformat() if row[4] else None,
-            })
-        return results
-    except Exception as e:
-        logger.warning(f"向量搜索失败: {e}")
-        return []
-    finally:
-        conn.close()
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    "article_id": row[0],
+                    "title": row[1],
+                    "content_chunk": row[2],
+                    "similarity": round(float(row[3]), 4),
+                    "published_at": row[4].isoformat() if row[4] else None,
+                })
+            return results
+        except Exception as e:
+            logger.warning(f"向量搜索失败: {e}")
+            return []
+        finally:
+            conn.close()
 
 
 def get_news_context_for_prompt(query: str, top_k: int = 8) -> str:
@@ -239,7 +221,7 @@ def embed_research_report(report_id: int, text: str = None) -> bool:
             title, summary, source = row
             text = f"{source}研报：{title}。{summary or ''}"
 
-        chunks = _chunk_text(text, max_chars=500)
+        chunks = chunk_text(text, max_chars=500)
         stored = 0
         for idx, chunk in enumerate(chunks):
             emb = get_embedding(chunk)
@@ -359,7 +341,6 @@ def daily_embedding_job():
 
 if __name__ == "__main__":
     import sys
-    from pgcrypto_migration import get_credential
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     cmd = sys.argv[1] if len(sys.argv) > 1 else "init"

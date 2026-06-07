@@ -3,7 +3,9 @@ dashboard.py — Phase 2 Web 仪表盘 (Streamlit)
 持仓视图 v0.1
 """
 
-import os, sys, json, csv
+import os
+import sys
+import json
 from pathlib import Path
 from datetime import datetime
 
@@ -11,13 +13,12 @@ from datetime import datetime
 os.environ[" STREAMLIT_SERVER_HEADLESS"] = "true"
 
 import streamlit as st
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 
 # ── 路径设置 ───────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+
+from scripts.utils import safe_float
 
 # ── Dashboard 主程序（st.set_page_config 必须最早执行）─────────────────────────
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
@@ -42,7 +43,6 @@ def _get_dashboard_password():
     global _cached_pw
     if _cached_pw is not None:
         return _cached_pw
-    import json
 
     cred_file = os.path.expanduser("~/.hermes/invest_credentials/store.json")
     try:
@@ -141,7 +141,8 @@ def render_sidebar():
         if st.button("📥 从券商文件同步持仓", help="读取 D:\\Hold 目录下的券商持仓文件，更新 positions.csv 和 PostgreSQL"):
             with st.spinner("正在解析持仓文件..."):
                 try:
-                    import csv as csv_lib, json as json_lib
+                    import csv as csv_lib
+                    import json as json_lib
                     from pathlib import Path
                     def _read_gbk(p):
                         for enc in ['utf-8-sig', 'gbk', 'cp936', 'utf-8']:
@@ -149,9 +150,6 @@ def render_sidebar():
                                 with open(p, encoding=enc) as f: return f.read()
                             except: continue
                         return ""
-                    def _safe_float(v, default=0.0):
-                        try: return float(str(v).replace(',','').replace('"','').strip() or '0')
-                        except: return default
                     def _parse_csv_line(line):
                         reader = csv_lib.reader([line])
                         return list(reader)[0]
@@ -161,7 +159,8 @@ def render_sidebar():
 
                     # 查找目录中最新实际存在的持仓文件日期
                     def _latest_hold_date():
-                        import re, os
+                        import re
+                        import os
                         best = None
                         for fname in os.listdir(HOLD_DIR):
                             m = re.search(r'(\d{8})\.csv$', fname)
@@ -191,7 +190,7 @@ def render_sidebar():
                         try:
                             code = row[0].strip().zfill(6)
                             name = row[1].strip()
-                            shares = _safe_float(row[3]); cost = abs(_safe_float(row[7])); mv = _safe_float(row[9])
+                            shares = safe_float(row[3]); cost = abs(safe_float(row[7])); mv = safe_float(row[9])
                             if shares <= 0 or mv <= 0: continue
                             ptype = 'bond' if code.startswith('4') else ('fund' if code.startswith(('5','15')) else 'stock')
                             key = ('国金证券', code)
@@ -210,7 +209,7 @@ def render_sidebar():
                                 row = _parse_csv_line(line)
                                 if len(row) < 6 or not row[0].strip() or row[0] in ('产品代码','持仓收益(元)'): continue
                                 try:
-                                    code = row[0].strip(); name = row[1].strip(); nav = _safe_float(row[3]); amount = _safe_float(row[5])
+                                    code = row[0].strip(); name = row[1].strip(); nav = safe_float(row[3]); amount = safe_float(row[5])
                                     if amount <= 0: continue
                                     key = ('天天基金', code)
                                     if key not in positions_map:
@@ -227,7 +226,7 @@ def render_sidebar():
                                 if len(row) < 10 or not row[0].strip() or row[0] in ('类型',''): continue
                                 try:
                                     code = str(row[2].strip()).zfill(6); name = row[1].strip()
-                                    shares = _safe_float(row[3]); cost = abs(_safe_float(row[7])); mv = _safe_float(row[9])
+                                    shares = safe_float(row[3]); cost = abs(safe_float(row[7])); mv = safe_float(row[9])
                                     if shares <= 0 or mv <= 0: continue
                                     ptype = 'stock' if row[0].strip() == '股票' else 'fund'
                                     key = ('广发证券', code)
@@ -248,7 +247,7 @@ def render_sidebar():
                                 if len(row) < 10 or not row[0].strip() or row[0] in ('基金代码','人民币资产'): continue
                                 try:
                                     code = str(row[0].strip()).zfill(6); name = row[1].strip()
-                                    nav = _safe_float(row[3]); shares = _safe_float(row[6]); mv = _safe_float(row[8]); ct = _safe_float(row[9])
+                                    nav = safe_float(row[3]); shares = safe_float(row[6]); mv = safe_float(row[8]); ct = safe_float(row[9])
                                     if shares <= 0: continue
                                     if code not in fund_groups: fund_groups[code] = {'name':name,'nav':nav,'ts':0,'tmv':0,'tct':0}
                                     fund_groups[code]['ts'] += shares; fund_groups[code]['tmv'] += mv; fund_groups[code]['tct'] += ct
@@ -270,7 +269,7 @@ def render_sidebar():
                     # DEBUG: 打印各数据源记录数
                     st.caption(f"📊 各数据源: {_dbg}，合计 {len(positions)} 条 | 日期={date_str}")
                     if len(positions) < 30:
-                        st.warning(f"⚠️ 记录数偏少（<30），检查各文件读取是否完整")
+                        st.warning("⚠️ 记录数偏少（<30），检查各文件读取是否完整")
 
                     # 写入 positions.csv
                     csv_path = "/mnt/d/Hold/invest-data/positions.csv"
@@ -342,7 +341,6 @@ from dashboard_views._factors import render_factor_analysis
 from dashboard_views._ainvest_kb import render_ainvest_kb
 
 # ── 共享数据函数（来自 dashboard.py）────────────────────────────────────────
-import sys as _sys
 from pathlib import Path as _Path
 # dashboard.py 在上一级目录
 sys.path.insert(0, str(_Path(__file__).parent.parent))

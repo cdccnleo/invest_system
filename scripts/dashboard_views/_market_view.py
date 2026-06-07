@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 
-from ._shared import load_positions, get_latest_quotes_from_db, get_db_connection
+from ._shared import get_db_connection
 
 
 def get_active_view_name() -> str:

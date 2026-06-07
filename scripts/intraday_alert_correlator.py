@@ -6,7 +6,7 @@
 
 import sys
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime
 import json
 import logging
 
@@ -77,7 +77,6 @@ def scan_linked_alerts() -> list[dict]:
     返回需要发送的告警列表
     """
     positions = load_positions_from_db()
-    industries = get_holding_industries()
 
     # 从数据库读取今日行情（已接入）
     try:

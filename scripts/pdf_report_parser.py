@@ -76,17 +76,17 @@ def parse_report_to_tamf_section(pdf_path: str) -> dict:
         return {}
     
     # 简单关键词提取（后续可接LLM做总结）
-    lines = [l.strip() for l in content.split("\n") if l.strip()]
+    lines = [line.strip() for line in content.split("\n") if line.strip()]
     
     title = lines[0] if lines else ""
     
     # 提取风险因素（关键词匹配）
     risk_keywords = ["风险", "不确定性", "政策风险", "市场风险"]
-    risk_factors = [l for l in lines if any(k in l for k in risk_keywords)][:5]
+    risk_factors = [ln for ln in lines if any(k in ln for k in risk_keywords)][:5]
     
     # 提取投资观点
     idea_keywords = ["看好", "推荐", "买入", "增持", "投资价值", "机会"]
-    investment_ideas = [l for l in lines if any(k in l for k in idea_keywords)][:5]
+    investment_ideas = [ln for ln in lines if any(k in ln for k in idea_keywords)][:5]
     
     # 摘要取前10行
     summary = "\n".join(lines[1:11])

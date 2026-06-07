@@ -30,7 +30,7 @@ from _market_view import render as render_market
 from _analysis_view import render as render_analysis
 from _report_view import render as render_report
 from _portfolio import render_portfolio_dashboard
-from _news import render_news_summary, render_reports, render_announcements
+from _news import render_news_summary, render_announcements
 from _tamf import render_tamf_memory, render_history
 from _l3_status import render_l3_status
 from _settings import render_plan_review, render_settings

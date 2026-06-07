@@ -191,7 +191,7 @@ class DeviationAlertEvaluator(TriggerEvaluator):
         cur.execute("""
             SELECT COUNT(*) FROM audit.audit_log
             WHERE event_type IN ('BUY', 'SELL', 'TRADE_EXECUTED')
-              AND created_at >= CURRENT_DATE - INTERVAL '%s days'
+              AND event_time >= CURRENT_DATE - INTERVAL '%s days'
         """, (lookback_days,))
         trade_count = cur.fetchone()[0] or 0
 
@@ -200,8 +200,8 @@ class DeviationAlertEvaluator(TriggerEvaluator):
             SELECT AVG(cnt) FROM (
                 SELECT COUNT(*) as cnt FROM audit.audit_log
                 WHERE event_type IN ('BUY', 'SELL', 'TRADE_EXECUTED')
-                  AND created_at >= CURRENT_DATE - INTERVAL '%s days'
-                GROUP BY DATE(created_at)
+                  AND event_time >= CURRENT_DATE - INTERVAL '%s days'
+                GROUP BY DATE(event_time)
             ) sub
         """, (lookback_days * 2,))
         baseline_daily = cur.fetchone()[0] or 0

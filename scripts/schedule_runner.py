@@ -1230,7 +1230,7 @@ def job_skill_spot_check():
         conn = get_db_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT DISTINCT JSON_VALUE(detail, '$.skill') as skill
+            SELECT DISTINCT detail->>'skill' as skill
             FROM audit.audit_log
             WHERE event_type = 'SKILL_EXECUTED'
               AND event_time >= NOW() - INTERVAL '7 days'
@@ -1255,7 +1255,7 @@ def job_skill_spot_check():
             cur2.execute("""
                 SELECT detail, result FROM audit.audit_log
                 WHERE event_type = 'SKILL_EXECUTED'
-                  AND JSON_VALUE(detail, '$.skill') = %s
+                  AND detail->>'skill' = %s
                 ORDER BY event_time DESC LIMIT 1
             """, (skill_name,))
             row = cur2.fetchone()

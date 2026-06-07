@@ -11,7 +11,7 @@ import urllib.request
 import psycopg2
 from typing import Optional
 
-from scripts.utils import chunk_text
+from utils import chunk_text
 
 logger = logging.getLogger("invest_system.embedding")
 

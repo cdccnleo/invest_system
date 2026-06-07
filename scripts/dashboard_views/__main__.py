@@ -18,7 +18,7 @@ import streamlit as st
 ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from scripts.utils import safe_float
+from utils import safe_float
 
 # ── Dashboard 主程序（st.set_page_config 必须最早执行）─────────────────────────
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")

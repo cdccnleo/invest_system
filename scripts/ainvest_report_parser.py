@@ -28,7 +28,7 @@ from pathlib import Path
 from datetime import datetime, date
 from typing import Optional
 
-from scripts.utils import read_file_with_encoding
+from utils import read_file_with_encoding
 
 logger = logging.getLogger("invest_system.ainvest_parser")
 

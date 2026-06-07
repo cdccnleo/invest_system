@@ -10,11 +10,15 @@ auto_report_to_tamf.py — 研报摘要自动同步至 TAMF 第6章
 import logging
 from datetime import date, timedelta
 from collections import defaultdict
+from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
 
 logger = logging.getLogger("invest_system.auto_report_to_tamf")
+
+# PDF研报本地路径（可配置）
+PDF_REPORT_DIR = Path.home() / "invest_system" / "reports" / "pdf"
 
 DB_CONFIG = {
     "host": "localhost",
@@ -29,6 +33,44 @@ def _get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = get_credential("DB_PASSWORD")
     return psycopg2.connect(**cfg)
+
+
+def _find_local_pdf(info_code: str = None, title: str = None) -> str | None:
+    """
+    根据 info_code 或 title 在本地 PDF 目录查找对应文件
+    Returns: PDF 路径或 None
+    """
+    if not PDF_REPORT_DIR.exists():
+        return None
+    # 按 info_code 精确匹配
+    if info_code:
+        pdf_path = PDF_REPORT_DIR / f"{info_code}.pdf"
+        if pdf_path.exists():
+            return str(pdf_path)
+    # 按 title 模糊匹配（取前30字）
+    if title:
+        prefix = title[:30]
+        for pdf_file in PDF_REPORT_DIR.glob("*.pdf"):
+            if prefix in pdf_file.stem:
+                return str(pdf_file)
+    return None
+
+
+def _get_pdf_summary(info_code: str, title: str) -> str | None:
+    """
+    尝试从本地PDF提取摘要，失败返回None
+    """
+    pdf_path = _find_local_pdf(info_code, title)
+    if not pdf_path:
+        return None
+    try:
+        from pdf_report_parser import parse_report_to_tamf_section
+        result = parse_report_to_tamf_section(pdf_path)
+        if result and result.get("summary"):
+            return result["summary"]
+    except Exception as e:
+        logger.debug(f"本地PDF解析失败: {e}")
+    return None
 
 
 def _ensure_summary_column():
@@ -52,15 +94,16 @@ def _ensure_summary_column():
         conn.commit()
         cur.close()
         conn.close()
-
-
 # ─── 研报聚合摘要生成 ─────────────────────────────────────────
 
 def _build_investment_summary(reports: list[dict]) -> str:
     """
     将多篇研报聚合成一段投资研判文本（markdown格式）。
+    优先使用本地PDF解析，失败则使用数据库summary字段。
     格式：
-      ```\n[聚合内容]\n```
+      ```
+    [聚合内容]
+    ```
     """
     if not reports:
         return ""
@@ -70,15 +113,25 @@ def _build_investment_summary(reports: list[dict]) -> str:
         src = r.get("org_name", r.get("source", "?"))
         rating = r.get("rating", "?")
         title = r.get("title", "?")[:40]
-        summary = (r.get("summary") or "")[:200]
-        lines.append(f"- **{dt}** [{src}] {rating}: {title}")
+        info_code = r.get("info_code", "")
+        
+        # 优先尝试本地PDF解析
+        pdf_summary = _get_pdf_summary(info_code, title)
+        if pdf_summary:
+            summary = pdf_summary[:200]
+            source_note = " [本地PDF]"
+        else:
+            summary = (r.get("summary") or "")[:200]
+            source_note = ""
+        
+        lines.append(f"- **{dt}** [{src}]{source_note} {rating}: {title}")
         if summary:
             lines.append(f"  > {summary}")
     body = "\n".join(lines)
-    return f"""```\n近{len(reports)}篇研报汇总：\n{body}\n```"""
-
-
-# ─── 核心同步函数 ─────────────────────────────────────────────
+    return f"""```
+近{len(reports)}篇研报汇总：
+{body}
+```"""
 
 def sync_reports_to_tamf(days: int = 7, limit: int = 30) -> dict:
     """

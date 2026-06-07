@@ -9,7 +9,7 @@ Equity Curve 历史数据回填脚本
 
 import sys
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))

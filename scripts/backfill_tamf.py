@@ -22,7 +22,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from pgcrypto_migration import load_positions_from_db
 from storage_factory import get_storage
-import json
 
 TAMF_DIR = Path("~/invest_system/data/target_memories").expanduser()
 TAMF_DIR.mkdir(parents=True, exist_ok=True)

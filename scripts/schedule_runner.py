@@ -502,6 +502,31 @@ def job_tamf_update():
             pass
 
 
+def job_equity_curve_save():
+    """15:40 持仓历史equity曲线保存 — 每日收盘后记录组合总市值"""
+    if not _guard_trading_day("job_equity_curve_save"):
+        return
+    logger.info("=" * 50)
+    logger.info("15:40 Equity Curve 保存启动")
+    try:
+        from equity_curve_tracker import save_daily_equity, init_equity_curve_table
+        # 确保表存在
+        init_equity_curve_table()
+        # 保存当日数据
+        result = save_daily_equity()
+        if result["saved"]:
+            logger.info(
+                f"Equity Curve 已保存: ¥{result['total_value']:,.2f}, "
+                f"持仓 {result['position_count']} 只, 日期 {result['calc_date']}"
+            )
+        else:
+            logger.warning(f"Equity Curve 保存失败: {result.get('error', '未知错误')}")
+            _safe_error_alert("⚠️ Equity Curve 保存失败", result.get("error", ""))
+    except Exception as e:
+        logger.error(f"Equity Curve 保存异常: {e}")
+        _safe_error_alert("🔴 Equity Curve 保存异常", f"错误: {e}")
+
+
 def job_deep_analysis_weekly():
     """周日22:00 周频深度分析 — 强制重生成所有持仓标的的Agent段落"""
     logger.info("=" * 50)
@@ -1889,6 +1914,16 @@ def start_scheduler():
         CronTrigger(hour=15, minute=35, timezone="Asia/Shanghai"),
         id="tamf_daily_update",
         name="TAMF增量更新 (15:35)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+
+    # 15:40 持仓历史equity曲线保存
+    _scheduler.add_job(
+        job_equity_curve_save,
+        CronTrigger(hour=15, minute=40, timezone="Asia/Shanghai"),
+        id="equity_curve_save",
+        name="Equity Curve 保存 (15:40)",
         replace_existing=True,
         misfire_grace_time=300,
     )

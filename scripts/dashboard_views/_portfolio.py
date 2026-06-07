@@ -326,3 +326,39 @@ def pnl_pnl_str(pnl: float) -> str:
     return f"{'+¥' if pnl >= 0 else '-¥'}{abs(pnl):,.0f}"
 
 
+# ── 视图 2：Equity Curve 历史曲线 ───────────────────────────────────────────────
+
+def _render_equity_curve():
+    """显示组合equity历史曲线（近90天）"""
+    from equity_curve_tracker import get_equity_curve
+    import streamlit as st
+
+    st.markdown("### 📈 持仓历史 Equity Curve")
+
+    data = get_equity_curve(days=90)
+    if not data:
+        st.info("暂无 equity curve 数据，将于今日 15:40 首次记录")
+        return
+
+    df = pd.DataFrame(data)
+    df["calc_date"] = pd.to_datetime(df["calc_date"])
+    df = df.set_index("calc_date")
+
+    # 显示最新值和变化
+    latest_value = df["total_value"].iloc[-1]
+    first_value = df["total_value"].iloc[0]
+    total_return = ((latest_value - first_value) / first_value * 100) if first_value > 0 else 0
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("当前组合市值", f"¥{latest_value:,.2f}")
+    with col2:
+        st.metric(
+            "累计收益",
+            f"{total_return:+.2f}%",
+            delta=f"{latest_value - first_value:+,.2f}"
+        )
+
+    # 折线图
+    st.line_chart(df["total_value"], width="stretch", height=300)
+
+

@@ -6,6 +6,7 @@ Dashboard shared utilities — 数据加载 / 数据库连接 / 行情查询
 """
 import os
 import csv
+import streamlit as st
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent.parent
@@ -34,6 +35,7 @@ def load_positions() -> list[dict]:
     return positions
 
 
+@st.cache_resource(ttl=3600)
 def get_db_connection():
     import psycopg2
     try:
@@ -56,6 +58,7 @@ def get_db_connection():
     )
 
 
+@st.cache_data(ttl=60)
 def get_latest_quotes_from_db(codes: list[str]) -> dict:
     """从 PostgreSQL 读取最新行情"""
     conn = get_db_connection()
@@ -79,6 +82,7 @@ def get_latest_quotes_from_db(codes: list[str]) -> dict:
         conn.close()
 
 
+@st.cache_data(ttl=120)
 def get_news_count() -> int:
     conn = get_db_connection()
     if conn is None:

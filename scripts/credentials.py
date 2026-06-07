@@ -132,8 +132,9 @@ def get_credential(key: str, default: Optional[str] = None) -> Optional[str]:
       DEEPSEEK_API_KEY     — DeepSeek API Key
       DATABASE_URL         — 完整连接字符串（含密码）
       OLLAMA_API_KEY       — Ollama（通常不需要）
-      SERVERCHAN_SENDKEY   — Server酱微信推送 SendKey
-      FEISHU_WEBHOOK        — 飞书群机器人 Webhook URL
+      DINGTALK_WEBHOOK   — 钉钉群机器人 Webhook URL
+      WECHAT_WEBHOOK     — 企业微信群机器人 Webhook URL
+      FEISHU_WEBHOOK      — 飞书群机器人 Webhook URL
       PUSHPLUS_TOKEN       — PUSHPLUS 推送 Token
       BARK_URL             — Bark iOS 推送 URL
       DB_ENCRYPTION_KEY    — AES-256 加密密钥（32字符hex）

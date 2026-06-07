@@ -1,6 +1,6 @@
 """
 notification.py — 消息推送模块
-支持多通道：Server酱(微信) / 飞书机器人 / Bark(iOS)
+支持多通道：钉钉 / 企业微信 / 飞书机器人 / Bark(iOS)
 """
 
 import os
@@ -14,7 +14,7 @@ from typing import Optional
 logger = logging.getLogger("invest_system.notification")
 
 # ── 内容长度限制 ───────────────────────────────────────────────────────────
-MAX_CONTENT_LEN =  1800  # 飞书卡片限制约2000字符，Server酱限制更严
+MAX_CONTENT_LEN =  1800  # 飞书卡片限制约2000字符
 
 # ── 配置读取（统一通过 credentials.py）────────────────────────────────────────
 try:
@@ -31,8 +31,8 @@ def _get_notification_cred(key: str, default: str = "") -> str:
             return val
     return os.environ.get(key, default)
 
-PUSHPLUS_TOKEN = _get_notification_cred("PUSHPLUS_TOKEN", "")
-SERVERCHAN_SENDKEY = _get_notification_cred("SERVERCHAN_SENDKEY", "")
+DINGTALK_WEBHOOK = _get_notification_cred("DINGTALK_WEBHOOK", "")
+WECHAT_WEBHOOK = _get_notification_cred("WECHAT_WEBHOOK", "")
 FEISHU_WEBHOOK = _get_notification_cred("FEISHU_WEBHOOK", "")
 BARK_URL = _get_notification_cred("BARK_URL", "")
 
@@ -43,64 +43,6 @@ def _format_report_text(title: str, body: str, level: str = "INFO") -> str:
     """格式化推送文本"""
     icon = {"INFO": "ℹ️", "WARNING": "⚠️", "ERROR": "🔴", "SUCCESS": "✅"}.get(level, "ℹ️")
     return f"{icon} **{title}**\n\n{body}"
-
-
-# ── 通道 1：Server酱（微信推送）────────────────────────────────────────────
-
-def send_via_serverchan(title: str, content: str, level: str = "INFO") -> bool:
-    """
-    Server酱微信推送
-    文档: https://sct.ftqq.com/
-    环境变量: SERVERCHAN_SENDKEY
-    """
-    if not SERVERCHAN_SENDKEY:
-        logger.debug("Server酱未配置，跳过")
-        return False
-
-    text = _format_report_text(title, content, level)
-    api_url = f"https://sctapi.ftqq.com/{SERVERCHAN_SENDKEY}.send"
-
-    for attempt in range(3):
-        try:
-            payload = json.dumps({
-                "title": f"[InvestPilot] {title}",
-                "desp": text.replace("\n", "\n\n")[:MAX_CONTENT_LEN],
-            }).encode("utf-8")
-
-            # 禁用连接池复用，防止服务器关闭连接后 urllib 误用已损坏连接
-            req = urllib.request.Request(
-                api_url,
-                data=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Connection": "close",  # 关键：禁用 keep-alive，每次新建连接
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                raw = resp.read()
-                if not raw:
-                    logger.warning("Server酱返回空响应")
-                    return False
-                result = json.loads(raw)
-                if result and (result.get("code") == 0 or result.get("errno") == 0):
-                    logger.info(f"Server酱推送成功: {title}")
-                    return True
-                else:
-                    logger.warning(f"Server酱推送失败: {result}")
-                    return False
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-            if attempt < 2:
-                wait = 2 ** attempt
-                logger.warning(f"Server酱推送异常 (attempt {attempt+1}): {e}，{wait}s后重试")
-                time.sleep(wait)
-            else:
-                logger.warning(f"Server酱推送异常 (已重试): {e}")
-                return False
-        except Exception as e:
-            logger.warning(f"Server酱推送异常: {e}")
-            return False
-    return False
 
 
 # ── 通道 2：飞书（Lark/Feishu）群机器人 ─────────────────────────────────
@@ -184,54 +126,7 @@ def send_via_feishu(title: str, content: str, level: str = "INFO") -> bool:
     return False
 
 
-# ── 通道 3：PushPlus（微信公众号）───────────────────────────────────────────
-
-def send_via_pushplus(title: str, content: str) -> bool:
-    """
-    PushPlus 微信推送
-    文档: https://www.pushplus.plus/
-    环境变量: PUSHPLUS_TOKEN
-    """
-    if not PUSHPLUS_TOKEN:
-        logger.debug("PushPlus未配置，跳过")
-        return False
-
-    api_url = "https://www.pushplus.plus/send"
-    for attempt in range(3):
-        try:
-            payload = json.dumps({
-                "token": PUSHPLUS_TOKEN,
-                "title": f"[InvestPilot] {title}",
-                "content": content[:MAX_CONTENT_LEN],
-                "type": "html",
-            }).encode("utf-8")
-
-            req = urllib.request.Request(
-                api_url,
-                data=payload,
-                headers={"Content-Type": "application/json", "Connection": "close"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=20) as resp:
-                result = json.loads(resp.read())
-                if result.get("code") == 0:
-                    logger.info(f"PushPlus推送成功: {title}")
-                    return True
-                else:
-                    logger.warning(f"PushPlus推送失败: {result}")
-                    return False
-        except Exception as e:
-            if attempt < 2:
-                wait = 2 ** attempt
-                logger.warning(f"PushPlus推送异常 (attempt {attempt+1}): {e}，{wait}s后重试")
-                time.sleep(wait)
-            else:
-                logger.warning(f"PushPlus推送异常 (已重试): {e}")
-                return False
-    return False
-
-
-# ── 通道 4：Bark (iOS) ────────────────────────────────────────────────────
+# ── 通道 3：Bark (iOS) ────────────────────────────────────────────────────
 
 def send_via_bark(title: str, content: str, level: str = "INFO") -> bool:
     """
@@ -275,7 +170,7 @@ def send_via_bark(title: str, content: str, level: str = "INFO") -> bool:
 # ── 通道 5：钉钉/企业微信（盘中异动关联告警）───────────────────────────────
 
 def send_linked_alert(alert: dict):
-    """发送关联异动告警到钉钉/企业微信（不再使用Server酱）"""
+    """发送关联异动告警到钉钉/企业微信"""
     import requests
 
     content = (
@@ -315,6 +210,66 @@ def send_linked_alert(alert: dict):
 
 # ── 主推送入口 ────────────────────────────────────────────────────────────
 
+def _send_dingtalk(title: str, content: str, level: str = "INFO") -> bool:
+    """发送到钉钉"""
+    if not DINGTALK_WEBHOOK:
+        return False
+    text = _format_report_text(title, content, level)
+    payload = {"msgtype": "text", "text": {"content": text}}
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                DINGTALK_WEBHOOK,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Connection": "close"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read())
+                if result.get("errcode") == 0:
+                    logger.info(f"钉钉推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"钉钉推送失败: {result}")
+                    return False
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+            logger.warning(f"钉钉推送异常: {e}")
+            return False
+    return False
+
+
+def _send_wechat_work(title: str, content: str, level: str = "INFO") -> bool:
+    """发送到企业微信"""
+    if not WECHAT_WEBHOOK:
+        return False
+    text = _format_report_text(title, content, level)
+    payload = {"msgtype": "text", "text": {"content": text}}
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                WECHAT_WEBHOOK,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Connection": "close"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                result = json.loads(resp.read())
+                if result.get("errcode") == 0:
+                    logger.info(f"企业微信推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"企业微信推送失败: {result}")
+                    return False
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+            logger.warning(f"企业微信推送异常: {e}")
+            return False
+    return False
+
+
 def send_notification(
     title: str,
     content: str,
@@ -324,22 +279,33 @@ def send_notification(
     """
     统一推送入口，多通道并发发送
 
-    channels: list of ["serverchan", "feishu", "pushplus", "bark"]
-              None = 尝试所有已配置的通道
+    channels: list of ["dingtalk", "wechat", "feishu", "bark"]
+              None = 默认发送到钉钉+企业微信
     """
     results = {}
-    all_channels = channels or ["serverchan", "feishu", "pushplus", "bark"]
+    all_channels = channels or ["dingtalk", "wechat", "feishu", "bark"]
 
     for channel in all_channels:
-        if channel == "serverchan":
-            results["serverchan"] = send_via_serverchan(title, content, level)
+        if channel == "dingtalk":
+            results["dingtalk"] = _send_dingtalk(title, content, level)
+        elif channel == "wechat":
+            results["wechat"] = _send_wechat_work(title, content, level)
         elif channel == "feishu":
             results["feishu"] = send_via_feishu(title, content, level)
-        elif channel == "pushplus":
-            results["pushplus"] = send_via_pushplus(title, content)
         elif channel == "bark":
             results["bark"] = send_via_bark(title, content, level)
 
+    return results
+
+
+def send_bulk_notification(title: str, content: str, level: str = "INFO") -> dict:
+    """
+    高频通道批量推送（健康报告等）
+    仅使用钉钉+企业微信，不经过飞书/Bark避免频率限制
+    """
+    results = {}
+    results["dingtalk"] = _send_dingtalk(title, content, level)
+    results["wechat"] = _send_wechat_work(title, content, level)
     return results
 
 
@@ -387,19 +353,19 @@ if __name__ == "__main__":
 
     print("=== 推送测试 ===")
     print("已配置的通道:")
-    if SERVERCHAN_SENDKEY:
-        print(f"  ✅ Server酱: {SERVERCHAN_SENDKEY[:8]}...")
+    if DINGTALK_WEBHOOK:
+        print(f"  ✅ 钉钉: {DINGTALK_WEBHOOK[:50]}...")
+    if WECHAT_WEBHOOK:
+        print(f"  ✅ 企业微信: {WECHAT_WEBHOOK[:50]}...")
     if FEISHU_WEBHOOK:
         print(f"  ✅ 飞书: {FEISHU_WEBHOOK[:50]}...")
-    if PUSHPLUS_TOKEN:
-        print(f"  ✅ PushPlus: {PUSHPLUS_TOKEN[:8]}...")
     if BARK_URL:
         print(f"  ✅ Bark: {BARK_URL[:50]}...")
 
-    if not any([SERVERCHAN_SENDKEY, FEISHU_WEBHOOK, PUSHPLUS_TOKEN, BARK_URL]):
+    if not any([DINGTALK_WEBHOOK, WECHAT_WEBHOOK, FEISHU_WEBHOOK, BARK_URL]):
         print("\n未配置任何推送通道！")
         print("请设置以下环境变量之一:")
-        print("  SERVERCHAN_SENDKEY=你的SendKey  (Server酱)")
-        print("  FEISHU_WEBHOOK=你的Webhook URL  (飞书)")
-        print("  PUSHPLUS_TOKEN=你的Token  (PushPlus)")
+        print("  DINGTALK_WEBHOOK=你的钉钉机器人Webhook URL")
+        print("  WECHAT_WEBHOOK=你的企业微信机器人Webhook URL")
+        print("  FEISHU_WEBHOOK=你的飞书Webhook URL  (飞书)")
         print("  BARK_URL=你的Bark URL  (Bark)")

@@ -7,7 +7,7 @@ APScheduler 驱动 08:30 / 15:30 / 21:00 三个工作流
 import sys
 import logging
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 # APScheduler
 try:
@@ -821,6 +821,137 @@ def job_announcements_collection():
         _safe_error_alert("🔴 公告采集工作流异常", f"错误: {e}")
         try:
             send_job_failure("公告采集", str(e))
+        except Exception:
+            pass
+
+
+def job_sentiment_update():
+    """
+    21:00 情绪因子更新工作流（每日运行）
+    遍历持仓股 + 近期有新闻的股票，计算近30天新闻/公告情感得分
+    写入 market.sentiment_factors，供因子引擎实时查询
+    """
+    from sentiment_factor import analyze_sentiment
+    from pgcrypto_migration import load_positions_from_db
+
+    logger.info("=" * 50)
+    logger.info("21:00 情绪因子更新工作流启动")
+    try:
+        storage = get_storage()
+        cutoff = date.today() - timedelta(days=30)
+        cur = storage._ensure_pg() and storage._pg_conn.cursor()
+        if not cur:
+            storage.close()
+            logger.warning("无法获取数据库连接，跳过情绪因子更新")
+            return
+        updated = 0
+
+        # 获取持仓股代码
+        positions = load_positions_from_db()
+        stock_codes = set()
+        for p in positions:
+            if p.get("type") == "fund":
+                continue
+            code = p.get("code", "").zfill(6)
+            if code.startswith("15") or code.startswith("30") or code.startswith("00"):
+                ts_code = f"{code}.XSHE"
+            elif code.startswith("5") or code.startswith("6"):
+                ts_code = f"{code}.XSHG"
+            elif code.startswith("4") or code.startswith("8"):
+                ts_code = f"{code}.BJ"
+            else:
+                ts_code = f"{code}.XSHE"
+            stock_codes.add(ts_code)
+
+        # 补充近30天有新闻/公告的股票
+        cur.execute("""
+            SELECT DISTINCT substring(title from 1 for 6) as code
+            FROM research.news_articles
+            WHERE published_at >= %s
+              AND title ~ '^[0-9]{6}'
+        """, (cutoff,))
+        for row in cur.fetchall():
+            code = row[0]
+            if code:
+                if code.startswith(("00", "30", "15")):
+                    stock_codes.add(f"{code}.XSHE")
+                elif code.startswith(("5", "6")):
+                    stock_codes.add(f"{code}.XSHG")
+                elif code.startswith(("4", "8")):
+                    stock_codes.add(f"{code}.BJ")
+
+        logger.info(f"情绪因子计算范围: {len(stock_codes)} 只股票")
+        for ts_code in stock_codes:
+            try:
+                plain_code = ts_code.split('.')[0]
+                scores = []
+
+                # 新闻情感
+                cur.execute("""
+                    SELECT title, content FROM research.news_articles
+                    WHERE published_at >= %s
+                      AND (title ~ %s OR content ~ %s)
+                """, (cutoff, plain_code, plain_code))
+                for row in cur.fetchall():
+                    title, content = row
+                    text = f"{title or ''} {content or ''}"
+                    result = analyze_sentiment(text)
+                    scores.append(result["score"])
+
+                # 公告情感
+                cur.execute("""
+                    SELECT title FROM research.announcements
+                    WHERE ts_code = %s AND notice_date >= %s
+                """, (plain_code, cutoff))
+                for row in cur.fetchall():
+                    title = row[0]
+                    if title:
+                        result = analyze_sentiment(title)
+                        scores.append(result["score"])
+
+                if not scores:
+                    continue
+
+                avg_score = sum(scores) / len(scores)
+                pos_count = sum(1 for s in scores if s > 0.1)
+                neg_count = sum(1 for s in scores if s < -0.1)
+
+                cur.execute("""
+                    INSERT INTO market.sentiment_factors
+                        (ts_code, score, pos_count, neg_count, confidence, source, calc_date)
+                    VALUES (%s, %s, %s, %s, %s, 'news', %s)
+                    ON CONFLICT (ts_code, source, calc_date)
+                    DO UPDATE SET
+                        score = EXCLUDED.score,
+                        pos_count = EXCLUDED.pos_count,
+                        neg_count = EXCLUDED.neg_count,
+                        confidence = EXCLUDED.confidence,
+                        created_at = CURRENT_TIMESTAMP
+                """, (ts_code, avg_score, pos_count, neg_count, min(len(scores) / 20, 1.0), date.today()))
+                updated += 1
+            except Exception as e:
+                logger.warning(f"情绪因子计算失败 {ts_code}: {e}")
+
+        storage._pg_conn.commit()
+        cur.close()
+        storage.close()
+
+        storage.write_audit(
+            "SCHEDULED_SENTIMENT_UPDATE", "SYSTEM",
+            detail={"updated": updated, "triggered_at": datetime.now().isoformat()},
+            result="SUCCESS"
+        )
+        logger.info(f"情绪因子更新完成: {updated} 只股票")
+        send_notification(
+            "📊 情绪因子更新完成",
+            f"共更新 {updated} 只股票近30天情感得分，已写入 market.sentiment_factors",
+            level="INFO"
+        )
+    except Exception as e:
+        logger.error(f"情绪因子更新工作流异常: {e}")
+        _safe_error_alert("🔴 情绪因子更新异常", f"错误: {e}")
+        try:
+            send_job_failure("情绪因子更新", str(e))
         except Exception:
             pass
 
@@ -1747,6 +1878,15 @@ def start_scheduler():
         CronTrigger(hour=21, minute=0, timezone="Asia/Shanghai"),
         id="evening_routine",
         name="晚间工作流 (21:00)",
+        replace_existing=True,
+    )
+
+    # 21:05 情绪因子更新（每日 21:05，基于最新新闻/公告计算情感得分）
+    _scheduler.add_job(
+        job_sentiment_update,
+        CronTrigger(hour=21, minute=5, timezone="Asia/Shanghai"),
+        id="sentiment_update",
+        name="情绪因子更新 (21:05)",
         replace_existing=True,
     )
 

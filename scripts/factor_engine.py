@@ -1,6 +1,6 @@
 """
 factor_engine.py — 多因子选股/评分引擎
-提供 6 因子评分模型，支持可配置权重、Z-score 标准化、综合评分排名
+提供 7 因子评分模型，支持可配置权重、Z-score 标准化、综合评分排名
 
 因子体系:
   1. 价值因子 (Value): PE_TTM, PB — 越低越好
@@ -9,6 +9,7 @@ factor_engine.py — 多因子选股/评分引擎
   4. 波动率因子 (Volatility): 年化波动率 — 越低越好
   5. 技术因子 (Technical): RSI 位置, 均线偏离度
   6. 规模因子 (Size): 总市值
+  7. 情绪因子 (Sentiment): 新闻/公告情感分析得分
 """
 
 import logging
@@ -38,6 +39,7 @@ DEFAULT_WEIGHTS = {
     "volatility": 0.10,
     "technical": 0.15,
     "size": 0.10,
+    "sentiment": 0.00,  # 默认不启用，待 job_sentiment_update 填充数据后开启
 }
 
 
@@ -415,6 +417,76 @@ def calc_size_factor(ts_code: str, price: float = 0) -> float:
         return -1.0
 
 
+def get_sentiment_factor(ts_code: str, days: int = 30) -> float:
+    """
+    获取个股近 N 天新闻/公告的平均情感得分
+
+    Args:
+        ts_code: 股票代码 (如 000001.XSHE)
+        days: 回溯天数，默认 30
+
+    Returns:
+        平均情感得分 (-1.0 ~ 1.0)，无数据返回 0.0
+    """
+    from sentiment_factor import analyze_sentiment
+
+    conn = _get_db_conn()
+    try:
+        cur = conn.cursor()
+        cutoff = date.today() - timedelta(days=days)
+
+        # 查询 news_articles（关联 ts_code 用 title/content 匹配）
+        # announcements 直接有 ts_code
+        scores = []
+
+        # 新闻：需要通过关键词模糊匹配 ts_code（标题含代码或名称）
+        cur.execute("""
+            SELECT title, content FROM research.news_articles
+            WHERE published_at >= %s
+              AND (title ~ %s OR content ~ %s)
+        """, (cutoff, ts_code.split('.')[0], ts_code.split('.')[0]))
+        for row in cur.fetchall():
+            title, content = row
+            text = f"{title or ''} {content or ''}"
+            result = analyze_sentiment(text)
+            scores.append(result["score"])
+
+        # 公告
+        ann_code = ts_code.split('.')[0]
+        cur.execute("""
+            SELECT title FROM research.announcements
+            WHERE ts_code = %s AND notice_date >= %s
+        """, (ann_code, cutoff))
+        for row in cur.fetchall():
+            title = row[0]
+            if title:
+                result = analyze_sentiment(title)
+                scores.append(result["score"])
+
+        cur.close()
+        if scores:
+            return round(sum(scores) / len(scores), 4)
+        return 0.0
+    finally:
+        conn.close()
+
+
+def calc_sentiment_factor(ts_code: str, days: int = 30) -> float:
+    """
+    计算情绪因子得分（基于近 N 天新闻/公告情感分析）
+
+    Args:
+        ts_code: 股票代码
+        days: 回溯天数
+
+    Returns:
+        情绪因子原始得分（越高表示市场情绪越正面）
+    """
+    score = get_sentiment_factor(ts_code, days)
+    # 将 -1~1 转换为 0~5 得分区间
+    return (score + 1.0) * 2.5
+
+
 # ============================================================================
 # 因子引擎主类
 # ============================================================================
@@ -422,7 +494,7 @@ def calc_size_factor(ts_code: str, price: float = 0) -> float:
 class FactorEngine:
     """
     多因子选股评分引擎
-    支持 6 大类因子，可配置权重，Z-score 标准化排名
+    支持 7 大类因子，可配置权重，Z-score 标准化排名
     """
 
     def __init__(self, weights: Optional[dict] = None):
@@ -465,6 +537,7 @@ class FactorEngine:
             "volatility": calc_volatility_factor(ts_code),
             "technical": calc_technical_factor(ts_code),
             "size": calc_size_factor(ts_code, price),
+            "sentiment": calc_sentiment_factor(ts_code),
         }
 
         weighted = {k: raw_scores[k] * self.weights.get(k, 0) for k in raw_scores}

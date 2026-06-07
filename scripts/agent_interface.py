@@ -68,7 +68,6 @@ class DeepSeekAgent(AgentInterface):
     """DeepSeek API 实现"""
 
     def __init__(self, api_key: str = None, base_url: str = None):
-        import os
         from llm_caller import get_llm_client
         self.api_key = api_key or _get_agent_cred("DEEPSEEK_API_KEY")
         self.base_url = base_url or _get_agent_cred("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
@@ -105,7 +104,6 @@ class OllamaAgent(AgentInterface):
     """Ollama 本地模型实现"""
 
     def __init__(self, base_url: str = None, model: str = None):
-        import os
         self.base_url = base_url or _get_agent_cred("OLLAMA_BASE_URL", "http://localhost:11434")
         self.model = model or _get_agent_cred("LOCAL_MODEL", "gemma4:e4b")
 

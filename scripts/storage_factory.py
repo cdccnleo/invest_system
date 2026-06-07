@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from contextlib import contextmanager
 
 import psycopg2
+from psycopg2 import pool
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
@@ -22,6 +23,27 @@ try:
     _HAS_CREDENTIALS = True
 except ImportError:
     _HAS_CREDENTIALS = False
+
+# Connection pool — initialized on first use
+_connection_pool: "pool.ThreadedConnectionPool | None" = None
+
+def _get_pool(minconn=2, maxconn=10):
+    global _connection_pool
+    if _connection_pool is None:
+        pwd = get_credential("DB_PASSWORD") if _HAS_CREDENTIALS else os.environ.get("DB_PASSWORD", "")
+        _connection_pool = pool.ThreadedConnectionPool(
+            minconn, maxconn,
+            host="localhost",
+            user="invest_admin",
+            database="investpilot",
+            password=pwd,
+        )
+    return _connection_pool
+
+def _get_pg_conn():
+    """从连接池获取一个连接（用完后归还）"""
+    p = _get_pool()
+    return p.getconn()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
@@ -101,8 +123,8 @@ def get_pg_connection():
 
 @contextmanager
 def pg_cursor():
-    """PostgreSQL 游标上下文管理器"""
-    conn = get_pg_connection()
+    """PostgreSQL 游标上下文管理器（使用连接池）"""
+    conn = _get_pg_conn()
     if conn is None:
         yield None, None
         return
@@ -111,7 +133,7 @@ def pg_cursor():
         yield conn, cursor
     finally:
         cursor.close()
-        conn.close()
+        _get_pool().putconn(conn)
 
 
 # ─── SQLite 降级 ────────────────────────────────────────────────────────────
@@ -155,11 +177,13 @@ class StorageBackend:
     def __init__(self):
         self.pg_available = get_pg_connection() is not None
         self._pg_conn = None
+        self._pool = None
 
     def _ensure_pg(self):
         if not self.pg_available:
             return False
-        self._pg_conn = get_pg_connection()
+        self._pool = _get_pool()
+        self._pg_conn = _get_pg_conn()
         return self._pg_conn is not None
 
     # ── 行情数据写入 ────────────────────────────────────────────────────────
@@ -484,8 +508,10 @@ class StorageBackend:
             return []
 
     def close(self):
-        if self._pg_conn:
-            self._pg_conn.close()
+        """归还连接到池"""
+        if self._pg_conn and self._pool:
+            self._pool.putconn(self._pg_conn)
+            self._pg_conn = None
 
 
 # ─── 全局单例 ────────────────────────────────────────────────────────────────

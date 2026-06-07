@@ -2079,6 +2079,20 @@ def start_scheduler():
     except ImportError:
         logger.warning("backup_manager 未就绪，跳过备份任务注册")
 
+    # 每日 16:00 数据库增量备份 — 滚动保留 7 份（非仅交易日）
+    try:
+        from backup_manager import job_daily_backup
+        _scheduler.add_job(
+            job_daily_backup,
+            CronTrigger(hour=16, minute=0, timezone="Asia/Shanghai"),
+            id="db_backup_daily",
+            name="每日 pg_dump 备份 (16:00)",
+            replace_existing=True,
+            misfire_grace_time=600,
+        )
+    except ImportError:
+        logger.warning("backup_manager.job_daily_backup 未就绪，跳过每日备份任务注册")
+
     # === AInvest 知识库任务（新增）===
 
     # 盘前检查（07:30 -- 检查前日 AInvest 报告更新）

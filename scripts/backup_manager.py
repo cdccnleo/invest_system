@@ -10,12 +10,18 @@ backup_manager.py — 数据库自动备份与恢复管理器
 """
 
 import os
+import sys
 import subprocess
 import json
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
+
+# 确保 scripts/ 目录在 path 中（支持直接运行脚本时 import credentials 等）
+_ROOT = Path(__file__).parent.parent
+if str(_ROOT / "scripts") not in sys.path:
+    sys.path.insert(0, str(_ROOT / "scripts"))
 
 logger = logging.getLogger("backup_manager")
 
@@ -207,7 +213,15 @@ class DatabaseBackupManager:
 
 
 def _load_password() -> str:
-    """从凭据存储加载数据库密码"""
+    """从 credentials 模块加载数据库密码"""
+    try:
+        from credentials import get_credential
+        pw = get_credential("DB_PASSWORD")
+        if pw:
+            return pw
+    except Exception:
+        pass
+    # 降级：尝试本地存储文件
     try:
         store_path = Path.home() / ".hermes" / "invest_credentials" / "store.json"
         if store_path.exists():
@@ -217,6 +231,87 @@ def _load_password() -> str:
     except Exception:
         pass
     return ""
+
+
+def run_pg_dump() -> bool:
+    """
+    执行 pg_dump 每日备份（压缩自定义格式 .sql.gz）。
+    使用 credentials.get_credential("DB_PASSWORD") 获取密码。
+    返回是否成功。
+    """
+    from datetime import date
+    from credentials import get_credential
+
+    today = date.today().isoformat()
+    backup_dir = Path.home() / "invest_data" / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_file = backup_dir / f"investpilot_{today}.sql.gz"
+
+    password = get_credential("DB_PASSWORD") or ""
+    env = os.environ.copy()
+    env["PGPASSWORD"] = password
+
+    result = subprocess.run(
+        ["pg_dump", "-U", "invest_admin", "-d", "investpilot",
+         "-h", "localhost", "-Fc", "-c", "--if-exists"],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        with open(backup_file, "wb") as f:
+            f.write(result.stdout)
+        logger.info(f"pg_dump 备份成功: {backup_file}")
+        return True
+    else:
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        logger.error(f"pg_dump 备份失败: {stderr[:200]}")
+        return False
+
+
+def cleanup_old_backups(days: int = 7):
+    """
+    删除超过 days 天的备份文件（滚动清理）。
+    """
+    import time
+
+    backup_dir = Path.home() / "invest_data" / "backups"
+    if not backup_dir.exists():
+        return
+
+    now = time.time()
+    cutoff = days * 86400
+    deleted = 0
+    for f in backup_dir.iterdir():
+        if f.is_file() and (now - f.stat().st_mtime) > cutoff:
+            f.unlink()
+            deleted += 1
+            logger.info(f"清理过期备份: {f.name}")
+
+    if deleted > 0:
+        logger.info(f"清理 {deleted} 个过期备份")
+
+
+def job_daily_backup():
+    """
+    每日备份任务（供 schedule_runner 调用）。
+    每日 16:00 执行（非仅交易日），滚动保留 7 份。
+    失败时发送错误告警。
+    """
+    logger.info("开始每日 pg_dump 备份...")
+    success = run_pg_dump()
+    if success:
+        cleanup_old_backups(days=7)
+        logger.info("每日备份完成")
+    else:
+        logger.error("每日备份失败")
+        # 尝试发送告警（导入延迟避免循环依赖）
+        try:
+            from notification import send_error_alert
+            send_error_alert("❌ 每日备份失败", "pg_dump 备份任务执行失败，请检查数据库连接和备份目录磁盘空间。")
+        except Exception:
+            pass
+    return success
 
 
 def backup_job():

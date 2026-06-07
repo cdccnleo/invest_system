@@ -39,6 +39,7 @@ def render_ainvest_kb():
         _render_settings()
 
 
+@st.cache_data(ttl=3600)
 def _get_db_conn():
     """获取数据库连接"""
     from storage_factory import get_pg_connection
@@ -46,6 +47,51 @@ def _get_db_conn():
     if conn is None:
         st.warning("⚠️ 数据库不可用")
     return conn
+
+
+@st.cache_data(ttl=300)
+def report_count_by_type():
+    """按类型统计报告数量"""
+    conn = _get_db_conn()
+    if conn is None:
+        return {}
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT report_type, COUNT(*) as cnt
+            FROM ainvest_kb.parsed_reports
+            GROUP BY report_type
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
+
+
+@st.cache_data(ttl=300)
+def recent_scan_stats():
+    """获取最近扫描统计"""
+    conn = _get_db_conn()
+    if conn is None:
+        return []
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT scan_start, total_files, new_files, changed_files,
+                   parsed_ok, parsed_failed
+            FROM ainvest_kb.scan_audit
+            ORDER BY id DESC LIMIT 5
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    except Exception:
+        return []
+    finally:
+        conn.close()
 
 
 def _render_report_overview():
@@ -439,6 +485,15 @@ def _render_settings():
         | 15:30 | 盘后扫描 | 采集当日新增报告 |
         | 21:30 | 晚间完整处理 | 深度解析 + 向量嵌入 + TAMF 联动 |
         """)
+
+        # 缓存管理
+        st.markdown("### 缓存管理")
+        col_clear, col_spacer = st.columns([1, 2])
+        with col_clear:
+            if st.button("🗑️ 清除缓存", use_container_width=True):
+                st.cache_data.clear()
+                st.success("缓存已清除")
+        st.caption("知识库连接缓存 (1小时) | 统计数据缓存 (5分钟)")
 
         # 显示最近扫描审计
         try:

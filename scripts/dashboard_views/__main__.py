@@ -386,11 +386,8 @@ from dashboard_views._strategies import render_strategy_comparison
 from dashboard_views._factors import render_factor_analysis
 from dashboard_views._ainvest_kb import render_ainvest_kb
 
-# ── 共享数据函数（来自 dashboard.py）────────────────────────────────────────
-from pathlib import Path as _Path
-# dashboard.py 在上一级目录
-sys.path.insert(0, str(_Path(__file__).parent.parent))
-from dashboard import load_positions, get_news_count
+# ── 共享数据函数（来自 _shared.py）────────────────────────────────────────────
+from dashboard_views._shared import load_positions, get_news_count
 
 # ── 主程序 ──────────────────────────────────────────────────────────────────
 

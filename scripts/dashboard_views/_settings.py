@@ -8,8 +8,7 @@ import streamlit as st
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
-from dashboard import ensure_plan_review_table, POSITIONS_CSV
-from ._shared import get_db_connection
+from ._shared import get_db_connection, ensure_plan_review_table, POSITIONS_CSV
 
 def render_plan_review():
     """计划审核页面：读取历史分析中的 plans，滑块+勾选批准/否决，写入 plan_reviews 并记录到 audit_log"""

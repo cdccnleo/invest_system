@@ -125,3 +125,25 @@ def set_sync_status(data_type: str, last_sync=None, syncing=None):
         status["last_sync"] = last_sync
     if syncing is not None:
         status["syncing"] = syncing
+
+
+# ── 数据库表初始化 ────────────────────────────────────────────────────────────
+
+def ensure_plan_review_table(conn):
+    """确保 analysis schema 和 plan_review 表存在"""
+    cur = conn.cursor()
+    cur.execute("CREATE SCHEMA IF NOT EXISTS analysis")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS analysis.plan_reviews (
+            id SERIAL PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            plan_index INTEGER NOT NULL,
+            decision TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+            position_pct INTEGER NOT NULL,
+            reason TEXT DEFAULT '',
+            reviewed_by TEXT DEFAULT 'manual',
+            reviewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(run_id, plan_index)
+        )
+    """)
+    conn.commit()

@@ -291,7 +291,7 @@ def embed_reports(report_ids: list[int] = None):
                     SELECT id, title, summary, source
                     FROM research.research_reports
                     WHERE id = ANY(%s)
-                      AND id NOT IN (SELECT report_id FROM research.report_embeddings WHERE report_id IS NOT NULL)  # noqa: E501
+                      AND id NOT IN (SELECT report_id FROM research.report_embeddings WHERE report_id IS NOT NULL)
                 """, (report_ids,))
             else:
                 cur.execute("""

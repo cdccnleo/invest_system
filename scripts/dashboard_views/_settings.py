@@ -192,7 +192,7 @@ def render_plan_review():
                         pct = st.session_state.get(f"pct_{plan_id}", 50)
                         reason = st.session_state.get(f"reason_{plan_id}", "") or ""
                         cur.execute("""
-                            INSERT INTO analysis.plan_reviews (run_id, plan_index, decision, position_pct, reason)  # noqa: E501
+                            INSERT INTO analysis.plan_reviews (run_id, plan_index, decision, position_pct, reason)
                             VALUES (%s, %s, %s, %s, %s)
                             ON CONFLICT (run_id, plan_index)
                             DO UPDATE SET decision = EXCLUDED.decision,

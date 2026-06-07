@@ -211,7 +211,7 @@ class StorageBackend:
                     ON CONFLICT (ts_code, trade_date) DO UPDATE SET
                         close_price = EXCLUDED.close_price,
                         change_pct = EXCLUDED.change_pct,
-                        volume = CASE WHEN EXCLUDED.volume > 0 THEN EXCLUDED.volume ELSE market.daily_quotes.volume END,  # noqa: E501
+                        volume = CASE WHEN EXCLUDED.volume > 0 THEN EXCLUDED.volume ELSE market.daily_quotes.volume END,
                         source = EXCLUDED.source
                 """, (
                     q["ts_code"], q["trade_date"],

@@ -97,7 +97,7 @@ def check_api_error_rate() -> dict:
         cur.execute("""
             SELECT
                 COUNT(*) as total,
-                SUM(CASE WHEN result = 'ERROR' OR detail::text LIKE '%error%' THEN 1 ELSE 0 END) as errors  # noqa: E501
+                SUM(CASE WHEN result = 'ERROR' OR detail::text LIKE '%error%' THEN 1 ELSE 0 END) as errors
             FROM audit.audit_log
             WHERE event_type IN ('LLM_CALL', 'ANALYSIS_COMPLETE', 'QUALITY_ASSESSMENT')
               AND event_time >= NOW() - INTERVAL '24 hours'
@@ -128,7 +128,7 @@ def check_schedule_health() -> dict:
         cur.execute("""
             SELECT event_type, MAX(event_time)
             FROM audit.audit_log
-            WHERE event_type IN ('SCHEDULED_MORNING_RUN', 'SCHEDULED_EVENING_RUN', 'DAILY_REFLECTION')  # noqa: E501
+            WHERE event_type IN ('SCHEDULED_MORNING_RUN', 'SCHEDULED_EVENING_RUN', 'DAILY_REFLECTION')
             GROUP BY event_type
             ORDER BY 2 DESC
         """)

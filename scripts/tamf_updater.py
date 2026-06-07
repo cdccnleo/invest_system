@@ -116,7 +116,7 @@ def load_recent_quotes(ts_code: str, days: int = 20) -> list[dict]:
     try:
         cur = conn.cursor()
         cur.execute("""
-            SELECT trade_date, open_price, high_price, low_price, close_price, volume, amount, change_pct  # noqa: E501
+            SELECT trade_date, open_price, high_price, low_price, close_price, volume, amount, change_pct
             FROM market.daily_quotes
             WHERE ts_code = %s
             ORDER BY trade_date DESC
@@ -674,7 +674,7 @@ def init_all_tamf_files() -> dict:
                 cur = conn.cursor()
                 cur.execute("""
                     INSERT INTO memory.target_timeline_events
-                        (ts_code, event_time, event_type, event_source, severity, title, description)  # noqa: E501
+                        (ts_code, event_time, event_type, event_source, severity, title, description)
                     VALUES (%s, NOW(), 'TAMF_INIT', 'SYSTEM', 'INFO',
                             'TAMF文件首次初始化', '批量初始化脚本生成初始TAMF文件')
                 """, (code,))

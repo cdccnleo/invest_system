@@ -73,7 +73,7 @@ def ensure_table():
                 id BIGSERIAL PRIMARY KEY,
                 ts_code VARCHAR(20) NOT NULL,          -- 股票代码，如 '300059'
                 report_date DATE NOT NULL,             -- 报告期
-                report_type VARCHAR(20),                -- 报告类型：年报/半年报/三季报/一季报/一季报  # noqa: E501
+                report_type VARCHAR(20),                -- 报告类型：年报/半年报/三季报/一季报
                 eps DECIMAL(20, 6),                   -- 每股收益(元)
                 bps DECIMAL(20, 6),                   -- 每股净资产(元)
                 roe DECIMAL(10, 4),                   -- 净资产收益率(%)

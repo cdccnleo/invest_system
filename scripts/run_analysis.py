@@ -518,7 +518,7 @@ def run_analysis():
                 import json as _json
                 cur2 = pg_conn.cursor()
                 cur2.execute("""
-                    INSERT INTO analysis.analysis_runs (run_id, completed_at, detail, plans, confidence)  # noqa: E501
+                    INSERT INTO analysis.analysis_runs (run_id, completed_at, detail, plans, confidence)
                     VALUES (%s, NOW(), %s, %s, %s)
                     ON CONFLICT (run_id) DO UPDATE SET
                         detail = EXCLUDED.detail,

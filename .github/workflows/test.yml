@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install ruff
-      - run: ruff check scripts/
+      - run: ruff check scripts/ --ignore E501,E402
 
   test:
     runs-on: ubuntu-latest

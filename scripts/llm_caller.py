@@ -9,7 +9,6 @@ import json
 import logging
 import time
 import re
-from typing import Optional
 
 import openai
 from pathlib import Path
@@ -26,6 +25,15 @@ try:
 except ImportError:
     _HAS_CREDENTIALS = False
     _get_cred = None
+
+# ── 语义缓存（减少重复 LLM 调用）────────────────────────────────────────
+try:
+    from llm_cache import SemanticCache
+    _semantic_cache = SemanticCache(max_size=200, ttl_seconds=86400)
+    _CACHE_ENABLED = True
+except ImportError:
+    _semantic_cache = None
+    _CACHE_ENABLED = False
 
 
 def _deepseek_api_key() -> str:
@@ -58,9 +66,19 @@ class DeepSeekClient:
 
     def chat(self, prompt: str, system: str = "") -> dict:
         """
-        调用 DeepSeek API。
+        调用 DeepSeek API（支持语义缓存）。
+        缓存键：prompt + system 的组合 MD5。
         返回 {"content": str, "error": str|None}
         """
+        cache_key = None
+        # ── 缓存查询 ───────────────────────────────
+        if _CACHE_ENABLED and _semantic_cache is not None:
+            cache_key = f"ds:{system}:{prompt}" if system else f"ds::{prompt}"
+            cached = _semantic_cache.get(cache_key)
+            if cached is not None:
+                logger.info("语义缓存命中（DeepSeek），跳过 API 调用")
+                return cached
+
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -86,7 +104,14 @@ class DeepSeekClient:
                         f"输入 {usage.prompt_tokens} tokens, "
                         f"输出 {usage.completion_tokens} tokens")
 
-            return {"content": content, "error": None}
+            result = {"content": content, "error": None}
+
+            # ── 缓存写入 ───────────────────────────
+            if _CACHE_ENABLED and _semantic_cache is not None and not result.get("error"):
+                _semantic_cache.set(cache_key, result)
+                logger.info("语义缓存已写入（DeepSeek）")
+
+            return result
 
         except Exception as e:
             logger.error(f"DeepSeek API 调用失败: {e}")
@@ -165,7 +190,6 @@ def _parse_llm_response(content: str) -> dict:
     返回 {"plans": [], "risks": [], "market_outlook": "", "confidence_level": ""}
     如果不是 JSON 格式，返回合理的降级结果。
     """
-    import json, re
     # 尝试直接解析
     try:
         return json.loads(content)

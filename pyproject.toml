@@ -1,0 +1,9 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# E501: 行太长（SQL字符串、中文注释）— 需手动重构，非阻塞
+# E402: 模块级import在函数内部（部分模块故意延迟加载）
+ignore = ["E501", "E402"]

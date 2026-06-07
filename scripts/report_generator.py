@@ -285,7 +285,6 @@ def generate_excel_report(positions: list[dict], output_path: str = None) -> str
     # ── Sheet 2: 盈亏统计 ────────────────────────────────────────────────────
     ws2 = wb.create_sheet("盈亏统计")
 
-    total_shares = sum(p.get("shares", p.get("份额", 0)) for p in positions)
     total_cost = sum(p.get("shares", p.get("份额", 0)) * p.get("avg_cost", p.get("成本", 0)) for p in positions)
     total_mv = sum(p.get("market_value", p.get("市值", 0)) for p in positions)
     total_profit = total_mv - total_cost

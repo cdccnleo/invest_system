@@ -94,7 +94,6 @@ def get_equity_curve(days: int = 365) -> list[dict]:
             storage.close()
             return []
 
-        conn = storage._pg_conn  # type: ignore[assignment]
         cur.execute("""
             SELECT calc_date, total_value, position_count
             FROM market.portfolio_equity_curve

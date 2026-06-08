@@ -12,6 +12,40 @@ from datetime import date
 from pathlib import Path as _Path
 import sys as _sys
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
+import numpy as np
+
+
+# ── 持仓成本语义 ──────────────────────────────────────────────────────────────
+# 4 类数据源的成本字段语义不一致:
+#   - 股票/ETF (国金/广发): cost = 单位成本 (单价) → 持仓成本 = 份额 × cost
+#   - 场外基金 (天天/汇添富): cost = 投入本金总额 → 持仓成本 = cost
+# 旧公式: 盈亏 = 市值 - 份额 × cost  → 场外基金算出 -36 万亿 荒诞值
+# 新公式: 盈亏 = 市值 - 持仓成本
+def _position_cost(df: "pd.DataFrame") -> pd.Series:  # type: ignore[type-arg]
+    """计算每只持仓的总成本（处理场外基金 vs 股票/ETF 的语义差异）
+
+    启发式: 场外基金 cost 字段是"投入本金"（≥数千）,
+            股票/ETF cost 字段是"单价"（<100）。
+    若未来数据复杂化，可改用 type 字段精确判断。
+    """
+    is_offboard_fund: pd.Series = (
+        df["类型"].isin(["fund"]) & (df["成本"] > 1000)  # type: ignore[reportOperatorIssue]
+    )
+    cost_total: pd.Series = df["成本"].where(  # type: ignore[reportCallIssue]
+        is_offboard_fund, df["份额"] * df["成本"]
+    )
+    return cost_total.astype(float)
+
+
+def _position_pnl(df: "pd.DataFrame") -> pd.Series:  # type: ignore[type-arg]
+    """盈亏 = 市值 - 持仓成本（已处理成本语义差异）"""
+    return (df["市值"] - _position_cost(df)).astype(float)  # type: ignore[reportCallIssue]
+
+
+def _position_pnl_pct(df: "pd.DataFrame") -> pd.Series:  # type: ignore[type-arg]
+    """盈亏% = (市值 / 持仓成本 - 1) × 100"""
+    cost = _position_cost(df).replace(0, np.nan)  # type: ignore[reportCallIssue]
+    return ((df["市值"] / cost) - 1) * 100
 
 
 # ── Excel 报告缓存 ────────────────────────────────────────────────────────────
@@ -163,7 +197,7 @@ def render_portfolio_dashboard():
     # 顶部 KPI 卡片（6列）
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
 
-    total_cost = (df["份额"] * df["成本"]).sum()
+    total_cost = _position_cost(df).sum()
     total_pnl = total_mv - total_cost
     pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0
 
@@ -200,7 +234,7 @@ def render_portfolio_dashboard():
         st.metric("📊 基金/ETF", fund_count)
     with kpi6:
         # 亏损标的数
-        loss_count = len(df[df["市值"] < df["份额"] * df["成本"]])
+        loss_count = len(df[df["市值"] < _position_cost(df)])
         st.metric("🔴 浮亏标的", loss_count,
                   delta=f"-{loss_count}" if loss_count > 0 else "0")
 
@@ -235,10 +269,10 @@ def render_portfolio_dashboard():
     elif sort_by == "市值":
         df_filtered = df_filtered.sort_values("市值", ascending=ascending)
     elif sort_by == "盈亏":
-        df_filtered["盈亏"] = df_filtered["市值"] - df_filtered["份额"] * df_filtered["成本"]
+        df_filtered["盈亏"] = _position_pnl(df_filtered)
         df_filtered = df_filtered.sort_values("盈亏", ascending=ascending)
     elif sort_by == "盈亏%":
-        df_filtered["盈亏%"] = ((df_filtered["市值"] / (df_filtered["份额"] * df_filtered["成本"])) - 1) * 100  # noqa: E501
+        df_filtered["盈亏%"] = _position_pnl_pct(df_filtered)
         df_filtered = df_filtered.sort_values("盈亏%", ascending=ascending)
     else:
         df_filtered = df_filtered.sort_values("名称", ascending=ascending)
@@ -247,9 +281,8 @@ def render_portfolio_dashboard():
     export_col1, export_col2, export_col3 = st.columns([1, 1, 1])
     with export_col1:
         csv_data = df_filtered[["代码", "名称", "成本", "市值", "仓位%", "份额"]].copy()
-        csv_data["盈亏"] = csv_data["市值"] - csv_data["份额"] * csv_data["成本"]
-        csv_data["盈亏%"] = ((csv_data["市值"] / (csv_data["份额"] * csv_data["成本"])) - 1) * 100
-        csv_data["盈亏%"] = csv_data["盈亏%"].round(2)
+        csv_data["盈亏"] = _position_pnl(csv_data)
+        csv_data["盈亏%"] = _position_pnl_pct(csv_data).round(2)
         st.download_button(
             "📥 导出 CSV",
             data=csv_data.to_csv(index=False).encode("utf-8-sig"),
@@ -388,9 +421,9 @@ def render_portfolio_dashboard():
         # 持仓明细表
         st.markdown("### 持仓明细")
 
-        # 计算盈亏列（市值 - 份额 × 成本）
-        df["盈亏"] = (df["市值"] - df["份额"] * df["成本"]).round(2)
-        df["盈亏%"] = (((df["市值"] / (df["份额"] * df["成本"])) - 1) * 100).round(2).replace([float("inf"), float("-inf")], 0).fillna(0)  # noqa: E501
+        # 计算盈亏列（市值 - 持仓成本；处理场外基金 vs 股票/ETF 语义差异）
+        df["盈亏"] = _position_pnl(df).round(2)
+        df["盈亏%"] = _position_pnl_pct(df).round(2).replace([float("inf"), float("-inf")], 0).fillna(0)
 
         # 类型映射
         type_icon = {"fund": "📊", "stock": "🏦", "etf": "📈"}

@@ -10,6 +10,7 @@ Designed for WSL environments without systemd.
 
 from __future__ import annotations
 
+import fcntl
 import logging
 import os
 import signal
@@ -140,6 +141,17 @@ def shutdown_services(services: list[ServiceProcess]) -> None:
 
 # ── main ─────────────────────────────────────────────────────────────────────
 def main() -> None:
+    # 单实例锁：防止多个 watchdog 同时跑导致 streamlit/schedule_runner 被 spawn 多次
+    lock_path = WORK_DIR / "logs" / ".watchdog.lock"
+    try:
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fd.write(str(os.getpid()))
+        lock_fd.flush()
+    except (BlockingIOError, OSError):
+        log.error("Watchdog 已在运行（lock 被占），当前进程退出。")
+        sys.exit(0)
+
     log.info("Watchdog daemon starting — PID %d", os.getpid())
     log.info("Working directory: %s", WORK_DIR)
 

@@ -5,6 +5,7 @@ APScheduler 驱动 08:30 / 15:30 / 21:00 三个工作流
 """
 
 import sys
+import os
 import logging
 from pathlib import Path
 from datetime import datetime, date, timedelta
@@ -21,6 +22,19 @@ except ImportError:
 # ── 路径设置 ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+
+# ── 单实例锁（防止 watchdog 重启 / 误启导致双跑重复 job）────────────────
+import fcntl as _fcntl
+_LOCK_PATH = ROOT / "logs" / ".schedule_runner.lock"
+try:
+    _LOCK_FD = open(_LOCK_PATH, "w")
+    _fcntl.flock(_LOCK_FD, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+    _LOCK_FD.write(str(os.getpid()))
+    _LOCK_FD.flush()
+    print(f"[INFO] schedule_runner 锁获取成功 PID={os.getpid()}", flush=True)
+except (BlockingIOError, OSError):
+    print(f"[ERROR] schedule_runner 已在运行（lock 被占），当前进程退出。", flush=True)
+    sys.exit(0)
 
 from dotenv import load_dotenv
 load_dotenv(str(ROOT / ".env"))

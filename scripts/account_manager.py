@@ -57,6 +57,7 @@ def get_account_positions(account_id: str) -> list[dict]:
             positions.append({
                 "code": str(row["code"]).zfill(6),
                 "name": row.get("name", ""),
+                "type": row.get("type", "stock"),
                 "shares": float(row.get("shares", 0)),
                 "avg_cost": float(row.get("cost", 0)),
                 "market_value": float(row.get("market_value", 0)),

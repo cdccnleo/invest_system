@@ -279,7 +279,7 @@ def render_portfolio_dashboard():
     # ── 导出按钮 ─────────────────────────────────────────
     export_col1, export_col2, export_col3 = st.columns([1, 1, 1])
     with export_col1:
-        csv_data = df_filtered[["代码", "名称", "成本", "市值", "仓位%", "份额"]].copy()
+        csv_data = df_filtered[["类型", "代码", "名称", "成本", "市值", "仓位%", "份额"]].copy()
         csv_data["盈亏"] = _position_pnl(csv_data)
         csv_data["盈亏%"] = _position_pnl_pct(csv_data).round(2)
         st.download_button(

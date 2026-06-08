@@ -84,12 +84,9 @@ def render_portfolio_dashboard():
     with col_refresh:
         auto_refresh = st.checkbox("🔄 自动刷新", value=False,
                                    help="每60秒自动刷新数据")
-        if auto_refresh:
-            st.caption("⏱ 每60秒刷新")
-            import streamlit as _st
-            _st.rerun() if False else None
     with col_sync:
-        # 显示 CSV 最后修改时间，让用户知道数据是不是最新的
+        # 每次 render 都重新读 CSV 拿 mtime（render 流程每次都跑这一段）
+        # 这样能保证用户从 sidebar 切回本页时看到的是最新 mtime
         from account_manager import get_active_accounts as _gaa
         from pathlib import Path as _P
         from datetime import datetime as _dt
@@ -104,13 +101,36 @@ def render_portfolio_dashboard():
                 mtimes.append((_P(p).stat().st_mtime, p))
             except OSError:
                 pass
+        latest_mt = max((t for t, _ in mtimes), default=0.0)
         if mtimes:
-            latest_mt = max(t for t, _ in mtimes)
             st.caption(f"📁 CSV: {_dt.fromtimestamp(latest_mt):%m-%d %H:%M}")
+
+        # 同步按钮：st.toast + session_state 时间戳
+        # 关键: 把"刚才同步时 CSV 状态"也存到 session_state，下次 render 时对照
+        # 用 sum() 后 .item() 把 Series 转 Python float（Pyright 静态分析 Series.sum()
+        # 返回 Series，实际 pandas 单 group 求和返回 scalar，此处强行 cast）
+        total_mv_series = df["市值"].sum()  # type: ignore[reportAttributeAccessIssue]
+        total_mv_now = float(total_mv_series.item() if hasattr(total_mv_series, "item") else total_mv_series)
         if st.button("🔄 同步持仓", use_container_width=True,
-                     help="重新读取 D:\\Hold 持仓 CSV，立即刷新仪表板"):
+                     help="重新读取 D:\\Hold 持仓 CSV，立即刷新仪表板",
+                     key="_sync_btn"):
             st.cache_data.clear()
+            # 把"同步时刻"和"同步时 CSV mtime"记下来
+            st.session_state["_last_sync_at"] = _dt.now()
+            st.session_state["_last_sync_csv_mtime"] = latest_mt
+            st.session_state["_last_sync_positions_count"] = len(positions)
+            st.session_state["_last_sync_total_mv"] = total_mv_now
+            st.toast(
+                f"✅ 已同步 | {len(positions)} 只持仓 | 总市值 ¥{total_mv_now:,.0f}",
+                icon="🔄",
+            )
             st.rerun()
+
+        if "_last_sync_at" in st.session_state:
+            ts = st.session_state["_last_sync_at"]
+            n = st.session_state.get("_last_sync_positions_count", "?")
+            mv = st.session_state.get("_last_sync_total_mv", 0)
+            st.caption(f"⏱ {ts:%H:%M:%S} | {n}只 | ¥{mv:,.0f}")
 
     # 顶部 KPI 卡片（6列）
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)

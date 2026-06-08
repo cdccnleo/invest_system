@@ -171,8 +171,11 @@ def parse_gf_fund(path: Path) -> list[dict]:
             mv = _parse_money(r[i_mv])
             if shares <= 0 or mv <= 0:
                 continue
-            # ETF/场内基金
-            t = "fund" if ("ETF" in name or "LOF" in name) else "stock"
+            # 区分场内 ETF 和股票
+            if "ETF" in name or "LOF" in name:
+                t = "etf"           # 场内 ETF: cost = 单价
+            else:
+                t = "stock"         # 股票: cost = 单价
             result.append({
                 "code": code,
                 "name": name,

@@ -24,13 +24,12 @@ import numpy as np
 def _position_cost(df: "pd.DataFrame") -> pd.Series:  # type: ignore[type-arg]
     """计算每只持仓的总成本（处理场外基金 vs 股票/ETF 的语义差异）
 
-    启发式: 场外基金 cost 字段是"投入本金"（≥数千）,
-            股票/ETF cost 字段是"单价"（<100）。
-    若未来数据复杂化，可改用 type 字段精确判断。
+    positions.csv 的 'cost' 字段在不同数据源有不同语义:
+      - 股票/场内 ETF (国金/广发): cost = 单位成本 (单价) → 持仓成本 = 份额 × cost
+      - 场外基金 (天天/汇添富):   cost = 投入本金总额    → 持仓成本 = cost
+    用 type 字段精确判断 (不再用 cost 金额启发式, 避免高价股误判)
     """
-    is_offboard_fund: pd.Series = (
-        df["类型"].isin(["fund"]) & (df["成本"] > 1000)  # type: ignore[reportOperatorIssue]
-    )
+    is_offboard_fund: pd.Series = df["类型"].eq("fund")  # type: ignore[reportAttributeAccessIssue]
     cost_total: pd.Series = df["成本"].where(  # type: ignore[reportCallIssue]
         is_offboard_fund, df["份额"] * df["成本"]
     )

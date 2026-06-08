@@ -112,16 +112,41 @@ def render_portfolio_dashboard():
         total_mv_series = df["市值"].sum()  # type: ignore[reportAttributeAccessIssue]
         total_mv_now = float(total_mv_series.item() if hasattr(total_mv_series, "item") else total_mv_series)
         if st.button("🔄 同步持仓", use_container_width=True,
-                     help="重新读取 D:\\Hold 持仓 CSV，立即刷新仪表板",
+                     help="汇总 D:\\Hold 4 个券商/基金持仓 CSV → D:\\Hold\\invest-data\\positions.csv，"
+                          "然后刷新仪表板。",
                      key="_sync_btn"):
+            # 1) 调汇总脚本 (D:\Hold\*.csv → D:\Hold\invest-data\positions.csv)
+            merge_msg = ""
+            try:
+                import subprocess as _sp
+                from pathlib import Path as _Pa
+                merge_script = _Pa(__file__).parent.parent / "merge_holdings.py"
+                result = _sp.run(
+                    [str(_Pa.home() / "invest_system" / ".venv" / "bin" / "python3.11"),
+                     str(merge_script)],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0:
+                    import json as _json
+                    summary = _json.loads(result.stdout)
+                    merge_msg = (f"汇总: {summary['total']} 只 (国金{summary['sources']['国金证券']['count']} "
+                                 f"广发{summary['sources']['广发基金']['count']} "
+                                 f"天天{summary['sources']['天天基金']['count']} "
+                                 f"汇添富{summary['sources']['汇添富基金']['count']})")
+                else:
+                    merge_msg = f"汇总脚本失败: {result.stderr[:200]}"
+            except Exception as e:
+                merge_msg = f"汇总异常: {e}"
+
+            # 2) 清缓存 + rerun
             st.cache_data.clear()
-            # 把"同步时刻"和"同步时 CSV mtime"记下来
             st.session_state["_last_sync_at"] = _dt.now()
             st.session_state["_last_sync_csv_mtime"] = latest_mt
             st.session_state["_last_sync_positions_count"] = len(positions)
             st.session_state["_last_sync_total_mv"] = total_mv_now
+            st.session_state["_last_sync_merge_msg"] = merge_msg
             st.toast(
-                f"✅ 已同步 | {len(positions)} 只持仓 | 总市值 ¥{total_mv_now:,.0f}",
+                f"✅ 已同步 | {len(positions)} 只 | 总市值 ¥{total_mv_now:,.0f}\n{merge_msg}",
                 icon="🔄",
             )
             st.rerun()
@@ -130,7 +155,10 @@ def render_portfolio_dashboard():
             ts = st.session_state["_last_sync_at"]
             n = st.session_state.get("_last_sync_positions_count", "?")
             mv = st.session_state.get("_last_sync_total_mv", 0)
+            merge_msg = st.session_state.get("_last_sync_merge_msg", "")
             st.caption(f"⏱ {ts:%H:%M:%S} | {n}只 | ¥{mv:,.0f}")
+            if merge_msg:
+                st.caption(merge_msg)
 
     # 顶部 KPI 卡片（6列）
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)

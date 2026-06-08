@@ -277,7 +277,11 @@ def load_positions_from_db() -> list[dict]:
             "profit_pct": float(r[9]) if r[9] else 0.0,
         })
 
-    logger.info(f"从加密持仓表读取 {len(positions)} 条记录")
+    # 应用黑名单过滤（永久过滤退市债/异常标的等）
+    from position_blacklist import filter_positions
+    positions = filter_positions(positions)
+
+    logger.info(f"从加密持仓表读取 {len(positions)} 条记录 (黑名单过滤后)")
     return positions
 
 

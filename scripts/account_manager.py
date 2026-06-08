@@ -43,12 +43,12 @@ def get_account_positions(account_id: str) -> list[dict]:
     accounts = load_accounts()
     if account_id not in accounts:
         return []
-    
+
     import csv
     csv_path = accounts[account_id].get("positions_csv")
     if not csv_path or not Path(csv_path).exists():
         return []
-    
+
     positions = []
     with open(csv_path, encoding="utf-8") as f:
         for row in csv.DictReader(f):
@@ -62,7 +62,10 @@ def get_account_positions(account_id: str) -> list[dict]:
                 "market_value": float(row.get("market_value", 0)),
                 "account": account_id,  # 标记所属账号
             })
-    return positions
+
+    # 应用黑名单过滤（永久过滤退市债/异常标的等）
+    from position_blacklist import filter_positions
+    return filter_positions(positions)
 
 def get_all_positions() -> list[dict]:
     """合并所有账号持仓"""

@@ -322,6 +322,17 @@ def merge(hold_dir: Path = HOLD_DIR, output: Path = OUTPUT_CSV) -> dict:
     # 3. 计算 weight
     all_positions = _compute_weight(all_positions)
 
+    # 3.5 应用黑名单过滤 (永久过滤退市债/异常标的，避免脏数据写入 positions.csv)
+    try:
+        from position_blacklist import filter_positions as _filter_bl
+        before_n = len(all_positions)
+        all_positions = _filter_bl(all_positions)
+        dropped_n = before_n - len(all_positions)
+        if dropped_n > 0:
+            print(f"[merge_holdings] 黑名单过滤: 移除 {dropped_n} 条", file=sys.stderr)
+    except ImportError:
+        pass  # 兼容旧部署无 blacklist 模块
+
     # 4. 写文件 (原子: 临时文件 + rename, 不带 BOM 与原文件保持兼容)
     if all_positions:
         output.parent.mkdir(parents=True, exist_ok=True)

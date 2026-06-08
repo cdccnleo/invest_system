@@ -102,12 +102,16 @@ def load_positions() -> list[dict]:
     """从 holdings.encrypted_positions 加载当前持仓（复用pgcrypto_migration解密）"""
     from pgcrypto_migration import load_positions_from_db
     raw = load_positions_from_db()
-    return [
+    positions = [
         {"code": r["code"], "name": r["name"], "shares": r["shares"],
          "avg_cost": r["cost"], "market_value": r["market_value"],
          "pnl_amount": r["profit"], "pnl_pct": r["profit_pct"]}
         for r in raw
     ]
+    # 应用黑名单过滤（pgcrypto 已过滤一层，此处是双保险，
+    # 防止未来 pgcrypto 直接被换掉时 tamf_updater 仍能自我防护）
+    from position_blacklist import filter_positions
+    return filter_positions(positions)
 
 
 def load_recent_quotes(ts_code: str, days: int = 20) -> list[dict]:

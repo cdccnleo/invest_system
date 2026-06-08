@@ -1,0 +1,12 @@
+{
+  "_comment": "持仓采集永久黑名单。采集链路任何环节 (merge_holdings / account_manager / pgcrypto_migration / tamf_updater) 都会过滤这些代码/名称。所有 4 个数据源 (国金/广发/天天/汇添富) 都生效。",
+  "_version": "1.0",
+  "blacklist": [
+    {
+      "code": "404002",
+      "name": "搜特退债",
+      "reason": "已退市债 (面值 18→2.36, -86.89%)，无行情、不可交易，混入计算会污染总盈亏统计和 AI 分析上下文",
+      "added_at": "2026-06-08"
+    }
+  ]
+}

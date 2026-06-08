@@ -77,8 +77,8 @@ def render_portfolio_dashboard():
 
     total_mv = df["市值"].sum()
 
-    # ── 自动刷新 ────────────────────────────────────────
-    col_title, col_refresh = st.columns([3, 1])
+    # ── 自动刷新 + 手动同步 ────────────────────────────────────────
+    col_title, col_refresh, col_sync = st.columns([3, 1, 1])
     with col_title:
         st.markdown("## 📋 持仓仪表板")
     with col_refresh:
@@ -88,6 +88,29 @@ def render_portfolio_dashboard():
             st.caption("⏱ 每60秒刷新")
             import streamlit as _st
             _st.rerun() if False else None
+    with col_sync:
+        # 显示 CSV 最后修改时间，让用户知道数据是不是最新的
+        from account_manager import get_active_accounts as _gaa
+        from pathlib import Path as _P
+        from datetime import datetime as _dt
+        csv_paths = []
+        for _, cfg in _gaa():
+            p = cfg.get("positions_csv")
+            if p:
+                csv_paths.append(str(p))
+        mtimes = []
+        for p in csv_paths:
+            try:
+                mtimes.append((_P(p).stat().st_mtime, p))
+            except OSError:
+                pass
+        if mtimes:
+            latest_mt = max(t for t, _ in mtimes)
+            st.caption(f"📁 CSV: {_dt.fromtimestamp(latest_mt):%m-%d %H:%M}")
+        if st.button("🔄 同步持仓", use_container_width=True,
+                     help="重新读取 D:\\Hold 持仓 CSV，立即刷新仪表板"):
+            st.cache_data.clear()
+            st.rerun()
 
     # 顶部 KPI 卡片（6列）
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)

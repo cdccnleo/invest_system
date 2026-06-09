@@ -133,8 +133,8 @@ def render_l3_status():
     with col_a:
         if st.button("🔄 立即运行触发器评估", help="手动触发一轮 L3 触发器评估",
                      key="btn_run_l3_cycle"):
-            # 关键: 先把结果存到 session_state, 再 toast + rerun
-            # 否则 rerun 立刻销毁 spinner/success 容器, 用户看不到任何反馈
+            # 关键: 把结果存到 session_state, 同时立刻 toast,
+            # 再 rerun 让 status 块刷新 (toast 跨 rerun 仍能显示)
             try:
                 with st.spinner("正在评估触发器..."):
                     result = engine.run_cycle()
@@ -144,10 +144,14 @@ def render_l3_status():
                     "triggered": result["triggered"],
                     "details": result["details"],
                 }
+                # 即时反馈, 防止 rerun 销毁 feedback
+                st.toast(f"✅ 评估完成: {result['evaluated']} 触发器, "
+                         f"{result['triggered']} 触发", icon="🔄")
             except Exception as e:
                 st.session_state["_l3_cycle_result"] = {
                     "ok": False, "error": str(e),
                 }
+                st.toast(f"❌ 评估失败: {e}", icon="❌")
             st.rerun()
 
         # 显示上次结果 (rerun 之后页面顶部会重画 status, 这里再补一块 detail 卡片)
@@ -175,8 +179,10 @@ def render_l3_status():
                 with st.spinner("正在执行压力测试..."):
                     run_id = engine.run_stress_test()
                 st.session_state["_l3_stress_result"] = {"ok": True, "run_id": run_id}
+                st.toast(f"✅ 压力测试完成: {run_id}", icon="🧪")
             except Exception as e:
                 st.session_state["_l3_stress_result"] = {"ok": False, "error": str(e)}
+                st.toast(f"❌ 压力测试失败: {e}", icon="❌")
             st.rerun()
 
         prev = st.session_state.get("_l3_stress_result")

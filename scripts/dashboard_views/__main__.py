@@ -57,7 +57,15 @@ VIEW_MAP = {
 
 # ── Sidebar Navigation ──────────────────────────────────────────────────────
 if "current_page" not in st.session_state:
-    st.session_state["current_page"] = PAGES[0]
+    # 允许 ?page=🤖%20L3%20投资伙伴 URL 参数直跳 (方便测试/书签)
+    try:
+        qp = st.query_params
+        qpage = qp.get("page", PAGES[0])
+        if isinstance(qpage, list):
+            qpage = qpage[0] if qpage else PAGES[0]
+        st.session_state["current_page"] = qpage if qpage in PAGES else PAGES[0]
+    except Exception:
+        st.session_state["current_page"] = PAGES[0]
 
 with st.sidebar:
     st.title("📊 InvestPilot")

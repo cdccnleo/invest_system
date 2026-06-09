@@ -256,11 +256,14 @@ def _build_morning_report() -> str:
         if not cur:
             storage.close()
             return "盘前分析已完成，请查看详细报告。"
-        # 读取最新审计记录获取分析摘要
+        # 读取最新分析结果获取持仓/行情/新闻数
+        # 用 MVP_ANALYSIS_RUN (run_analysis 写入的事件) 才有详细数字,
+        # SCHEDULED_MORNING_RUN 只记录 triggered_at 是空 detail
         cur.execute("""
             SELECT detail, result, event_time
             FROM audit.audit_log
-            WHERE event_type = 'SCHEDULED_MORNING_RUN'
+            WHERE event_type = 'MVP_ANALYSIS_RUN'
+              AND result = 'SUCCESS'
             ORDER BY event_time DESC LIMIT 1
         """)
         row = cur.fetchone()
@@ -296,7 +299,8 @@ def _build_closing_report() -> str:
         cur.execute("""
             SELECT detail, result, event_time
             FROM audit.audit_log
-            WHERE event_type = 'SCHEDULED_CLOSING_RUN'
+            WHERE event_type = 'MVP_ANALYSIS_RUN'
+              AND result = 'SUCCESS'
             ORDER BY event_time DESC LIMIT 1
         """)
         row = cur.fetchone()

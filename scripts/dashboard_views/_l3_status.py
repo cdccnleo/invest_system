@@ -131,24 +131,59 @@ def render_l3_status():
     st.divider()
     col_a, col_b = st.columns(2)
     with col_a:
-        if st.button("🔄 立即运行触发器评估", help="手动触发一轮 L3 触发器评估"):
-            with st.spinner("正在评估触发器..."):
-                try:
+        if st.button("🔄 立即运行触发器评估", help="手动触发一轮 L3 触发器评估",
+                     key="btn_run_l3_cycle"):
+            # 关键: 先把结果存到 session_state, 再 toast + rerun
+            # 否则 rerun 立刻销毁 spinner/success 容器, 用户看不到任何反馈
+            try:
+                with st.spinner("正在评估触发器..."):
                     result = engine.run_cycle()
-                    st.success(f"评估完成: {result['evaluated']} 个触发器, {result['triggered']} 个触发")  # noqa: E501
-                    for d in result["details"]:
-                        icon = {"triggered": "✅", "not_triggered": "➖", "push_failed": "⚠️", "error": "❌"}.get(d["status"], "?")  # noqa: E501
-                        st.caption(f"  {icon} [{d['trigger_type']}] {d['trigger_name']}: {d['status']}")  # noqa: E501
-                except Exception as e:
-                    st.error(f"评估失败: {e}")
+                st.session_state["_l3_cycle_result"] = {
+                    "ok": True,
+                    "evaluated": result["evaluated"],
+                    "triggered": result["triggered"],
+                    "details": result["details"],
+                }
+            except Exception as e:
+                st.session_state["_l3_cycle_result"] = {
+                    "ok": False, "error": str(e),
+                }
             st.rerun()
 
+        # 显示上次结果 (rerun 之后页面顶部会重画 status, 这里再补一块 detail 卡片)
+        prev = st.session_state.get("_l3_cycle_result")
+        if prev:
+            st.divider()
+            st.markdown("##### 📋 最近一次手动评估")
+            if prev.get("ok"):
+                st.success(f"评估完成: {prev['evaluated']} 个触发器, "
+                           f"{prev['triggered']} 个触发")
+                for d in prev["details"]:
+                    icon = {"triggered": "✅", "not_triggered": "➖",
+                            "push_failed": "⚠️", "error": "❌"}.get(d["status"], "?")
+                    st.caption(f"  {icon} [{d.get('trigger_type', '?')}] "
+                               f"{d.get('trigger_name', d.get('trigger_type', '?'))}: "
+                               f"{d['status']}")
+            else:
+                st.error(f"评估失败: {prev.get('error')}")
+
     with col_b:
-        if st.button("🧪 立即运行压力测试", help="执行 5 种情景压力测试"):
-            with st.spinner("正在执行压力测试..."):
-                try:
+        if st.button("🧪 立即运行压力测试", help="执行 5 种情景压力测试",
+                     key="btn_run_l3_stress"):
+            # 同 L134 按钮: 用 session_state 保存结果再 rerun, 否则反馈被销毁
+            try:
+                with st.spinner("正在执行压力测试..."):
                     run_id = engine.run_stress_test()
-                    st.success(f"压力测试完成: {run_id}")
-                except Exception as e:
-                    st.error(f"压力测试失败: {e}")
+                st.session_state["_l3_stress_result"] = {"ok": True, "run_id": run_id}
+            except Exception as e:
+                st.session_state["_l3_stress_result"] = {"ok": False, "error": str(e)}
             st.rerun()
+
+        prev = st.session_state.get("_l3_stress_result")
+        if prev:
+            st.divider()
+            st.markdown("##### 📋 最近一次压力测试")
+            if prev.get("ok"):
+                st.success(f"压力测试完成: {prev['run_id']}")
+            else:
+                st.error(f"压力测试失败: {prev.get('error')}")

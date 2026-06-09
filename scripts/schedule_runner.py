@@ -24,8 +24,10 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 # ── 单实例锁（防止 watchdog 重启 / 误启导致双跑重复 job）────────────────
+import atexit
 import fcntl as _fcntl
 _LOCK_PATH = ROOT / "logs" / ".schedule_runner.lock"
+_LOCK_FD = None
 try:
     _LOCK_FD = open(_LOCK_PATH, "w")
     _fcntl.flock(_LOCK_FD, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
@@ -33,8 +35,54 @@ try:
     _LOCK_FD.flush()
     print(f"[INFO] schedule_runner 锁获取成功 PID={os.getpid()}", flush=True)
 except (BlockingIOError, OSError):
-    print(f"[ERROR] schedule_runner 已在运行（lock 被占），当前进程退出。", flush=True)
-    sys.exit(0)
+    # 锁被占 = 已有 schedule_runner 在跑. 检查那个 PID 是否还活着:
+    existing_pid = None
+    try:
+        with open(_LOCK_PATH) as _f:
+            existing_pid = int(_f.read().strip() or "0")
+    except Exception:
+        pass
+    if existing_pid and existing_pid != os.getpid():
+        # /proc/PID 存在 = 真的活着
+        if os.path.isdir(f"/proc/{existing_pid}"):
+            print(f"[ERROR] schedule_runner 已在运行 PID={existing_pid}, 当前进程退出。", flush=True)
+        else:
+            # 锁的持有者已死, 强制释放. 等待 OS 自动释放(<1s) 或直接 truncate 文件.
+            print(f"[WARN] schedule_runner 锁的持有者 PID={existing_pid} 已死, 强删 lock。", flush=True)
+            try:
+                _LOCK_FD = open(_LOCK_PATH, "w")
+                _LOCK_FD.truncate(0)
+                _LOCK_FD.close()
+                # 立即重试一次
+                _LOCK_FD = open(_LOCK_PATH, "w")
+                _fcntl.flock(_LOCK_FD, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+                _LOCK_FD.write(str(os.getpid()))
+                _LOCK_FD.flush()
+                print(f"[INFO] 锁强删后重新获取成功 PID={os.getpid()}", flush=True)
+            except Exception as _e:
+                print(f"[ERROR] 锁强删失败: {_e}, 当前进程退出。", flush=True)
+                sys.exit(0)
+    else:
+        print(f"[ERROR] schedule_runner 已在运行（lock 被占），当前进程退出。", flush=True)
+        sys.exit(0)
+
+
+def _release_lock():
+    """atexit 回调：进程退出时显式释放 flock, 防止孤儿持锁导致 watchdog 死循环重启."""
+    global _LOCK_FD
+    if _LOCK_FD is not None:
+        try:
+            _fcntl.flock(_LOCK_FD, _fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            _LOCK_FD.close()
+        except Exception:
+            pass
+        _LOCK_FD = None
+
+
+atexit.register(_release_lock)
 
 from dotenv import load_dotenv
 load_dotenv(str(ROOT / ".env"))
@@ -242,6 +290,14 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
+# 同时输出到 logs/schedule_runner.log (独立 FileHandler, 即便 watchdog 切断 stdout 也能保留)
+_LOG_FILE = ROOT / "logs" / "schedule_runner.log"
+try:
+    _fh = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
+    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
+    logging.getLogger().addHandler(_fh)
+except Exception:
+    pass
 logger = logging.getLogger("invest_system.scheduler")
 
 

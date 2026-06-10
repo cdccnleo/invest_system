@@ -6,6 +6,7 @@ APScheduler 驱动 08:30 / 15:30 / 21:00 三个工作流
 
 import sys
 import os
+import time
 import logging
 from pathlib import Path
 from datetime import datetime, date, timedelta
@@ -1134,6 +1135,176 @@ def job_intraday_monitoring():
         send_job_failure("盘中异动监控", str(e))
 
 
+def job_merge_holdings():
+    """
+    22:35 持仓文件汇总 —
+
+    1. 子进程调 merge_holdings.py 把 D:\\Hold\\ 下 4 个券商/基金 CSV
+       汇总到 D:\\Hold\\invest-data\\positions.csv
+    2. 解析 JSON 结果 (含 4 源 count + error)
+    3. 写 audit.audit_log (event_type='POSITIONS_MERGE'):
+       - detail = JSON 完整结果 (4 源 path/count/error/date + total)
+       - result = SUCCESS / WARNING / ERROR
+    4. 告警分级:
+       - 任一源 count=0 但 path 存在 → WARNING (CSV 导出可能不完整)
+       - 任一源 path 缺失 / error → ERROR 推飞书
+       - total=0 → ERROR 推飞书 (4 源全失败/无数据)
+       - 全部 OK → INFO 静默
+
+    根因 (2026-06-10): merge_holdings.py 从未注册到 schedule_runner, 22:00 后
+    "自动更新"实际是用户在 dashboard 点 "🔄 同步持仓" 按钮, 漏点一次就出
+    国金/广发账户持仓缺失事故. 本 job 把同步变成 22:35 自动跑 + 审计可追溯.
+    """
+    import json
+    import subprocess as _sp
+    from pathlib import Path as _Pa
+
+    logger.info("=" * 50)
+    logger.info("22:35 持仓汇总启动")
+    start_ts = time.time()
+
+    # ── 1. 跑 merge_holdings.py 子进程 ────────────────────────────────────
+    # ROOT 解析 (用 resolve() 防 __file__ 软链/相对路径问题)
+    root = Path(str(ROOT)).resolve()
+    merge_script = root / "scripts" / "merge_holdings.py"
+    venv_py = root / ".venv" / "bin" / "python3.11"
+    if not merge_script.exists():
+        msg = f"merge_holdings.py 不存在: {merge_script} (ROOT={root})"
+        logger.error(msg)
+        _safe_error_alert("🔴 持仓汇总脚本缺失", msg)
+        _log_merge_to_audit(0, {}, result="ERROR", detail_suffix=msg)
+        send_job_failure("持仓汇总 (22:35)", msg)
+        return
+    if not venv_py.exists():
+        msg = f"venv python 不存在: {venv_py} (ROOT={root})"
+        logger.error(msg)
+        _safe_error_alert("🔴 venv 缺失", msg)
+        _log_merge_to_audit(0, {}, result="ERROR", detail_suffix=msg)
+        send_job_failure("持仓汇总 (22:35)", msg)
+        return
+    try:
+        proc = _sp.run(
+            [str(venv_py), str(merge_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except Exception as e:
+        # 子进程启动失败 (脚本不存在/venv 损坏) — 直接 ERROR 推飞书
+        logger.error(f"merge_holdings 子进程启动失败: {e}")
+        _safe_error_alert("🔴 持仓汇总启动失败", f"无法执行 merge_holdings.py: {e}")
+        _log_merge_to_audit(0, {}, result="ERROR", detail_suffix=f"startup_fail: {e}")
+        send_job_failure("持仓汇总 (22:35)", str(e))
+        return
+
+    if proc.returncode != 0:
+        logger.error(f"merge_holdings 异常退出 rc={proc.returncode}: {proc.stderr[:200]}")
+        _safe_error_alert("🔴 持仓汇总脚本失败", proc.stderr[:200] or f"rc={proc.returncode}")
+        _log_merge_to_audit(0, {}, result="ERROR", detail_suffix=f"rc={proc.returncode}: {proc.stderr[:200]}")
+        send_job_failure("持仓汇总 (22:35)", f"rc={proc.returncode}: {proc.stderr[:200]}")
+        return
+
+    # ── 2. 解析 JSON 结果 ──────────────────────────────────────────────────
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError as e:
+        logger.error(f"merge_holdings 输出非 JSON: {proc.stdout[:200]}")
+        _safe_error_alert("🔴 持仓汇总输出异常", f"非 JSON 输出: {e}")
+        _log_merge_to_audit(0, {}, result="ERROR", detail_suffix=f"bad_json: {e}")
+        send_job_failure("持仓汇总 (22:35)", f"bad_json: {e}")
+        return
+
+    total = result.get("total", 0)
+    sources = result.get("sources", {})
+    elapsed = round(time.time() - start_ts, 1)
+
+    # ── 3. 告警分级 ───────────────────────────────────────────────────────
+    # 错过的源: path 缺失 OR error 非空
+    missed = []
+    zero_count = []
+    for src, info in sources.items():
+        if not info.get("path"):
+            missed.append(f"{src}(无 CSV)")
+        elif info.get("error"):
+            missed.append(f"{src}({info['error']})")
+        elif info.get("count", 0) == 0:
+            # CSV 存在但 0 行 — 解析失败或文件空
+            zero_count.append(src)
+
+    alert_lines = []
+    if missed:
+        alert_lines.append(f"❌ 缺失源: {', '.join(missed)}")
+    if zero_count:
+        alert_lines.append(f"⚠️ 0 行源: {', '.join(zero_count)} (CSV 存在但解析为空)")
+
+    if missed:
+        # 任一源缺失/解析失败 → ERROR 推飞书
+        result_status = "ERROR"
+        msg = f"持仓汇总: {total} 只持仓 ({elapsed}s)\n" + "\n".join(alert_lines)
+        _safe_error_alert("🔴 持仓汇总源缺失", msg)
+        send_job_failure("持仓汇总 (22:35)", msg)
+    elif zero_count:
+        # CSV 存在但 0 行 → WARNING (不阻塞, 但要看见)
+        result_status = "WARNING"
+        msg = f"持仓汇总: {total} 只持仓 ({elapsed}s)\n" + "\n".join(alert_lines)
+        logger.warning(msg)
+    elif total == 0:
+        # 4 源都"成功"但 total=0 (极端异常) → ERROR
+        result_status = "ERROR"
+        msg = f"持仓汇总 0 只持仓 (4 源全部 0 行, 请检查 CSV 格式)"
+        _safe_error_alert("🔴 持仓汇总 0 数据", msg)
+        send_job_failure("持仓汇总 (22:35)", msg)
+    else:
+        result_status = "SUCCESS"
+        msg = f"持仓汇总: {total} 只持仓 ({elapsed}s) — 国金{sources.get('国金证券', {}).get('count', 0)} 广发{sources.get('广发基金', {}).get('count', 0)} 天天{sources.get('天天基金', {}).get('count', 0)} 汇添富{sources.get('汇添富基金', {}).get('count', 0)}"
+        logger.info(msg)
+
+    # ── 4. 写 audit.audit_log (审计可追溯) ───────────────────────────────
+    _log_merge_to_audit(total, sources, result=result_status,
+                        detail_suffix=f"elapsed={elapsed}s")
+
+
+def _log_merge_to_audit(total: int, sources: dict, result: str,
+                        detail_suffix: str = ""):
+    """
+    持仓汇总结果写入 audit.audit_log
+
+    Schema (参考 health_monitor._log_alerts):
+        event_type='POSITIONS_MERGE'
+        operator='SCHEDULER'
+        target_type='POSITIONS_CSV'
+        detail=JSON {total, sources, suffix}
+        result='SUCCESS' | 'WARNING' | 'ERROR'
+    """
+    import json as _json
+    try:
+        storage = get_storage()
+        if not storage._ensure_pg():
+            logger.warning("audit.audit_log 写入跳过: PG 不可用")
+            return
+        conn = storage._pg_conn  # type: ignore[union-attr]
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO audit.audit_log
+                (event_type, operator, target_type, detail, result)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (
+            "POSITIONS_MERGE",
+            "SCHEDULER",
+            "POSITIONS_CSV",
+            _json.dumps({
+                "total": total,
+                "sources": sources,
+                "note": detail_suffix,
+            }, ensure_ascii=False),
+            result,
+        ))
+        conn.commit()  # type: ignore[union-attr]
+        cur.close()
+        storage.close()
+        logger.info(f"持仓汇总审计日志已写入: total={total} result={result}")
+    except Exception as e:
+        logger.warning(f"持仓汇总审计日志写入失败: {e}")
+
+
 def job_skill_solidification():
     """
     22:00 技能固化工作流 —
@@ -2074,6 +2245,18 @@ def start_scheduler():
         id="skill_solidification",
         name="技能固化工作流 (22:00)",
         replace_existing=True,
+    )
+
+    # 22:35 持仓文件汇总 (4 个券商/基金 CSV → D:\Hold\invest-data\positions.csv + 审计日志)
+    # 选 22:35 是因为: 国金/广发/天天/汇添富的 app 多在 22:00-22:30 完成当日数据导出,
+    # 22:00 技能固化 + 22:30 LLM 成本日报之后跑, 不抢资源.
+    _scheduler.add_job(
+        job_merge_holdings,
+        CronTrigger(hour=22, minute=35, timezone="Asia/Shanghai"),
+        id="merge_holdings_daily",
+        name="持仓文件汇总 (22:35)",
+        replace_existing=True,
+        misfire_grace_time=600,
     )
 
     # 22:30 LLM 成本日报（每日 Token/费用统计推送）

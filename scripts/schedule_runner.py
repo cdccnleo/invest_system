@@ -147,8 +147,8 @@ def check_services_health() -> dict:
     # 1. DB connection check
     try:
         storage = get_storage()
-        conn = storage._ensure_pg()
-        if conn:
+        if storage._ensure_pg():
+            conn = storage._pg_conn
             cur = conn.cursor()
             cur.execute("SELECT 1")
             cur.close()
@@ -186,8 +186,8 @@ def check_services_health() -> dict:
     # 4. Check last successful run times for each job
     try:
         storage = get_storage()
-        conn = storage._ensure_pg()
-        if conn:
+        if storage._ensure_pg():
+            conn = storage._pg_conn
             cur = conn.cursor()
             cur.execute("""
                 SELECT event_type, result, event_time

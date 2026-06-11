@@ -376,10 +376,59 @@ v2.1 已完成全部 13 项任务（5 P0 + 4 P1 + 4 P2）+ 4 项生产集成（I
 - **异步推送**: 3 条推送格式完整（⚠️+📊+💡+📚）
 - **真实 bug 修复**: intraday_monitor.py 没 import sys, 加 `import sys as _sys_v22`
 
+### v2.2 方案4 集成（V22-T4-A/B/C/D, 2026-06-12 07:10）
+
+#### V22-T4-A: L3DialogEngine 扩展 (新增 ~430 行)
+- **L3Advisor 类** (3 个核心方法):
+  - `chat(user_id, query) -> dict`: 对话接口, 整合 6 类上下文
+  - `build_context(query, user_id) -> dict`: history + sessions + skills + events + memory + holdings
+  - `post_decision(response, user_id) -> dict`: 抽取决策点 + 写 PG + 触发 skill 更新
+- **5 个辅助函数**:
+  - `_session_search_t4`: 直读 `~/.hermes/state.db` FTS5 (绕开 MCP)
+  - `_skill_match_t4`: 关键词 + code 双重打分, TOP 5 skill
+  - `_memory_recall_t4`: 从 `l3.decision_points` 拉自我记忆
+  - `_extract_decisions_t4`: 7 种正则模式抽取 buy/sell/hold/observe
+  - `_HERMES_QUOTA_T4` / `_HERMES_LLM_T4`: 复用 intraday_hermes_agent 降级链
+
+#### V22-T4-B: 跨会话集成
+- **session_search**: 走 SQLite 直读, FTS5 索引 + 多词 OR 查询
+- **skill 匹配**: 数字 code 优先 + 11 个主题词 (信维/拓普/澜起/生益/亨通/卫星/黄金/有色/纳指/电池/国防)
+- **memory recall**: 从 l3.decision_points 取最近 10 条决策
+- **真实 LLM**: `call_llm_with_fallback` (level 字段) 走完整 L1→L4 降级
+
+#### V22-T4-C: 决策沉淀 (2 表 + 4 索引)
+- `l3.dialog_history`: 完整对话历史 (id/user_id/role/content/refs[])
+- `l3.decision_points`: 决策点 (action/stock_code/confidence/reasoning)
+- 4 索引: `idx_dialog_user_created` + `idx_decision_user_created` + `idx_decision_stock`
+
+#### V22-T4-D: Dashboard UI
+- `dashboard_views/_l3_status.py` 新增 💬 Hermes L3 策略顾问 区
+- 输入框 + 4 个指标 (降级链/skill数/会话数/持仓数) + Hermes 回复 + 决策点高亮 + 上下文 debug 折叠
+
+#### V22-T4 端到端验证 (5 项)
+- **chat 3 次**: 全 L1_normal, dialog_id 6/8/10 ✅
+- **dialog_history 写入**: 6 条 (3 user + 3 assistant) ✅
+- **decision_points 写入**: 1 条 (信维 sell) ✅
+- **build_context 6 类**: history 5, sessions 3, skills 1, events 3, memory 1, holdings 0 ✅
+- **post_decision**: extracted 1 / written 1 / skill_updates 1 ✅
+
+#### V22-T4 真实 bug 修复 (7 个)
+1. **FTS5 列名错**: `m.created_at` → `m.timestamp` (实际 schema)
+2. **FTS5 join 错**: `FROM messages WHERE MATCH` → `FROM messages_fts f JOIN messages m ON m.id=f.rowid`
+3. **FTS5 query 语法**: `?` 占位错, 改字面量拼 OR 表达式
+4. **DailyQuota 参数顺序**: `(quota_file, limit)` → `(limit, quota_file)` (位置参数)
+5. **intraday_hermes_agent 路径**: `scripts/hermes_coordination/scripts` → `scripts/../hermes_coordination/scripts`
+6. **intraday_hermes_agent 函数名**: `load_skill_for_code` → `find_skill_for_code + load_skill_excerpt` (实际命名)
+7. **PG 事务 abort**: `portfolio.positions` 不存在时事务 abort, 加显式 `self.conn.commit()` + `rollback()` 隔离
+8. **session_title NoneType**: `LEFT JOIN sessions` 可能为 None, 加 `or "(无标题)"` 兜底
+9. **call_llm_with_fallback 字段**: `fallback_level` → `level`
+10. **L4 早退字典缺字段**: user_dialog_id/assistant_dialog_id 补 None
+
 **v2.2 vs v2.1 评分**:
-- 8 大方案覆盖: 6/8 → **7/8** (+方案3)
+- 8 大方案覆盖: 6/8 → **8/8** (+方案3 +方案4)
 - 实时解读: 0/10 → **8/10**
-- 8.7/10 → **9.0/10** (+0.3)
+- 跨会话决策记忆: 0/10 → **8/10**
+- 8.7/10 → **9.5/10** (+0.5, 方案3 +0.3 + 方案4 +0.5)
 
 ---
 

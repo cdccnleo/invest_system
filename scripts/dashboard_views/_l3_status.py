@@ -193,3 +193,63 @@ def render_l3_status():
                 st.success(f"压力测试完成: {prev['run_id']}")
             else:
                 st.error(f"压力测试失败: {prev.get('error')}")
+
+    # ── T4-D: Hermes L3 策略顾问对话 (v2.2) ─────────────────────────────
+    st.divider()
+    st.markdown("### 💬 Hermes L3 策略顾问 (v2.2 新增)")
+    st.caption("方案4: 跨会话记忆 + skill 匹配 + 决策沉淀 (限额 20 次/日)")
+
+    try:
+        from l3_dialog_engine import L3Advisor
+        advisor = L3Advisor()
+    except Exception as e:
+        st.error(f"L3Advisor 不可用: {e}")
+        return
+
+    # 输入框
+    with st.form(key="form_l3_advisor", clear_on_submit=False):
+        user_query = st.text_input(
+            "向 L3 策略顾问提问:",
+            placeholder="例: 信维通信 300136 现在能买吗?",
+            key="input_l3_query",
+        )
+        submitted = st.form_submit_button("🚀 咨询 Hermes")
+        if submitted and user_query:
+            with st.spinner("Hermes 分析中 (调取历史 + skill + LLM)..."):
+                try:
+                    result = advisor.chat("aileo", user_query)
+                    st.session_state["_advisor_last_result"] = result
+                except Exception as e:
+                    st.error(f"咨询失败: {e}")
+
+    # 显示结果
+    result = st.session_state.get("_advisor_last_result")
+    if result:
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("降级链", result["fallback_level"])
+        with col2:
+            ctx = result["context"]
+            st.metric("相关 skill", ctx.get("skills_count", 0))
+        with col3:
+            st.metric("历史会话", ctx.get("related_sessions_count", 0))
+        with col4:
+            st.metric("持仓", ctx.get("holdings_count", 0))
+
+        st.markdown("##### 📜 Hermes 回复")
+        st.info(result["response"])
+
+        # 决策点
+        if result["decisions"]:
+            st.markdown("##### 🎯 抽取的决策点")
+            for d in result["decisions"]:
+                st.warning(f"**{d['action'].upper()}** {d.get('stock') or '?'}")
+
+        # 上下文细节
+        with st.expander("🔍 上下文详情 (debug)"):
+            st.json(result["context"])
+            st.json({
+                "user_dialog_id": result.get("user_dialog_id"),
+                "assistant_dialog_id": result.get("assistant_dialog_id"),
+                "decisions_count": len(result["decisions"]),
+            })

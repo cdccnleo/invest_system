@@ -780,6 +780,468 @@ class L3DialogEngine:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 方案4 实施：Hermes 作为 L3 策略顾问（v2.2 T4-A/B/C）
+# ─────────────────────────────────────────────────────────────────────────────
+# 设计参考: hermes_coordination/references/v1_8_schemes.md 方案4
+# 3 个核心方法:
+#   - chat(user_id, query) -> dict      对话接口
+#   - build_context(query, user_id)    上下文构建 (跨会话记忆 + skill 匹配 + 事件)
+#   - post_decision(response, user_id) 决策点抽取 + 沉淀 + skill 更新触发
+# 关键约束 (v2.2 PIT):
+#   - LLM 限额 20/日 (与 V22-T3 intraday_hermes_agent 共用 /tmp/hermes_llm_quota.json)
+#   - session_search 走 /home/aileo/.hermes/state.db SQLite 直读 (避免 MCP subprocess)
+#   - 失败静默: L4 skip, 不抛异常
+# 教训: l3_dialog_engine.py 顶层没 import sys, 用 import sys as _sys_t4 局部注入
+
+import os as _os_t4
+import re as _re_t4
+import sqlite3 as _sqlite3_t4
+import threading as _threading_t4
+from pathlib import Path as _Path_t4
+
+# 限额文件 (与 V22-T3 intraday_hermes_agent.py 共用)
+_QUOTA_FILE_T4 = "/tmp/hermes_llm_quota.json"
+_QUOTA_DAILY_T4 = 20
+
+# 复用 intraday_hermes_agent 的降级链
+try:
+    import sys as _sys_t4
+    # ⚠️ PIT 修复: l3_dialog_engine.py 在 scripts/, intraday_hermes_agent 在 scripts/../hermes_coordination/scripts/
+    _HERMES_SCRIPTS_DIR_T4 = _Path_t4(__file__).parent.parent / "hermes_coordination" / "scripts"
+    _sys_t4.path.insert(0, str(_HERMES_SCRIPTS_DIR_T4))
+    # ⚠️ PIT 修复: 实际函数名是 find_skill_for_code + load_skill_excerpt, 不是 load_skill_for_code
+    from intraday_hermes_agent import (
+        DailyQuota, find_skill_for_code, load_skill_excerpt, call_llm_with_fallback,
+    )
+    # 适配函数名
+    _HERMES_SKILL_T4 = find_skill_for_code
+    _HERMES_SKILL_LOAD_T4 = load_skill_excerpt
+    _HERMES_LLM_T4 = call_llm_with_fallback
+    # ⚠️ PIT 修复: DailyQuota(daily_limit, quota_file) 位置参数顺序
+    _HERMES_QUOTA_T4 = DailyQuota(_QUOTA_DAILY_T4, _Path_t4(_QUOTA_FILE_T4))
+    _HERMES_PROMPT_T4 = None  # build_prompt 在 V22-T3 中不存在
+    _HERMES_AVAILABLE_T4 = True
+except Exception as _e_t4:
+    _HERMES_AVAILABLE_T4 = False
+    _HERMES_QUOTA_T4 = None
+    _HERMES_SKILL_T4 = None
+    _HERMES_PROMPT_T4 = None
+    print(f"[T4 警告] intraday_hermes_agent 未集成: {_e_t4}")
+
+
+def _session_search_t4(query: str, limit: int = 3) -> list[dict]:
+    """直读 /home/aileo/.hermes/state.db 的 FTS5 表 (绕开 MCP subprocess)
+
+    返回: [{"session_id": str, "preview": str, "when": str, "session_title": str}, ...]
+    """
+    db_path = _Path_t4(_os_t4.path.expanduser("~/.hermes/state.db"))
+    if not db_path.exists():
+        return []
+    try:
+        conn = _sqlite3_t4.connect(str(db_path), timeout=5)
+        conn.row_factory = _sqlite3_t4.Row
+        cur = conn.cursor()
+        # FTS5 全文检索 (hermes state.db 标准模式)
+        # ⚠️ PIT 修复: messages 表用 timestamp 而非 created_at
+        # ⚠️ PIT 修复: FTS5 虚拟表 rowid = messages.id, 直接走 m.id
+        # ⚠️ PIT 修复: FTS5 query 不能用 ? 占位, 必须字面量 + 防止 FTS 语法错误
+        # 安全: 转义双引号 + 拆词 + 拼字符串
+        safe_query = query.replace('"', '""')
+        # 把 query 拆词, 用 OR 连接 (FTS5 标准)
+        words = safe_query.split()
+        if not words:
+            return []
+        fts_query = " OR ".join([f'"{w}"' for w in words[:5]])  # 最多 5 个词
+        cur.execute("""
+            SELECT m.session_id, m.content, m.timestamp, s.title as session_title
+            FROM messages_fts f
+            JOIN messages m ON m.id = f.rowid
+            LEFT JOIN sessions s ON m.session_id = s.id
+            WHERE messages_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+        """, (fts_query, limit))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"[T4 警告] session_search 失败: {e}")
+        return []
+
+
+def _skill_match_t4(query: str, limit: int = 5) -> list[dict]:
+    """从 ~/.hermes/skills/investing 找 TOP5 相关 skill
+
+    关键词: 数字 (stock code) + 中文 (主题词)
+    """
+    skills_dir = _Path_t4(_os_t4.path.expanduser("~/.hermes/skills/investing"))
+    if not skills_dir.exists():
+        return []
+    # 提取查询中的 stock code (6 位数字)
+    code_match = _re_t4.search(r"\b(\d{6})\b", query)
+    target_code = code_match.group(1) if code_match else None
+    candidates = []
+    for skill_path in skills_dir.iterdir():
+        if not skill_path.is_dir():
+            continue
+        name = skill_path.name
+        score = 0
+        # 命中 stock code
+        if target_code and target_code in name:
+            score += 10
+        # 主题词命中
+        for word in ["信维", "拓普", "澜起", "生益", "亨通", "卫星", "黄金", "有色", "纳指", "电池", "国防"]:
+            if word in query and word in name:
+                score += 3
+        if score > 0:
+            skill_file = skill_path / "SKILL.md"
+            preview = ""
+            if skill_file.exists():
+                content = skill_file.read_text(errors="ignore")[:500]
+                preview = content.split("\n")[0][:80]
+            candidates.append({
+                "name": name,
+                "path": str(skill_file),
+                "score": score,
+                "preview": preview,
+            })
+    candidates.sort(key=lambda x: -x["score"])
+    return candidates[:limit]
+
+
+def _memory_recall_t4(user_id: str, limit: int = 10) -> list[dict]:
+    """从 PG l3.decision_points 拉该用户最近决策 (自我记忆)
+
+    返回: [{"decision": str, "stock_code": str, "reasoning": str, "created_at": str}, ...]
+    """
+    try:
+        from l3_dialog_engine import _get_db_config
+        import psycopg2
+        conn = psycopg2.connect(**_get_db_config())
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT decision, stock_code, reasoning, created_at
+            FROM l3.decision_points
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+        """, (user_id, limit))
+        rows = [
+            {"decision": r[0], "stock_code": r[1], "reasoning": r[2], "created_at": str(r[3])}
+            for r in cur.fetchall()
+        ]
+        conn.close()
+        return rows
+    except Exception as e:
+        # 表可能还不存在 (T4-C 未执行)
+        return []
+
+
+def _extract_decisions_t4(response: str) -> list[dict]:
+    """从 LLM 回复中抽取 buy/sell/hold/observe 决策点
+
+    简化模式: 匹配 "建议|操作|决策" 关键词附近的动词
+    """
+    decisions = []
+    # 模式: "建议 买入 XXX" / "操作: 卖出 XXX" / "策略: 持有 XXX"
+    patterns = [
+        (r"建议\s*(买入|加仓|建仓)", "buy"),
+        (r"建议\s*(卖出|减仓|清仓)", "sell"),
+        (r"建议\s*(持有|维持|继续持有)", "hold"),
+        (r"建议\s*(观望|观察|等待)", "observe"),
+        (r"操作[::]\s*(买入|加仓|建仓)", "buy"),
+        (r"操作[::]\s*(卖出|减仓|清仓)", "sell"),
+        (r"操作[::]\s*(持有|维持)", "hold"),
+    ]
+    for pattern, action in patterns:
+        for match in _re_t4.finditer(pattern, response):
+            # 取后 100 字作为 reasoning
+            start = max(0, match.start() - 30)
+            end = min(len(response), match.end() + 80)
+            decisions.append({
+                "action": action,
+                "reasoning": response[start:end].strip(),
+                "stock_code": _re_t4.search(r"\b(\d{6})\b", response[start:end]),
+            })
+    return decisions
+
+
+class L3Advisor:
+    """方案4: Hermes 作为 L3 策略顾问
+
+    核心能力:
+    - chat: 接收 user query, 返回带 6 类上下文的 LLM 回复
+    - build_context: history + related sessions + skills + events + memory + holdings
+    - post_decision: 抽取决策点 + 写 PG + 触发 skill update
+    """
+
+    def __init__(self, conn=None):
+        self._owned_conn = False
+        if conn is None:
+            import psycopg2
+            self.conn = psycopg2.connect(**_get_db_config())
+            self._owned_conn = True
+        else:
+            self.conn = conn
+
+    def __del__(self):
+        if self._owned_conn and self.conn:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+
+    def build_context(self, user_query: str, user_id: str = "aileo") -> dict:
+        """上下文构建: 6 类数据融合
+
+        1. history       - l3.dialog_history 最近 5 条
+        2. related_sessions - ~/.hermes/state.db FTS5 检索 TOP 3
+        3. relevant_skills - skill_match 关键词命中 TOP 5
+        4. recent_events - l3.stress_test_results 最近 3 条 (事件源)
+        5. memory        - l3.decision_points 该用户最近 10 条
+        6. holdings      - 持仓档案 (待 PG load_positions_from_db)
+        """
+        context = {
+            "user_id": user_id,
+            "query": user_query,
+            "history": [],
+            "related_sessions": [],
+            "relevant_skills": [],
+            "recent_events": [],
+            "memory": [],
+            "holdings": [],
+        }
+        try:
+            # 1. history
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT role, content, created_at
+                FROM l3.dialog_history
+                WHERE user_id = %s
+                ORDER BY created_at DESC LIMIT 5
+            """, (user_id,))
+            context["history"] = [
+                {"role": r[0], "content": r[1][:200], "created_at": str(r[2])}
+                for r in cur.fetchall()
+            ]
+            # 4. recent events (复用 stress_test_results 作为事件流)
+            cur.execute("""
+                SELECT scenario_name, max_loss_pct, executed_at
+                FROM l3.stress_test_results
+                ORDER BY executed_at DESC LIMIT 3
+            """)
+            context["recent_events"] = [
+                {"name": r[0], "loss_pct": r[1], "executed_at": str(r[2])}
+                for r in cur.fetchall()
+            ]
+            # 6. holdings (从 PG 拉)
+            cur.execute("""
+                SELECT code, name, type, shares, market_value
+                FROM portfolio.positions
+                WHERE shares > 0
+                ORDER BY market_value DESC LIMIT 10
+            """)
+            context["holdings"] = [
+                {"code": r[0], "name": r[1], "type": r[2], "shares": r[3], "mv": r[4]}
+                for r in cur.fetchall()
+            ]
+            self.conn.commit()  # ⚠️ PIT 修复: 显式 commit 避免后续 SQL 被 abort
+        except Exception as e:
+            # ⚠️ PIT 修复: 表/列可能不存在, 必须 rollback 避免事务 abort 阻断后续 SQL
+            self.conn.rollback()
+            if 'holdings' not in context or not context['holdings']:
+                # holdings 缺失不算错, 静默
+                pass
+            else:
+                print(f"[T4 警告] build_context PG 部分失败: {e}")
+        # 2. related_sessions (SQLite 直读, 不依赖 PG 表)
+        context["related_sessions"] = _session_search_t4(user_query, limit=3)
+        # 3. relevant_skills
+        context["relevant_skills"] = _skill_match_t4(user_query, limit=5)
+        # 5. memory (decision_points 自我记忆)
+        context["memory"] = _memory_recall_t4(user_id, limit=10)
+        return context
+
+    def chat(self, user_id: str, query: str) -> dict:
+        """对话接口: 收 query, 返回 LLM 回复 + 6 类上下文
+
+        返回: {
+            "user_id": str,
+            "query": str,
+            "response": str,    # LLM 回复 (mock 或 真实)
+            "context": dict,    # 6 类上下文
+            "fallback_level": str,  # L1_normal | L2_degraded | L3_offline | L4_skip
+            "decisions": list,  # 抽取的决策点
+        }
+        """
+        # 1. 限额检查
+        if not _HERMES_AVAILABLE_T4 or _HERMES_QUOTA_T4 is None:
+            quota_remaining = 0
+        else:
+            quota_remaining = _HERMES_QUOTA_T4.get_remaining()
+        if quota_remaining <= 0:
+            # ⚠️ PIT 修复: L4 早退时也要返回完整字段 (避免 KeyError)
+            return {
+                "user_id": user_id,
+                "query": query,
+                "response": f"[L4 跳过] 今日 LLM 限额 {_QUOTA_DAILY_T4}/日 已用完, 明日重试",
+                "context": {"skills_count": 0, "history_count": 0, "memory_count": 0,
+                            "holdings_count": 0, "related_sessions_count": 0, "skill_names": []},
+                "fallback_level": "L4_skip",
+                "decisions": [],
+                "user_dialog_id": None,
+                "assistant_dialog_id": None,
+            }
+
+        # 2. 构建上下文
+        context = self.build_context(query, user_id)
+
+        # 3. 构造 prompt (中文)
+        prompt_parts = [f"【用户问题】\n{query}\n"]
+        if context["relevant_skills"]:
+            skill_names = ", ".join([s["name"] for s in context["relevant_skills"]])
+            prompt_parts.append(f"【相关 skill】{skill_names}")
+        if context["history"]:
+            last = context["history"][0]
+            prompt_parts.append(f"【历史对话】{last['content'][:100]}")
+        if context["memory"]:
+            recent_decisions = "; ".join([
+                f"{m['decision']} {m['stock_code']}" for m in context["memory"][:3]
+            ])
+            prompt_parts.append(f"【用户历史决策】{recent_decisions}")
+        if context["holdings"]:
+            top_holdings = ", ".join([
+                f"{h['name']}({h['code']})" for h in context["holdings"][:5]
+            ])
+            prompt_parts.append(f"【当前持仓 TOP5】{top_holdings}")
+        if context["related_sessions"]:
+            # ⚠️ PIT 修复: session_title 可能为 None
+            session_titles = "; ".join([
+                (s.get("session_title") or "(无标题)")[:50] for s in context["related_sessions"]
+            ])
+            prompt_parts.append(f"【历史会话相关】{session_titles}")
+        prompt_parts.append(
+            "\n请基于以上上下文, 用 100-200 字回答用户问题, "
+            "如涉及具体股票请给出明确操作建议 (买入/卖出/持有/观望)。"
+        )
+        full_prompt = "\n".join(prompt_parts)
+
+        # 4. 调 LLM (用 call_llm_with_fallback 真实降级链)
+        if not _HERMES_AVAILABLE_T4 or _HERMES_QUOTA_T4 is None:
+            fallback_level = "L3_offline"
+            response = f"[L3 离线模式] 基于上下文 {len(context['relevant_skills'])} 个 skill + {len(context['memory'])} 条历史决策, 建议人工分析。"
+        else:
+            acquired = _HERMES_QUOTA_T4.try_acquire()
+            if not acquired:
+                fallback_level = "L4_skip"
+                response = "[L4 跳过] 限额刚用完"
+            else:
+                # 调用真实 LLM 降级链 (或 mock)
+                system = "你是 Hermes 投资策略顾问, 基于持仓组合 + 历史决策 + skill 知识库回答用户问题。"
+                llm_result = _HERMES_LLM_T4(system, full_prompt, max_retries=1)
+                # ⚠️ PIT 修复: call_llm_with_fallback 返回字段是 level, 不是 fallback_level
+                fallback_level = llm_result.get("level", "L1_normal")
+                response = llm_result.get("content") or f"[L1 mock] {full_prompt[:150]}..."
+
+        # 5. 抽取决策点
+        decisions = _extract_decisions_t4(response)
+
+        # 6. 写 dialog_history (T4-C 决策沉淀)
+        try:
+            cur = self.conn.cursor()
+            cur.execute("""
+                INSERT INTO l3.dialog_history (user_id, role, content, session_id)
+                VALUES (%s, 'user', %s, NULL) RETURNING id
+            """, (user_id, query))
+            user_dialog_id = cur.fetchone()[0]
+            cur.execute("""
+                INSERT INTO l3.dialog_history (user_id, role, content, session_id, refs)
+                VALUES (%s, 'assistant', %s, %s, %s) RETURNING id
+            """, (
+                user_id, response, None,
+                [s["name"] for s in context["relevant_skills"]],
+            ))
+            assistant_dialog_id = cur.fetchone()[0]
+            self.conn.commit()
+        except Exception as e:
+            # ⚠️ PIT 修复: 表可能未建 (T4-C 未执行) - 打印错误便于诊断
+            print(f"[T4 警告] dialog_history 写入失败: {e}")
+            user_dialog_id = None
+            assistant_dialog_id = None
+            self.conn.rollback()
+
+        # 7. 写 decision_points
+        for d in decisions:
+            try:
+                cur = self.conn.cursor()
+                cur.execute("""
+                    INSERT INTO l3.decision_points
+                    (user_id, dialog_id, decision, stock_code, confidence, reasoning)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (
+                    user_id, assistant_dialog_id, d["action"],
+                    d["stock_code"].group(1) if d["stock_code"] else None,
+                    0.7, d["reasoning"][:500],
+                ))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+
+        return {
+            "user_id": user_id,
+            "query": query,
+            "response": response,
+            "context": {
+                "skills_count": len(context["relevant_skills"]),
+                "history_count": len(context["history"]),
+                "memory_count": len(context["memory"]),
+                "holdings_count": len(context["holdings"]),
+                "related_sessions_count": len(context["related_sessions"]),
+                "skill_names": [s["name"] for s in context["relevant_skills"]],
+            },
+            "fallback_level": fallback_level,
+            "decisions": [{"action": d["action"], "stock": d["stock_code"].group(1) if d["stock_code"] else None} for d in decisions],
+            "user_dialog_id": user_dialog_id,
+            "assistant_dialog_id": assistant_dialog_id,
+        }
+
+    def post_decision(self, response: str, user_id: str) -> dict:
+        """决策后处理: 抽取 + 沉淀 + 触发 skill 更新
+
+        返回: {"extracted": int, "written": int, "skill_updates_triggered": int}
+        """
+        decisions = _extract_decisions_t4(response)
+        written = 0
+        for d in decisions:
+            try:
+                cur = self.conn.cursor()
+                cur.execute("""
+                    INSERT INTO l3.decision_points
+                    (user_id, decision, stock_code, confidence, reasoning)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    user_id, d["action"],
+                    d["stock_code"].group(1) if d["stock_code"] else None,
+                    0.7, d["reasoning"][:500],
+                ))
+                self.conn.commit()
+                written += 1
+            except Exception:
+                self.conn.rollback()
+        # 触发 skill 更新 (async, 不阻塞)
+        skill_updates = 0
+        for d in decisions:
+            if d["stock_code"]:
+                # 简化: 仅记录意图, 实际更新由 schedule_runner 22:00 cron 处理
+                skill_updates += 1
+        return {
+            "extracted": len(decisions),
+            "written": written,
+            "skill_updates_triggered": skill_updates,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 入口
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,52 @@
+profile:
+  name: "aggressive"
+  description: "进攻位 — AI 算力 70%+ + 高弹性主题"
+  risk_level: "offensive"
+  account_id: "aggressive"
+  created: "2026-06-12"
+  author: "Hermes Agent v2.1"
+
+target_allocation:
+  ai_compute: 0.70
+  robotics: 0.20
+  defense: 0.00
+  cash: 0.10
+  others: 0.00
+
+position_constraints:
+  max_position_pct: 15.0  # 集中度高
+  max_pe_ttm: 200          # 容忍高 PE
+  max_52w_change: 600
+  max_high_pe_count: 8
+
+alert_thresholds:
+  intraday_pct: 7
+  position_pct: 5
+  cooldown_minutes: 15
+
+strategy_overrides:
+  enable_fomo_guard: false  # 接受 FOMO
+  enable_pe_trap_check: true
+  enable_event_drive: true
+  intraday_scan_freq_min: 2  # 高频
+
+llm_routing:
+  primary_model: "deepseek-chat"
+  fallback_model: "gpt-4o"
+  confidence_threshold: 0.55  # 更宽松
+
+watchlist_overrides:
+  blacklist: []
+  whitelist:
+    - "600487"   # 亨通光电
+    - "600183"   # 生益科技
+    - "601689"   # 拓普集团
+    - "300136"   # 信维通信（接受高 PE 风险）
+    - "002050"   # 三花智控
+    - "002080"   # 中材科技
+    - "300394"   # 天孚通信
+    - "300136"   # 信维通信
+    - "002837"   # 英维克
+    - "002975"   # 博杰股份
+    - "301611"   # 珂玛科技
+    - "300680"   # 隆盛科技

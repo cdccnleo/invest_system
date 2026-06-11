@@ -1,0 +1,255 @@
+# key_window_strategy_switch_v1.yaml
+# 补丁4: 关键时间窗口策略切换表
+# 创建时间: 2026-06-11
+
+version: "1.0"
+last_updated: "2026-06-11"
+
+# ============================================================
+# 通用配置
+# ============================================================
+common:
+  default_mode: "balanced"  # 平衡模式
+  default_scan_interval_seconds: 1800  # 30分钟
+  default_alert_threshold_percent: 5
+
+# ============================================================
+# 模式定义
+# ============================================================
+modes:
+  balanced:
+    description: "平衡模式 - 正常扫描+常规告警"
+    scan_interval_seconds: 1800
+    alert_threshold_percent: 5
+    position_bias: "按既定配置"
+
+  event_driven_v2:
+    description: "事件驱动模式 - 关键事件前48小时"
+    scan_interval_seconds: 600  # 10分钟
+    alert_threshold_percent: 3
+    position_bias: "事件相关持仓重点关注"
+
+  single_target_deep_dive:
+    description: "单标的深度模式 - 重大事件当日"
+    scan_interval_seconds: 300  # 5分钟
+    alert_threshold_percent: 2
+    position_bias: "特定标的集中监控"
+
+  defensive_max:
+    description: "最大防御模式 - FOMC/重大宏观事件"
+    scan_interval_seconds: 300  # 5分钟
+    alert_threshold_percent: 5
+    position_bias: "现金≥20%·防御位优先"
+
+  single_target_catalyst:
+    description: "单标的催化模式 - 业绩/扩产关键日"
+    scan_interval_seconds: 600
+    alert_threshold_percent: 5
+    position_bias: "特定标的提前布局"
+
+  earnings_validation:
+    description: "中报验证模式 - 7-8月业绩季"
+    scan_interval_seconds: 1800
+    alert_threshold_percent: 7
+    position_bias: "业绩miss>20%减仓50%"
+
+# ============================================================
+# 时间窗口定义（2026年6月-8月）
+# ============================================================
+key_windows:
+
+  # --------------------------------------------------------
+  # 2026-06-11 ~ 2026-06-12  SpaceX IPO关键日
+  # --------------------------------------------------------
+  - date: "2026-06-11"
+    event: "SpaceX IPO前夕+英伟达GB300量产前夜"
+    mode: "event_driven_v2"
+    primary_actions:
+      - "卫星ETF减持50%"
+      - "西部材料观察"
+      - "信维减持300股"
+      - "黄金ETF避险+5%"
+    alert_threshold_percent: 3
+    scan_frequency: "10分钟/次"
+    pre_window: "6/10收盘前完成减持"
+    post_event_actions: "6/13根据首日表现评估是否进一步减持"
+    watchlist:
+      - code: "513310"  # 卫星ETF
+        reason: "直接受益"
+      - code: "002149"  # 西部材料
+        reason: "直接受益"
+      - code: "300136"  # 信维通信
+        reason: "估值泡沫·反面教材"
+      - code: "518880"  # 黄金ETF
+        reason: "避险"
+
+  - date: "2026-06-12"
+    event: "SpaceX IPO首日（Damodaran公开质疑$1.77万亿定价）"
+    mode: "event_driven_v2"
+    primary_actions:
+      - "卫星ETF评估首日表现"
+      - "西部材料加仓观察"
+      - "信维进一步减持（视首日表现）"
+    alert_threshold_percent: 3
+    scan_frequency: "10分钟/次"
+    post_event_actions: "6/13根据首日定价表现调整"
+
+  # --------------------------------------------------------
+  # 2026-06-15  亨通华海分拆股东会
+  # --------------------------------------------------------
+  - date: "2026-06-15"
+    event: "亨通华海分拆科创板上市股东会"
+    mode: "single_target_deep_dive"
+    primary_target: "亨通光电(600487)"
+    primary_actions:
+      - "亨通光电重点观察"
+      - "价值重估预判+15~25%"
+      - "光纤光缆板块联动评估"
+    alert_threshold_percent: 2
+    scan_frequency: "5分钟/次"
+    decision_window: "13:00-15:00"
+    expected_impact: "短期+15~25%（价值重估）"
+    related_targets:
+      - "中天科技(600522)"
+      - "长飞光纤(601869)"
+
+  # --------------------------------------------------------
+  # 2026-06-16 ~ 2026-06-17  FOMC
+  # --------------------------------------------------------
+  - date_range: ["2026-06-16", "2026-06-17"]
+    event: "美联储FOMC议息会议"
+    mode: "defensive_max"
+    primary_actions:
+      - "6/15收盘前减仓高弹性持仓"
+      - "现金比例提升至≥20%"
+      - "黄金ETF+有色ETF作为对冲"
+      - "6/17尾盘根据点阵图调仓"
+    alert_threshold_percent: 5
+    scan_frequency: "5分钟/次"
+    pre_event:
+      date: "2026-06-15"
+      action: "收盘前减仓高弹性持仓（卫星ETF/西部材料/信维）"
+    during_event:
+      action: "静默观察·不操作"
+    post_event:
+      date: "2026-06-17"
+      time: "14:30-15:00"
+      action: "根据点阵图和声明调仓"
+    watchlist:
+      - code: "518880"  # 黄金ETF
+        role: "避险"
+      - code: "516650"  # 有色ETF
+        role: "美元走弱对冲"
+      - code: "300136"  # 信维通信
+        role: "估值泡沫·加息更危险"
+      - code: "513310"  # 卫星ETF
+        role: "高弹性"
+
+  # --------------------------------------------------------
+  # 2026-06-30  东材眉山2万吨项目试产
+  # --------------------------------------------------------
+  - date: "2026-06-30"
+    event: "东材科技眉山2万吨BMI/M9树脂项目试产"
+    mode: "single_target_catalyst"
+    primary_target: "东材科技(601208)"
+    primary_actions:
+      - "东材科技加仓观察"
+      - "PPE/BMI/M9树脂板块联动"
+      - "眉山产能爬坡跟踪"
+    alert_threshold_percent: 5
+    scan_frequency: "10分钟/次"
+    expected_impact: "短期催化30%+"
+    related_targets:
+      - "生益科技(600183)"  # M9 CCL协同
+      - "南亚新材(688519)"
+      - "昊华科技(600378)"  # PTFE协同
+      - "皖维高新(600063)"  # PVB协同
+
+  # --------------------------------------------------------
+  # 2026-07-01 ~ 2026-07-14  中报预披露窗口
+  # --------------------------------------------------------
+  - date_range: ["2026-07-01", "2026-07-14"]
+    event: "中报业绩预告窗口"
+    mode: "earnings_validation"
+    primary_actions:
+      - "全持仓业绩预告扫描"
+      - "业绩miss>20%标的预警"
+      - "预增标的加仓候选"
+    alert_threshold_percent: 7
+    scan_frequency: "30分钟/次"
+    pre_window: "7/1-7/14预判"
+    decision_rule:
+      - condition: "业绩miss>20%"
+        action: "减仓50%"
+      - condition: "符合预期"
+        action: "持有"
+      - condition: "超预期+30%"
+        action: "加仓20%"
+
+  # --------------------------------------------------------
+  # 2026-07-15 ~ 2026-08-30  中报季
+  # --------------------------------------------------------
+  - date_range: ["2026-07-15", "2026-08-30"]
+    event: "中报披露季"
+    mode: "earnings_validation"
+    primary_actions:
+      - "持仓逐个验证中报"
+      - "业绩验证窗口·是骡子是马拉出来遛"
+      - "AI算力主线验证"
+      - "机器人主线验证"
+    alert_threshold_percent: 7
+    scan_frequency: "30分钟/次"
+    thresholds:
+      buy_after_earnings: "超预期+30%+技术面突破"
+      hold_through_earnings: "符合预期"
+      reduce_after_earnings: "miss>20%"
+
+  # --------------------------------------------------------
+  # 2026-07-09  苹果WWDC26后续开发者大会
+  # --------------------------------------------------------
+  - date: "2026-07-09"
+    event: "苹果WWDC26后续开发者大会（库克最后一舞）"
+    mode: "event_driven_v2"
+    primary_actions:
+      - "AI终端应用主题评估"
+      - "果链标的联动"
+    alert_threshold_percent: 5
+    scan_frequency: "10分钟/次"
+    related_targets:
+      - "领益智造(002600)"  # A+H果链
+      - "杰普特(688025)"
+      - "信维通信(300136)"  # 估值泡沫风险
+
+  # --------------------------------------------------------
+  # 2026-08-15  中报密集披露截止前
+  # --------------------------------------------------------
+  - date: "2026-08-15"
+    event: "深沪主板中报强制披露截止"
+    mode: "earnings_validation"
+    primary_actions:
+      - "未披露标的强制减仓"
+      - "全部持仓业绩落地"
+    alert_threshold_percent: 7
+    scan_frequency: "30分钟/次"
+
+# ============================================================
+# 应急事件（非预期重大事件）
+# ============================================================
+emergency_protocol:
+  triggers:
+    - "上证指数单日跌幅>5%"
+    - "持仓单日跌幅>8%超过5只"
+    - "突发地缘冲突（如特朗普伊朗）"
+    - "FOMC意外决定（加息/降息50bp+）"
+
+  immediate_actions:
+    - "切换到 defensive_max 模式"
+    - "扫描间隔缩到1分钟"
+    - "触发P0告警到钉钉+Telegram"
+    - "暂停所有自动操作建议，等人工确认"
+
+  recovery_protocol:
+    - condition: "市场企稳（连续3天不再创新低）"
+      action: "逐步恢复balanced模式"
+    - condition: "持续恶化"
+      action: "维持defensive_max直到FOMC等关键事件"

@@ -1,0 +1,105 @@
+# prometheus_alerts.yml
+# Prometheus告警规则（补丁2实施）
+# 来源: 02-hermes-monitoring.yaml
+# 创建时间: 2026-06-11
+
+groups:
+  - name: hermes_agent_p0
+    interval: 30s
+    rules:
+      - alert: HermesLLMAPIDown
+        expr: rate(hermes_llm_fallback_total{to_level="level_4_skip"}[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: investing
+        annotations:
+          summary: "Hermes LLM API完全不可用"
+          description: "LLM降级到level_4_skip，请立即检查"
+          runbook: "检查OpenAI API → 检查Hermes gateway → 切到手动模式"
+
+      - alert: HermesCronTaskFailed
+        expr: increase(hermes_cron_task_failure_total[1h]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: investing
+        annotations:
+          summary: "Cron任务失败 ({{ $labels.task_name }})"
+          description: "任务 {{ $labels.task_name }} 在过去1小时内失败"
+          runbook: "检查 logs/hermes_agent.log → watchdog自动重启 → 失败则人工"
+
+  - name: hermes_agent_p1
+    interval: 1m
+    rules:
+      - alert: HermesEventScanTimeout
+        expr: histogram_quantile(0.95, hermes_event_scan_duration_seconds) > 600
+        for: 10m
+        labels:
+          severity: warning
+          team: investing
+        annotations:
+          summary: "事件扫描超时 (P95 > 600s)"
+          description: "events目录扫描P95耗时 {{ $value }}秒"
+          runbook: "检查events目录大小 → 减少扫描范围 → 启用增量模式"
+
+      - alert: HermesSkillPatchFailureRate
+        expr: |
+          rate(hermes_skill_patch_success_total[1h]) /
+          (rate(hermes_skill_patch_success_total[1h]) + rate(hermes_skill_patch_failure_total[1h]))
+          < 0.95
+        for: 15m
+        labels:
+          severity: warning
+          team: investing
+        annotations:
+          summary: "Skill patch成功率 < 95%"
+          description: "当前成功率 {{ $value | humanizePercentage }}"
+          runbook: "检查patch日志 → 修复冲突skill → 回滚失败skill"
+
+      - alert: HermesActionQueueBacklog
+        expr: investpilot_agent_action_queue_size > 80
+        for: 30m
+        labels:
+          severity: warning
+          team: investing
+        annotations:
+          summary: "操作建议队列积压"
+          description: "队列长度 {{ $value }}，超过阈值80"
+          runbook: "人工审查积压建议 → 批量确认执行"
+
+  - name: hermes_agent_p2
+    interval: 5m
+    rules:
+      - alert: HermesDecisionConfidenceLow
+        expr: hermes_decision_confidence_avg < 0.5
+        for: 1h
+        labels:
+          severity: info
+          team: investing
+        annotations:
+          summary: "LLM决策置信度偏低"
+          description: "当前置信度 {{ $value }}，正常应该 > 0.6"
+          runbook: "检查skill库完整性 → 触发增量同步"
+
+      - alert: HermesLLMCostOverBudget
+        expr: increase(hermes_llm_cost_usd_total[24h]) > 1.0
+        for: 1h
+        labels:
+          severity: info
+          team: investing
+        annotations:
+          summary: "LLM成本超预算 (日累计 > $1)"
+          description: "当日成本 ${{ $value }}，预算 $1"
+          runbook: "检查LLM死循环 → 启用token限速"
+
+      - alert: HermesCronTaskLagging
+        expr: hermes_cron_task_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: info
+          team: investing
+        annotations:
+          summary: "Cron任务延迟 ({{ $labels.task_name }})"
+          description: "任务延迟 {{ $value }}秒"
+          runbook: "检查上次执行时间 → 资源是否充足"

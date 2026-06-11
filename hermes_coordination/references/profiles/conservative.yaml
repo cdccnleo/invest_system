@@ -1,0 +1,48 @@
+profile:
+  name: "conservative"
+  description: "防御位 — 黄金+现金+低波动 AI/银行"
+  risk_level: "defensive"
+  account_id: "conservative"
+  created: "2026-06-12"
+  author: "Hermes Agent v2.1"
+
+target_allocation:
+  ai_compute: 0.10        # 仅保留低波动 AI 链
+  robotics: 0.05
+  defense: 0.55            # 黄金+有色+债券
+  cash: 0.30
+  others: 0.00
+
+position_constraints:
+  max_position_pct: 8.0   # 集中度可更高（标的少）
+  max_pe_ttm: 30
+  max_52w_change: 100
+  max_high_pe_count: 0
+
+alert_thresholds:
+  intraday_pct: 3
+  position_pct: 2
+  cooldown_minutes: 60
+
+strategy_overrides:
+  enable_fomo_guard: true
+  enable_pe_trap_check: true
+  enable_event_drive: false  # 不追事件
+  intraday_scan_freq_min: 30
+
+llm_routing:
+  primary_model: "deepseek-chat"
+  fallback_model: "ollama-llama3"
+  confidence_threshold: 0.80  # 更严格
+
+watchlist_overrides:
+  blacklist: []
+  whitelist:
+    - "518880"   # 黄金ETF
+    - "516650"   # 有色金属ETF
+    - "512880"   # 证券ETF
+    - "513300"   # 纳斯达克100
+    - "600036"   # 招商银行
+    - "601318"   # 中国平安
+    - "600519"   # 贵州茅台
+    - "000333"   # 美的集团

@@ -1,0 +1,57 @@
+profile:
+  name: "default"
+  description: "主账户 530万 — 战时配置（AI 算力主线 + 事件催化）"
+  risk_level: "balanced"
+  account_id: "default"
+  created: "2026-06-12"
+  author: "Hermes Agent v2.1"
+
+target_allocation:
+  ai_compute: 0.35       # AI 算力主线（光纤/CCL/PCB/液冷/电源）
+  robotics: 0.17          # 机器人（特斯拉链）
+  defense: 0.036          # ⚠️ 当前严重低于 15% 目标，需提升
+  cash: 0.20              # 现金≥20% 铁律
+  theme_etf: 0.05
+  others: 0.194
+
+position_constraints:
+  max_position_pct: 5.0
+  min_position_pct: 0.5
+  max_pe_ttm: 100
+  max_52w_change: 400
+  max_high_pe_count: 3    # 高 PE(>80倍) 标的数上限
+
+alert_thresholds:
+  intraday_pct: 5
+  position_pct: 3
+  volume_pct: 200
+  cooldown_minutes: 30
+
+strategy_overrides:
+  enable_fomo_guard: true
+  enable_pe_trap_check: true
+  enable_event_drive: true
+  intraday_scan_freq_min: 5
+
+llm_routing:
+  primary_model: "deepseek-chat"
+  fallback_model: "ollama-llama3"
+  confidence_threshold: 0.65
+
+watchlist_overrides:
+  blacklist:
+    - "300136"   # 信维通信 (PE 130-160，叙事驱动型泡沫)
+  whitelist:
+    - "600487"   # 亨通光电 (6/15 分拆)
+    - "600183"   # 生益科技 (6/12 上证50)
+    - "601689"   # 拓普集团 (Optimus独家)
+    - "688025"   # 杰普特
+    - "688279"   # 峰岹科技
+    - "688008"   # 澜起科技
+
+holding_stop_loss:
+  "600487": 68
+  "600183": 115
+  "601689": 55
+  "688008": 235
+  "300136": 95    # 减持至 3% 上限

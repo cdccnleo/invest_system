@@ -1,0 +1,222 @@
+# hermes_investpilot_contract_v1.yaml
+# 补丁1: 接口契约 + 数据Schema + 版本兼容
+# 创建时间: 2026-06-11
+# 来源: v2.0 skill - hermes-investpilot-coordination-v2
+
+version: "1.0"
+last_updated: "2026-06-11"
+contract_owner: "InvestPilot Agent Team"
+
+# ============================================================
+# 1. 通信协议规范
+# ============================================================
+communication:
+  primary_protocol: "MCP-over-stdio"
+  fallback_protocol: "REST-over-HTTP"
+  default_port: 8765
+  auth_method: "bearer_token"
+  token_env_var: "HERMES_INVESTPILOT_TOKEN"
+  heartbeat_interval_seconds: 30
+  heartbeat_timeout_seconds: 90
+  reconnect_strategy: "exponential_backoff"
+  reconnect_max_retries: 5
+
+# ============================================================
+# 2. Skill ↔ TAMF 双向同步契约
+# ============================================================
+skill_sync_contract:
+  direction: "bidirectional"
+  sync_targets:
+    - name: "hermes_skill_to_tamf"
+      source: "~/.hermes/skills/investing/"
+      destination: "investpilot.data.target_memories"
+      direction: "hermes→backend"
+      trigger: "cron@18:00 | manual | auto_on_patch"
+    - name: "tamf_to_hermes_skill"
+      source: "investpilot.data.target_memories"
+      destination: "~/.hermes/skills/investing/"
+      direction: "backend→hermes"
+      trigger: "cron@18:30 | manual"
+
+  conflict_resolution: "version_vector"
+  max_drift_seconds: 300
+  conflict_winner_strategy: "latest_version"
+  audit_log: "/mnt/c/PythonProject/invest_system/logs/skill_sync_audit.log"
+
+  field_mapping:
+    hermes_skill_to_tamf:
+      - "section: 投资逻辑 → field: investment_logic (TEXT)"
+      - "section: 止盈止损 → field: stop_levels (JSONB)"
+      - "section: 卡位份额 → field: positioning_metrics (JSONB)"
+      - "section: 关联主线 → field: related_themes (TEXT[])"
+
+# ============================================================
+# 3. 事件首席分析师契约
+# ============================================================
+event_analyst_contract:
+  endpoint: "/agent/event_analyst/scan"
+  trigger_types:
+    - "cron"
+    - "manual"
+    - "alert_threshold"
+    - "key_window"
+
+  input_schema:
+    type: "object"
+    required: ["date"]
+    properties:
+      date:
+        type: "string"
+        format: "ISO8601"
+        example: "2026-06-11"
+      holdings:
+        type: "array"
+        items:
+          type: "string"
+          pattern: "^[0-9]{6}$"
+        description: "持仓代码列表，不传则使用InvestPilot默认持仓"
+      force_full_scan:
+        type: "boolean"
+        default: false
+      lookback_days:
+        type: "integer"
+        default: 1
+        maximum: 7
+
+  output_schema:
+    type: "object"
+    properties:
+      scanned_reports:
+        type: "integer"
+      scan_duration_seconds:
+        type: "number"
+      top_holdings:
+        type: "array"
+        items:
+          type: "object"
+          properties:
+            code: {type: "string"}
+            name: {type: "string"}
+            mention_count: {type: "integer"}
+            sentiment: {type: "string", enum: ["positive", "neutral", "negative"]}
+      high_priority_events:
+        type: "array"
+        items:
+          type: "object"
+          properties:
+            event_id: {type: "string"}
+            title: {type: "string"}
+            related_holdings: {type: "array", items: {type: "string"}}
+            urgency: {type: "string", enum: ["low", "medium", "high", "critical"]}
+      actions:
+        type: "array"
+        items:
+          type: "object"
+          required: ["code", "action", "reason", "confidence"]
+          properties:
+            code: {type: "string"}
+            action:
+              type: "string"
+              enum: ["buy", "hold", "reduce", "sell", "observe"]
+            reason: {type: "string"}
+            confidence:
+              type: "number"
+              minimum: 0
+              maximum: 1
+            refs:
+              type: "array"
+              items: {type: "string"}
+
+  error_codes:
+    - code: "E001"
+      meaning: "持仓代码列表为空"
+      action: "使用investpilot.data.target_memories全量默认持仓"
+    - code: "E002"
+      meaning: "events目录不可访问"
+      action: "触发watchdog告警，等待人工介入"
+    - code: "E003"
+      meaning: "LLM调用失败"
+      action: "进入LLM降级链（见补丁7）"
+
+# ============================================================
+# 4. 数据库Schema
+# ============================================================
+database_schema:
+  agent_action_queue:
+    description: "Hermes Agent生成的操作建议队列"
+    columns:
+      - name: "id"
+        type: "BIGSERIAL"
+        constraints: ["PRIMARY KEY"]
+      - name: "created_at"
+        type: "TIMESTAMP"
+        default: "NOW()"
+      - name: "executed_at"
+        type: "TIMESTAMP"
+        nullable: true
+      - name: "status"
+        type: "VARCHAR(20)"
+        default: "'pending'"
+        constraints: ["CHECK (status IN ('pending','executed','failed','cancelled'))"]
+      - name: "action"
+        type: "JSONB"
+        not_null: true
+      - name: "reasoning"
+        type: "TEXT"
+      - name: "confidence"
+        type: "FLOAT"
+        constraints: ["CHECK (confidence >= 0 AND confidence <= 1)"]
+      - name: "refs"
+        type: "TEXT[]"
+      - name: "source_event_id"
+        type: "VARCHAR(50)"
+        nullable: true
+      - name: "feedback"
+        type: "JSONB"
+        nullable: true
+        description: "回测验证结果或人工反馈"
+
+    indexes:
+      - name: "idx_action_queue_status_created"
+        columns: ["status", "created_at"]
+      - name: "idx_action_queue_confidence"
+        columns: ["confidence"]
+      - name: "idx_action_queue_status_pending"
+        columns: ["created_at"]
+        where: "status = 'pending'"
+
+  skill_sync_audit:
+    description: "Skill同步审计日志"
+    columns:
+      - name: "id"
+        type: "BIGSERIAL"
+        constraints: ["PRIMARY KEY"]
+      - name: "sync_time"
+        type: "TIMESTAMP"
+        default: "NOW()"
+      - name: "direction"
+        type: "VARCHAR(20)"
+      - name: "skill_name"
+        type: "VARCHAR(100)"
+      - name: "result"
+        type: "VARCHAR(20)"
+      - name: "diff_summary"
+        type: "TEXT"
+
+# ============================================================
+# 5. 版本兼容策略
+# ============================================================
+versioning_policy:
+  skill_format: "YAML-frontmatter v1.0+"
+  contract_version: "1.0"
+  breaking_change_grace_days: 7
+  deprecation_notice_days: 30
+  backward_compatibility:
+    - "v1.0 client可调用v1.0 server"
+    - "v1.1 client可调用v1.0 server（降级）"
+    - "v1.0 client调用v1.1 server时warning不阻断"
+
+  upgrade_protocol:
+    - "新版本发布前7天通知"
+    - "灰度切换：10%→50%→100%"
+    - "失败自动回滚到上一稳定版本"

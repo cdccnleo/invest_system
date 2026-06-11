@@ -1,0 +1,212 @@
+# cost_estimation_v1.yaml
+# 补丁3: 成本评估（量化）
+# 创建时间: 2026-06-11
+
+version: "1.0"
+last_updated: "2026-06-11"
+currency: "USD/RMB（汇率1 USD = 7.25 RMB）"
+
+# ============================================================
+# 1. 模型定价（基于gpt-4o-mini 2026-06当前定价）
+# ============================================================
+model_pricing:
+  gpt-4o-mini:
+    input_per_1k_tokens: 0.00015
+    output_per_1k_tokens: 0.00060
+    avg_blended_per_1k_tokens: 0.00038  # 输入输出比约2:1
+  gpt-4o:
+    input_per_1k_tokens: 0.0025
+    output_per_1k_tokens: 0.010
+    avg_blended_per_1k_tokens: 0.0063
+  claude-3-5-sonnet:
+    input_per_1k_tokens: 0.003
+    output_per_1k_tokens: 0.015
+    avg_blended_per_1k_tokens: 0.0090
+
+# 默认使用 gpt-4o-mini (性价比最高)
+default_model: "gpt-4o-mini"
+
+# ============================================================
+# 2. 每日LLM成本估算
+# ============================================================
+daily_costs:
+  # ---- 方案2: 事件首席分析师（22:00 nightly） ----
+  hermes_event_scan:
+    description: "每晚22:00扫描events目录"
+    schedule: "0 22 * * *"
+    subagent_calls: 3
+    avg_input_tokens_per_call: 6000
+    avg_output_tokens_per_call: 2000
+    avg_total_tokens_per_call: 8000
+    daily_token_consumption: 24000  # 3 * 8000
+    daily_cost_usd: 0.0091  # 24 * 0.00038
+    daily_cost_rmb: 0.066
+
+  # ---- 方案5: 批量吸收新报告（22:30 nightly） ----
+  hermes_kb_ingest:
+    description: "每晚22:30批量吸收新报告"
+    schedule: "30 22 * * *"
+    subagent_calls: 3
+    avg_input_tokens_per_call: 9000
+    avg_output_tokens_per_call: 3000
+    avg_total_tokens_per_call: 12000
+    daily_token_consumption: 36000
+    daily_cost_usd: 0.0137
+    daily_cost_rmb: 0.099
+
+  # ---- 方案3: 盘中异动实时解读 ----
+  intraday_explain:
+    description: "盘中异动实时解读（按需）"
+    schedule: "on_alert"
+    avg_alerts_per_day: 5
+    avg_tokens_per_call: 1500
+    daily_token_consumption: 7500
+    daily_cost_usd: 0.0029
+    daily_cost_rmb: 0.021
+
+  # ---- 方案4: L3对话引擎升级（持续） ----
+  l3_engine_enhanced:
+    description: "L3对话引擎增强模式"
+    schedule: "on_user_query"
+    avg_queries_per_day: 20
+    avg_tokens_per_query: 5000
+    daily_token_consumption: 100000
+    daily_cost_usd: 0.038
+    daily_cost_rmb: 0.276
+
+  # ---- 方案6: 跨标协同矩阵（每周） ----
+  weekly_strategy_review:
+    description: "每周日20:00组合复盘"
+    schedule: "0 20 * * 0"
+    subagent_calls: 2
+    avg_tokens_per_call: 15000
+    weekly_token_consumption: 30000
+    weekly_cost_usd: 0.0114
+    weekly_cost_rmb: 0.083
+    daily_avg_cost_rmb: 0.012
+
+# ---- 总计 ----
+daily_total:
+  token_consumption: 173500
+  cost_usd: 0.0661
+  cost_rmb: 0.479
+
+monthly_total:
+  cost_usd: 1.98
+  cost_rmb: 14.38
+
+yearly_total:
+  cost_usd: 23.78
+  cost_rmb: 172.50
+
+# ============================================================
+# 3. 存储增长估算
+# ============================================================
+storage_growth:
+  skill_md_files:
+    daily_increment_kb: 1  # 增量patch平均1KB
+    monthly_growth_mb: 0.03
+    notes: "可忽略"
+
+  event_scan_logs:
+    daily_increment_kb: 50
+    monthly_growth_mb: 1.5
+    notes: "保留90天后自动归档压缩"
+
+  action_queue_records:
+    daily_increment_kb: 20
+    monthly_growth_mb: 0.6
+    notes: "PG自动清理365天前记录"
+
+  skill_patches_backup:
+    daily_increment_kb: 5
+    monthly_growth_mb: 0.15
+    notes: "保留30天，git lfs可选"
+
+  total_monthly_growth_mb: 2.28
+  yearly_growth_mb: 27.4
+  notes: "极低，可忽略"
+
+# ============================================================
+# 4. 资源占用估算
+# ============================================================
+resource_usage:
+  cpu:
+    peak_percent: 30  # LLM调用时峰值
+    baseline_percent: 2  # 空闲时
+    notes: "短时峰值，不影响其他任务"
+
+  memory:
+    peak_mb: 500  # LLM调用时
+    baseline_mb: 150
+    notes: "在4GB总内存下可放心运行"
+
+  network:
+    daily_mb: 10
+    monthly_mb: 300
+    notes: "主要是events目录本地读取，LLM调用约5MB/天"
+
+  disk_io:
+    daily_reads_mb: 50  # 扫描220份events
+    daily_writes_kb: 100  # 日志+action queue
+    notes: "SSD下完全无压力"
+
+# ============================================================
+# 5. 升级路径成本（如果迁移到GPT-4o）
+# ============================================================
+upgrade_cost_scenarios:
+  gpt-4o:
+    daily_cost_usd: 1.09  # 16x gpt-4o-mini
+    monthly_cost_rmb: 237
+    notes: "若决策质量不达标，考虑升级"
+
+  claude-3-5-sonnet:
+    daily_cost_usd: 1.56
+    monthly_cost_rmb: 339
+    notes: "高质量中文，但成本高24x"
+
+  local_llm_qwen2.5-72b:
+    daily_cost_usd: 0  # 本地推理
+    monthly_cost_rmb: 0  # 但需要GPU
+    one_time_setup_rmb: 30000  # GPU服务器
+    notes: "隐私性最好，长期成本最低"
+
+# ============================================================
+# 6. ROI分析
+# ============================================================
+roi_analysis:
+  monthly_cost_rmb: 14.38
+
+  manual_alternative_cost:
+    description: "如果手动读220份events+29份tracker"
+    daily_time_minutes: 45
+    monthly_time_hours: 22.5
+    opportunity_cost_per_hour_rmb: 500  # 投资者决策时间价值
+    monthly_opportunity_cost_rmb: 11250
+
+  roi_ratio: "11250 / 14.38 = 782x"
+  conclusion: "ROI极高，建议立即落地"
+
+# ============================================================
+# 7. 成本控制机制
+# ============================================================
+cost_control:
+  hard_limit:
+    daily_usd: 1.0  # < 7.25 RMB
+    monthly_usd: 20.0
+    action_on_breach: "切到level_3_offline"
+
+  soft_limit:
+    daily_usd: 0.5
+    monthly_usd: 10.0
+    action_on_breach: "启用token限速 + 告警"
+
+  token_rate_limit:
+    per_minute_tokens: 100000
+    per_hour_tokens: 2000000
+    action_on_breach: "排队+降级"
+
+  cost_tracking:
+    metric: "hermes_llm_cost_usd_total"
+    alert_threshold_daily: 0.5
+    alert_threshold_monthly: 10.0

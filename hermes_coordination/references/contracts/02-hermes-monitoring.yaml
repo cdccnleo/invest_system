@@ -1,0 +1,242 @@
+# hermes_monitoring_v1.yaml
+# 补丁2: 可观测性 + 监控 + 告警
+# 创建时间: 2026-06-11
+
+version: "1.0"
+last_updated: "2026-06-11"
+
+# ============================================================
+# 1. Metrics (Prometheus格式)
+# ============================================================
+metrics:
+  # ---- 性能指标 ----
+  - name: "hermes_event_scan_duration_seconds"
+    type: "histogram"
+    description: "事件扫描任务耗时"
+    labels: ["mode"]  # mode: nightly | manual | alert | key_window
+    buckets: [30, 60, 120, 300, 600, 1200]
+    sla_p95_seconds: 300
+    sla_p99_seconds: 600
+
+  - name: "hermes_llm_call_duration_seconds"
+    type: "histogram"
+    description: "LLM调用耗时"
+    labels: ["model", "task_type"]
+    buckets: [1, 5, 10, 30, 60, 120]
+    sla_p95_seconds: 30
+
+  # ---- 业务指标 ----
+  - name: "hermes_event_scan_reports_total"
+    type: "counter"
+    description: "累计扫描报告数"
+    labels: ["date", "directory"]
+
+  - name: "hermes_action_suggestions_total"
+    type: "counter"
+    description: "累计生成的操作建议数"
+    labels: ["action", "confidence_tier"]  # confidence_tier: high/medium/low
+
+  - name: "investpilot_agent_action_queue_size"
+    type: "gauge"
+    description: "待执行操作建议队列长度"
+    sla_max: 100
+
+  - name: "investpilot_action_executed_total"
+    type: "counter"
+    description: "已执行操作数"
+    labels: ["action", "result"]
+
+  # ---- 成本指标 ----
+  - name: "hermes_llm_call_tokens_total"
+    type: "counter"
+    description: "LLM token消耗"
+    labels: ["model", "task_type", "direction"]  # direction: input/output
+
+  - name: "hermes_llm_cost_usd_total"
+    type: "counter"
+    description: "LLM成本累计（USD）"
+    sla_max_per_day: 1.0  # < 7 RMB/天
+
+  # ---- 质量指标 ----
+  - name: "hermes_skill_patch_success_total"
+    type: "counter"
+    description: "skill patch成功数"
+    labels: ["skill_name"]
+
+  - name: "hermes_skill_patch_failure_total"
+    type: "counter"
+    description: "skill patch失败数"
+    labels: ["skill_name", "error_type"]
+
+  - name: "hermes_decision_confidence_avg"
+    type: "gauge"
+    description: "决策置信度均值"
+    sla_min: 0.6
+
+  - name: "hermes_llm_fallback_total"
+    type: "counter"
+    description: "LLM降级次数"
+    labels: ["from_level", "to_level"]
+
+  # ---- Cron指标 ----
+  - name: "hermes_cron_task_lag_seconds"
+    type: "gauge"
+    description: "cron任务延迟"
+    labels: ["task_name"]
+    sla_max: 60
+
+  - name: "hermes_cron_task_failure_total"
+    type: "counter"
+    description: "cron任务失败次数"
+    labels: ["task_name", "error_code"]
+
+# ============================================================
+# 2. Alerts (告警规则)
+# ============================================================
+alerts:
+  # ---- P0 紧急 ----
+  - name: "LLM_API完全不可用"
+    condition: "rate(hermes_llm_fallback_total{to_level='level_4_skip'}[1h]) > 0"
+    for: "5m"
+    channel: ["dingtalk", "telegram", "email"]
+    severity: "P0"
+    runbook: "检查OpenAI API状态 → 检查Hermes gateway → 手动切到level_4_skip"
+
+  - name: "Cron任务失败"
+    condition: "increase(hermes_cron_task_failure_total[1h]) > 0"
+    for: "1m"
+    channel: ["dingtalk"]
+    severity: "P0"
+    runbook: "检查logs/hermes_agent.log → watchdog自动重启 → 失败则人工"
+
+  # ---- P1 重要 ----
+  - name: "事件扫描超时"
+    condition: "histogram_quantile(0.95, hermes_event_scan_duration_seconds) > 600"
+    for: "10m"
+    channel: ["dingtalk"]
+    severity: "P1"
+    runbook: "检查events目录大小 → 减少扫描范围 → 启用增量模式"
+
+  - name: "Skill patch成功率低"
+    condition: "rate(hermes_skill_patch_success_total[1h]) / (rate(hermes_skill_patch_success_total[1h]) + rate(hermes_skill_patch_failure_total[1h])) < 0.95"
+    for: "15m"
+    channel: ["dingtalk"]
+    severity: "P1"
+    runbook: "检查patch日志 → 修复冲突skill → 回滚失败skill"
+
+  - name: "操作队列积压"
+    condition: "investpilot_agent_action_queue_size > 80"
+    for: "30m"
+    channel: ["dingtalk"]
+    severity: "P1"
+    runbook: "人工审查积压建议 → 批量确认执行"
+
+  # ---- P2 警告 ----
+  - name: "LLM决策置信度低"
+    condition: "hermes_decision_confidence_avg < 0.5"
+    for: "1h"
+    channel: ["dingtalk"]
+    severity: "P2"
+    runbook: "检查skill库完整性 → 触发增量同步"
+
+  - name: "LLM成本超预算"
+    condition: "increase(hermes_llm_cost_usd_total[24h]) > 1.0"
+    for: "1h"
+    channel: ["dingtalk"]
+    severity: "P2"
+    runbook: "检查是否有LLM死循环 → 启用token限速"
+
+# ============================================================
+# 3. Log Aggregation (日志聚合)
+# ============================================================
+log_aggregation:
+  level: "INFO"
+  format: "JSON"  # 结构化日志
+  destination: "/mnt/c/PythonProject/invest_system/logs/hermes_agent.log"
+  rotation: "daily"
+  retention_days: 90
+  archive_path: "/mnt/c/PythonProject/invest_system/logs/archive/"
+  max_file_size_mb: 100
+
+  log_fields:
+    - timestamp
+    - level
+    - task_id
+    - component  # event_analyst | kb_ingest | intraday_explain | l3_engine
+    - action
+    - duration_ms
+    - tokens_used
+    - cost_usd
+    - confidence
+    - result
+    - error_code
+    - error_message
+
+  log_levels:
+    DEBUG: "详细调试信息，仅本地"
+    INFO: "关键事件记录（推荐生产级别）"
+    WARNING: "可恢复的异常（如降级触发）"
+    ERROR: "需要人工介入的错误"
+    CRITICAL: "系统级故障，触发P0告警"
+
+# ============================================================
+# 4. Grafana Dashboard配置
+# ============================================================
+dashboard_grafana:
+  url: "http://localhost:3000/d/hermes-agent"
+  refresh_interval: "30s"
+  panels:
+    - title: "事件扫描耗时趋势 (p50/p95/p99)"
+      type: "graph"
+      metrics:
+        - "histogram_quantile(0.50, hermes_event_scan_duration_seconds)"
+        - "histogram_quantile(0.95, hermes_event_scan_duration_seconds)"
+        - "histogram_quantile(0.99, hermes_event_scan_duration_seconds)"
+    - title: "LLM调用成本统计（日累计）"
+      type: "stat"
+      metrics:
+        - "increase(hermes_llm_cost_usd_total[24h])"
+    - title: "Skill patch成功率（24h）"
+      type: "gauge"
+      metrics:
+        - "rate(hermes_skill_patch_success_total[24h]) / (rate(hermes_skill_patch_success_total[24h]) + rate(hermes_skill_patch_failure_total[24h]))"
+    - title: "操作建议队列长度"
+      type: "stat"
+      metrics:
+        - "investpilot_agent_action_queue_size"
+    - title: "LLM降级事件"
+      type: "graph"
+      metrics:
+        - "increase(hermes_llm_fallback_total[1h])"
+    - title: "Cron任务延迟"
+      type: "graph"
+      metrics:
+        - "hermes_cron_task_lag_seconds"
+
+# ============================================================
+# 5. Health Check端点
+# ============================================================
+health_check:
+  endpoint: "/agent/health"
+  checks:
+    - name: "hermes_connection"
+      type: "ping"
+      timeout_seconds: 5
+    - name: "investpilot_pg"
+      type: "db_query"
+      query: "SELECT 1"
+      timeout_seconds: 3
+    - name: "events_dir_accessible"
+      type: "file_system"
+      path: "/mnt/c/PythonProject/AInvest/reports/events/"
+    - name: "skills_dir_accessible"
+      type: "file_system"
+      path: "/home/aileo/.hermes/skills/investing/"
+
+  response_format:
+    status: "healthy | degraded | unhealthy"
+    checks:
+      - name: "..."
+        status: "pass | fail"
+        latency_ms: 0
+        message: "..."

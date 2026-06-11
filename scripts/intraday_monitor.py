@@ -92,6 +92,37 @@ def _resolve_threshold(ts_code: str) -> dict:
     }
 
 
+# ── v2.2 方案3 集成: Hermes 异动解读 (INT-T3-B) ──────────────────────────────
+# 异步调用 hermes_coordination/scripts/intraday_hermes_agent.py
+# 触发位置: run_scan_and_alert() 内, send_notification 之后
+# 限额: 每日 20 次 (DailyQuota 内部管理, 避免 LLM 成本失控)
+# 失败: 静默继续 (不影响原异动告警)
+import sys as _sys_v22  # 局部 import (intraday_monitor.py 顶层没 import sys)
+_sys_v22.path.insert(0, str(_HERMES_SCRIPTS))
+try:
+    from intraday_hermes_agent import explain_and_notify_async as _hermes_explain_async_impl
+    _HERMES_EXPLAIN_AVAILABLE = True
+    logger.info("intraday_hermes_agent 已加载 (v2.2 方案3)")
+except Exception as _e_hermes:
+    _hermes_explain_async_impl = None
+    _HERMES_EXPLAIN_AVAILABLE = False
+    logger.warning(f"intraday_hermes_agent 加载失败, 降级无解读: {_e_hermes}")
+
+
+def _hermes_explain_async(anomaly: dict) -> None:
+    """
+    异步包装器: 给 run_scan_and_alert 调用
+    - 检测 _HERMES_EXPLAIN_AVAILABLE
+    - 失败静默 (debug 日志, 不影响主流程)
+    """
+    if not _HERMES_EXPLAIN_AVAILABLE or _hermes_explain_async_impl is None:
+        return
+    try:
+        _hermes_explain_async_impl(anomaly)
+    except Exception as e:
+        logger.debug(f"hermes explain async failed for {anomaly.get('ts_code')}: {e}")
+
+
 # ── 数据加载 ──────────────────────────────────────────────────────────────
 
 def load_positions_codes() -> list[dict]:
@@ -515,8 +546,20 @@ class IntradayMonitor:
             msg = format_anomaly_message(anomalies)
             logger.warning(f"检测到 {len(anomalies)} 个异动")
 
-            # 推送告警（冷却状态已在 scan() 中记录）
+            # ── v2.2 方案3 集成: Hermes 异步解读 (INT-T3-B) ──
+            # 推送原异动告警 (不阻塞, 不等 LLM)
             send_notification("⚠️ 盘中异动告警", msg, level="WARNING")
+
+            # 异步给每个异动调 Hermes 解读
+            # - 不阻塞主扫描 (threading.Thread)
+            # - 限额 20/日 (DailyQuota)
+            # - 失败静默 (LLM 不可用不影响原告警)
+            # - 每条独立 daemon 线程, 异常不会传播
+            for anomaly in anomalies:
+                try:
+                    _hermes_explain_async(anomaly)
+                except Exception as e:
+                    logger.debug(f"hermes explain async trigger failed: {e}")
 
         except Exception as e:
             logger.error(f"异动扫描异常: {e}")

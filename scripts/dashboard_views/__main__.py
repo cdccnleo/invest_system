@@ -13,6 +13,21 @@ sys.path.insert(0, str(ROOT / "scripts"))
 # 使 from _xxx import ... 能解析到同包内的兄弟模块。
 sys.path.insert(0, str(ROOT / "scripts" / "dashboard_views"))
 
+# ── Hermes Profile 加载器 (v2.1 补丁8 集成) ──────────────────────────────────
+# 在 sidebar 顶部提供 default / conservative / aggressive 切换
+# 影响: 仓位约束 + 风险偏好 + 主题 (conservative→防御配色)
+sys.path.insert(0, str(ROOT / "hermes_coordination" / "scripts"))
+try:
+    from profile_loader import ProfileLoader  # noqa: E402
+    _PROFILE_LOADER = ProfileLoader()
+    _PROFILE_LIST = _PROFILE_LOADER.list_profiles()
+    _PROFILE_LOADER_OK = True
+except Exception as _e_prof:
+    _PROFILE_LOADER = None
+    _PROFILE_LIST = ["default"]
+    _PROFILE_LOADER_OK = False
+    print(f"[WARN] profile_loader 加载失败, 回退 default: {_e_prof}", file=sys.stderr)
+
 st.set_page_config(page_title="InvestPilot Dashboard", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 
 # ── Auth & Theme ────────────────────────────────────────────────────────────
@@ -71,6 +86,39 @@ with st.sidebar:
     st.title("📊 InvestPilot")
     st.markdown("**Phase 2** | 个人投资分析系统")
     st.divider()
+
+    # ── Hermes Profile 切换器 (v2.1 补丁8) ──────────────────────────────
+    if "active_profile" not in st.session_state:
+        st.session_state["active_profile"] = "default"
+    if _PROFILE_LOADER_OK and _PROFILE_LIST:
+        current_idx = (
+            _PROFILE_LIST.index(st.session_state["active_profile"])
+            if st.session_state["active_profile"] in _PROFILE_LIST
+            else 0
+        )
+        sel_profile = st.selectbox(
+            "🎯 投资风格",
+            _PROFILE_LIST,
+            index=current_idx,
+            key="profile_selectbox",
+            help="default: 均衡 | conservative: 防御 | aggressive: 进攻",
+        )
+        st.session_state["active_profile"] = sel_profile
+        # 加载 profile 描述
+        try:
+            prof_cfg = _PROFILE_LOADER.load(sel_profile)
+            prof_meta = prof_cfg.get("profile", {})
+            alloc = prof_cfg.get("target_allocation", {})
+            st.caption(
+                f"📌 {prof_meta.get('description', sel_profile)}\n"
+                f"仓位: AI算力 {alloc.get('ai_compute', 0)*100:.0f}% | "
+                f"防御 {alloc.get('defense', 0)*100:.0f}% | "
+                f"现金 {alloc.get('cash', 0)*100:.0f}%"
+            )
+        except Exception:
+            pass
+        st.divider()
+
     st.markdown("### 🕐 系统状态")
     st.success("🟢 运行中")
     c1, c2 = st.columns(2)

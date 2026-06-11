@@ -182,6 +182,54 @@ def _fallback_to_cached_or_error(system: str, prompt: str) -> dict:
     return {"content": "暂时无法完成分析，请稍后重试。", "error": "LLM API 不可用"}
 
 
+# ── Hermes LLM 4级降级链 (v2.1 补丁7 集成) ──────────────────────────────────
+# 触发场景: DeepSeek 超时 + Ollama 不可用 → 用规则引擎生成应急回复
+# 降级链路: L1 Hermes(本文件DeepSeek+Ollama) → L2 直连API → L3 规则引擎 → L4 跳过
+# 集成位置: _call_ollama_fallback 失败后, _fallback_to_cached_or_error 之前
+import sys as _sys_llm
+_HERMES_SCRIPTS = Path(__file__).parent.parent / "hermes_coordination" / "scripts"
+_sys_llm.path.insert(0, str(_HERMES_SCRIPTS))
+try:
+    from llm_fallback_chain import LLMFallbackChain  # noqa: E402
+    _FALLBACK_CHAIN = LLMFallbackChain(
+        hermes_router=None,  # 暂时只 L3 规则引擎路径可用
+        direct_caller=None,
+    )
+    _FALLBACK_CHAIN_AVAILABLE = True
+    logger.info("LLMFallbackChain 已加载 (v2.1 补丁7)")
+except Exception as _e_fb:
+    _FALLBACK_CHAIN = None
+    _FALLBACK_CHAIN_AVAILABLE = False
+    logger.warning(f"LLMFallbackChain 加载失败, 降级链路退化: {_e_fb}")
+
+
+def _call_fallback_chain(system: str, prompt: str) -> dict:
+    """
+    调用 LLMFallbackChain 的最终降级路径（L3 规则引擎）
+    用于 DeepSeek + Ollama 都失败时，给出应急回复
+    """
+    if not _FALLBACK_CHAIN_AVAILABLE or _FALLBACK_CHAIN is None:
+        return _fallback_to_cached_or_error(system, prompt)
+
+    try:
+        # 用环境变量启用 mock 模式（避免 L1 触发实际 API 调用）
+        os.environ.setdefault("HERMES_FALLBACK_MOCK", "1")
+        result = _FALLBACK_CHAIN.call(prompt, system=system, max_retries=1)
+        content = result.get("content", "")
+        level = result.get("level", "unknown")
+        # 规则引擎成功 → 返回应急分析
+        if content and not result.get("error"):
+            return {
+                "content": f"[应急降级回复 L3/{level}]\n{content}",
+                "error": None,
+            }
+    except Exception as e:
+        logger.error(f"LLMFallbackChain 调用失败: {e}")
+
+    # 最终回退
+    return _fallback_to_cached_or_error(system, prompt)
+
+
 def _call_with_compressed_context(system: str, prompt: str) -> dict:
     """上下文超限时，截断 prompt 重试（最后降级手段）"""
     try:

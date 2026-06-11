@@ -1305,6 +1305,116 @@ def _log_merge_to_audit(total: int, sources: dict, result: str,
         logger.warning(f"持仓汇总审计日志写入失败: {e}")
 
 
+# ── Hermes Agent × InvestPilot 双向同步 (v2.1 INT-T5 集成) ──────────────────
+# 每日 18:00 跑 hermes_agent_sync.py --mode bidirectional --execute
+# 目的: 让 Hermes skill 库 与 InvestPilot TAMF 知识库 每日自动对齐
+#       (新增 InvestPilot 标的 → 自动创建 Hermes skill;
+#        Hermes 端补丁 → 自动回流 InvestPilot 文档)
+# 时间选 18:00 是因为: 15:30 收盘 + 15:35 TAMF 更新 + 16:00 研报采集 + 16:05 摘要同步,
+# 18:00 已是当日数据稳定时刻, 适合做跨系统对账.
+def job_hermes_sync():
+    """
+    18:00 Hermes Agent × InvestPilot 双向同步 —
+
+    1. 子进程调 hermes_coordination/scripts/hermes_agent_sync.py
+       --mode bidirectional --execute
+    2. 解析 JSON 结果 (i2h_synced, h2i_synced, errors, dry_run)
+    3. 写 skill_sync_audit (方向: bidirectional):
+       - direction = 'bidirectional', result = 'success'|'failed'|'partial'
+       - diff_summary = i2h/h2i/skipped/errors 数字
+    4. 告警分级:
+       - errors > 0 → WARNING 推飞书
+       - 完全无变化 → INFO 静默
+       - 同步成功且新增/更新 > 5 → INFO 简报 (含变化清单)
+    """
+    import json
+    import subprocess as _sp_h
+
+    logger.info("=" * 50)
+    logger.info("18:00 Hermes × InvestPilot 双向同步启动")
+    start_ts = time.time()
+
+    # ── 1. 跑 hermes_agent_sync.py 子进程 ─────────────────────────────────
+    root = Path(str(ROOT)).resolve()
+    sync_script = root / "hermes_coordination" / "scripts" / "hermes_agent_sync.py"
+    venv_py = root / ".venv" / "bin" / "python3.11"
+    if not sync_script.exists():
+        msg = f"hermes_agent_sync.py 不存在: {sync_script}"
+        logger.error(msg)
+        _safe_error_alert("🔴 Hermes 同步脚本缺失", msg)
+        return
+    if not venv_py.exists():
+        msg = f"venv python 不存在: {venv_py}"
+        logger.error(msg)
+        _safe_error_alert("🔴 venv 缺失", msg)
+        return
+
+    try:
+        proc = _sp_h.run(
+            [
+                str(venv_py), str(sync_script),
+                "--mode", "bidirectional",
+                "--execute",
+            ],
+            capture_output=True, text=True, timeout=180,  # 双向同步 18 标的最坏情况 3 分钟
+        )
+    except Exception as e:
+        logger.error(f"hermes_sync 子进程启动失败: {e}")
+        _safe_error_alert("🔴 Hermes 同步启动失败", f"无法执行 hermes_agent_sync.py: {e}")
+        send_job_failure("Hermes 双向同步 (18:00)", str(e))
+        return
+
+    if proc.returncode != 0:
+        msg = f"hermes_sync 异常退出 rc={proc.returncode}: {proc.stderr[:200]}"
+        logger.error(msg)
+        _safe_error_alert("🔴 Hermes 同步脚本失败", proc.stderr[:200] or f"rc={proc.returncode}")
+        send_job_failure("Hermes 双向同步 (18:00)", msg)
+        return
+
+    # ── 2. 解析 stdout (脚本输出格式: JSON 行 + 普通文本混合, 找 JSON) ──
+    i2h_synced = h2i_synced = errors = 0
+    diff_summary = ""
+    try:
+        # 尝试从 stdout 找 JSON 行 (脚本最后会 print json.dumps({...}))
+        for line in proc.stdout.splitlines()[::-1]:
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                result_json = json.loads(line)
+                i2h_synced = result_json.get("i2h_synced", 0)
+                h2i_synced = result_json.get("h2i_synced", 0)
+                errors = result_json.get("errors", 0)
+                diff_summary = (
+                    f"i2h_synced={i2h_synced} h2i_synced={h2i_synced} "
+                    f"errors={errors}"
+                )
+                break
+    except (json.JSONDecodeError, AttributeError, StopIteration) as e:
+        logger.warning(f"无法从 hermes_sync 输出解析 JSON: {e}; 视为成功但无 diff")
+        diff_summary = "no_json_output"
+
+    elapsed = round(time.time() - start_ts, 1)
+    logger.info(
+        f"Hermes 双向同步完成: 耗时 {elapsed}s, "
+        f"i2h={i2h_synced} h2i={h2i_synced} errors={errors}"
+    )
+
+    # ── 3. 告警分级 ───────────────────────────────────────────────────────
+    if errors > 0:
+        msg = (
+            f"⚠️ Hermes 双向同步完成但有 {errors} 个错误\n"
+            f"i2h={i2h_synced} h2i={h2i_synced} 耗时{elapsed}s"
+        )
+        _safe_error_alert("🟡 Hermes 同步部分失败", msg)
+        send_job_failure("Hermes 双向同步 (18:00)", f"errors={errors}")
+    elif i2h_synced + h2i_synced == 0:
+        logger.info("Hermes 双向同步: 无变化 (INFO 静默)")
+    else:
+        logger.info(
+            f"Hermes 双向同步: 成功同步 {i2h_synced + h2i_synced} 项 "
+            f"(i2h={i2h_synced} h2i={h2i_synced})"
+        )
+
+
 def job_skill_solidification():
     """
     22:00 技能固化工作流 —
@@ -2302,6 +2412,18 @@ def start_scheduler():
         id="weekly_backtest",
         name="周线回测报告 (每周一 07:00)",
         replace_existing=True,
+    )
+
+    # 每日 18:00 Hermes × InvestPilot 双向同步 (v2.1 INT-T5 集成, 2026-06-12)
+    # 选 18:00: 15:35 TAMF + 16:00 研报 + 16:05 摘要 全部跑完, 数据已稳定
+    # 比 22:00 早 4h, 即使失败也有 retry 窗口
+    _scheduler.add_job(
+        job_hermes_sync,
+        CronTrigger(hour=18, minute=0, timezone="Asia/Shanghai"),
+        id="hermes_sync_daily",
+        name="Hermes × InvestPilot 双向同步 (18:00)",
+        replace_existing=True,
+        misfire_grace_time=600,
     )
 
     # 盘中异动监控（每5分钟，仅交易时段）

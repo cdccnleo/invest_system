@@ -299,21 +299,56 @@ hermes-investpilot-coordination-v2/
 
 ---
 
-## 七、待命状态
+## 七、生产集成（2026-06-12 06:00）
 
-v2.1 已完成全部 13 项任务（5 P0 + 4 P1 + 4 P2）。
+v2.1 已完成全部 13 项任务（5 P0 + 4 P1 + 4 P2）+ 4 项生产集成（INT-T2/T3/T4/T5）。
 
-**下一步可执行**：
-- 集成 v2.1 到 intraday_monitor（用 asset_class_router 路由不同阈值）
-- 集成 v2.1 到 llm_caller（用 LLMFallbackChain 替代直接调用）
-- 集成 v2.1 到 dashboard（顶部加 profile 切换器）
-- 真实部署 schedule_runner cron 调用 hermes_agent_sync.py（每日 18:00）
+### INT-T2: intraday_monitor 集成资产路由
+- 文件: `scripts/intraday_monitor.py` (+47 行)
+- 集成点: `detect_anomalies()` 内 for-loop, 改用 per-asset 阈值
+- 函数: `_resolve_threshold(ts_code)` 自动 fallback 默认 3%
+- 测试结果（5 类资产）:
+  - A股 600487 → 5% (stock)
+  - ETF 159819 → 3% (etf)
+  - 港股 00700 → 8% (hk_stock)
+  - 美股 TSLA → 5% (us_stock)
+  - 场外基金 002050.OF → 3% (fund)
+- 教训: LSP 误报 `ROOT/sys 未定义` — 实际是文件级局部变量, 验证靠 py_compile + importlib
 
-**GitHub 状态**：
-- `cdccncnleo/invest_system` 仓库已纳入 `hermes_coordination/` 目录
-- 本次 commit 包含：v2.0 全部 + v2.1 新增 4 补丁
+### INT-T3: llm_caller 集成 LLM 4级降级链
+- 文件: `scripts/llm_caller.py` (+48 行)
+- 集成点: `_call_fallback_chain(system, prompt)` 在 Ollama 失败 + 缓存失败后兜底
+- 触发链路: L1 (DeepSeek) → L2 (Ollama) → L3 (LLMFallbackChain 规则引擎) → L4 (跳过)
+- 测试结果: `_call_fallback_chain` 返回 `[应急降级回复 L3/L1_normal]`
+
+### INT-T4: dashboard 顶部加 Profile 切换器
+- 文件: `scripts/dashboard_views/__main__.py` (+44 行)
+- 集成点: `with st.sidebar:` 顶部, 加载 `_PROFILE_LIST = ['conservative', 'aggressive', 'default']`
+- 字段: 3 套 profile 的 `ai_compute`/`defense`/`cash` 比例实时显示
+- 切换器: st.selectbox + st.session_state["active_profile"]
+- 教训: PyYAML 缺失 → 装 venv `pip install pyyaml` 解决
+
+### INT-T5: schedule_runner cron 部署 18:00 双向同步
+- 文件: `scripts/schedule_runner.py` (+115 行)
+- 新 job: `job_hermes_sync()` @ line 1315 (101 行)
+- 调度: `id="hermes_sync_daily"`, `CronTrigger(hour=18, minute=0, Asia/Shanghai)`
+- 流程: 跑 hermes_agent_sync.py --mode bidirectional --execute + 写 audit + 告警分级
+- 端到端验证: rc=0, 2.8s 完成, i2h 46 success + h2i 50 success, PG audit 19→115
+- 教训: hermes_agent_sync.py 不支持 `--pg-conn` → 移除该参数, 用默认连接
+
+### 4 项集成综合表
+
+| 集成 | 目标文件 | 集成方式 | 验证 |
+|:---:|---------|---------|:---:|
+| INT-T2 | intraday_monitor.py | per-asset 阈值 | 5 类资产 ✅ |
+| INT-T3 | llm_caller.py | LLMFallbackChain 兜底 | L3 mock ✅ |
+| INT-T4 | dashboard __main__.py | Profile selectbox | 3 套 YAML ✅ |
+| INT-T5 | schedule_runner.py | 18:00 cron job | 双向 96 写 ✅ |
+
+---
 
 **待命接收**：
-- 用户指定**集成方向** → 立即开始
-- 用户指定**优先级补丁完善** → 立即展开
-- 用户指定**部署到 cron** → 立即接入 schedule_runner
+- 监控集成效果 → 收集 7 天数据
+- 调整 Profile 切换交互 → UI 优化
+- 双向同步真实 h2i 风险评估 → 是否开启
+- 新增方案 (e.g. 方案3/4) → 接 v2.2

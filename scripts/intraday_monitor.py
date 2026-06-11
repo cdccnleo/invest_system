@@ -37,12 +37,59 @@ DB_CONFIG = {
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
 
 # ── 异动阈值配置 ─────────────────────────────────────────────────────────
+# 默认阈值（保留为 backwards-compat fallback，INT-T2 (2026-06-12) 起改用 per-asset）
 ALERT_THRESHOLDS = {
-    "price_change_pct": 3.0,      # 涨跌幅超 3% 触发告警
+    "price_change_pct": 3.0,      # 默认阈值（仅用于未识别资产类型）
     "volume_surge_ratio": 2.0,    # 成交量超均量 2 倍触发告警
     "monitor_interval_sec": 300,  # 扫描间隔：5分钟
     "ma_cross_enabled": True,     # 均线金叉/死叉告警
 }
+
+# ── Hermes 资产路由器（v2.1 补丁6 集成）─────────────────────────────────────
+# 不同资产类型用不同阈值:
+#   stock A股: 5%   (合理范围)
+#   etf:       3%   (更敏感，因为低波动)
+#   hk_stock:  8%   (波动大，更宽松)
+#   us_stock:  5%   (美股盘前盘后波动正常，盘中5%已经较大)
+#   fund:      2%   (净值变化很小)
+import sys as _sys_int  # 局部 import 避免污染全局
+_HERMES_SCRIPTS = Path(__file__).parent.parent / "hermes_coordination" / "scripts"
+_sys_int.path.insert(0, str(_HERMES_SCRIPTS))
+try:
+    from asset_class_router import AssetClassRouter  # noqa: E402
+    _ASSET_ROUTER = AssetClassRouter()
+    _ASSET_ROUTER_AVAILABLE = True
+    logger.info("asset_class_router 已加载 (v2.1 补丁6)")
+except Exception as _e_router:
+    _ASSET_ROUTER = None
+    _ASSET_ROUTER_AVAILABLE = False
+    logger.warning(f"asset_class_router 加载失败，回退默认阈值: {_e_router}")
+
+
+def _resolve_threshold(ts_code: str) -> dict:
+    """
+    根据 ts_code 解析该标的应使用的异动阈值
+    Returns: {"price_change_pct": float, "asset_class": str}
+
+    回退机制:
+    1. asset_class_router 可用 + 识别成功 → 用 per-asset 阈值
+    2. asset_class_router 不可用 → ALERT_THRESHOLDS["price_change_pct"] (3.0%)
+    """
+    if _ASSET_ROUTER_AVAILABLE and _ASSET_ROUTER is not None:
+        try:
+            asset_class = _ASSET_ROUTER.detect_class(ts_code)
+            threshold = _ASSET_ROUTER.get_alert_threshold(asset_class)
+            return {
+                "price_change_pct": threshold.get("intraday_pct", 3.0),
+                "asset_class": asset_class,
+            }
+        except Exception as e:
+            logger.debug(f"per-asset threshold lookup failed for {ts_code}: {e}")
+    # 回退
+    return {
+        "price_change_pct": ALERT_THRESHOLDS["price_change_pct"],
+        "asset_class": "stock",
+    }
 
 
 # ── 数据加载 ──────────────────────────────────────────────────────────────
@@ -199,7 +246,8 @@ def detect_anomalies(quotes: list[dict], baseline: dict, name_map: dict = None) 
     返回异动列表: [{ts_code, name, change_pct, volume, avg_vol, volume_ratio, alert_type}]
     """
     anomalies = []
-    price_threshold = ALERT_THRESHOLDS["price_change_pct"]
+    # 默认阈值 (仅作为 fallback)
+    default_price_threshold = ALERT_THRESHOLDS["price_change_pct"]
     volume_threshold = ALERT_THRESHOLDS["volume_surge_ratio"]
 
     for q in quotes:
@@ -209,14 +257,19 @@ def detect_anomalies(quotes: list[dict], baseline: dict, name_map: dict = None) 
         avg_vol = baseline.get(ts_code, 0)
         volume_ratio = volume / avg_vol if avg_vol > 0 else 0
 
+        # ── per-asset 阈值 (v2.1 补丁6 集成) ──
+        threshold_info = _resolve_threshold(ts_code)
+        price_threshold = threshold_info["price_change_pct"]
+        asset_class = threshold_info["asset_class"]
+
         alert_type = None
         reason = ""
 
-        # 涨跌幅异动
+        # 涨跌幅异动 (用 per-asset 阈值)
         if change_pct >= price_threshold:
             alert_type = "PRICE_ALERT"
             direction = "上涨" if q.get("change_pct", 0) > 0 else "下跌"
-            reason = f"{direction}{change_pct:.1f}%"
+            reason = f"{direction}{change_pct:.1f}% (阈值{price_threshold}%/{asset_class})"
 
         # 成交量异动
         if volume_ratio >= volume_threshold and volume > 0:

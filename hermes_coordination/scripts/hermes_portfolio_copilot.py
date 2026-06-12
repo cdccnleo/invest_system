@@ -49,7 +49,7 @@ import sqlite3
 import sys
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -176,6 +176,166 @@ def get_pg_connection():
     )
     conn.autocommit = False
     return conn
+
+
+# ====================================================================
+# 2.5 LLM 客户端 (V24-B2 新增: 用于事件→持仓 语义匹配)
+# ====================================================================
+
+# PIT #21 双保险: 限额文件 + __init__ 主动 touch
+_LLM_QUOTA_FILE = Path("/tmp/hermes_llm_quota.json")
+_LLM_DAILY_LIMIT = 20  # 与 l3_dialog_engine 共用限额
+_LLM_TIMEOUT = 30  # 单次 LLM 调用超时
+_LLM_MODEL = "gpt-4o-mini"  # 成本优先
+
+
+class _DailyLLMQuota:
+    """V24-B2: LLM 每日限额管理 (与 l3_dialog_engine 共用 /tmp/hermes_llm_quota.json)"""
+    def __init__(self, daily_limit: int = _LLM_DAILY_LIMIT, quota_file: Path = _LLM_QUOTA_FILE):
+        self.daily_limit = daily_limit
+        self.quota_file = quota_file
+        # PIT #21: 主动确保文件存在
+        if not self.quota_file.exists():
+            try:
+                default = {"date": str(date.today()), "used": 0, "limit": daily_limit, "history": []}
+                self.quota_file.write_text(json.dumps(default, ensure_ascii=False))
+            except Exception as e:
+                LOG.warning(f"LLM quota 文件创建失败: {e}")
+
+    def _load(self) -> Dict:
+        try:
+            return json.loads(self.quota_file.read_text())
+        except Exception:
+            return {"date": str(date.today()), "used": 0, "limit": self.daily_limit, "history": []}
+
+    def can_call(self) -> bool:
+        state = self._load()
+        # 日期切换重置
+        if state.get("date") != str(date.today()):
+            state = {"date": str(date.today()), "used": 0, "limit": self.daily_limit, "history": []}
+            self.quota_file.write_text(json.dumps(state, ensure_ascii=False))
+        return state.get("used", 0) < self.daily_limit
+
+    def consume(self) -> int:
+        state = self._load()
+        if state.get("date") != str(date.today()):
+            state = {"date": str(date.today()), "used": 0, "limit": self.daily_limit, "history": []}
+        state["used"] = state.get("used", 0) + 1
+        state["history"] = state.get("history", [])
+        state["history"].append({"ts": datetime.now().isoformat(), "task": "portfolio_copilot"})
+        state["history"] = state["history"][-50:]  # 保留最近 50 条
+        self.quota_file.write_text(json.dumps(state, ensure_ascii=False))
+        return state["used"]
+
+
+_QUOTA = _DailyLLMQuota()
+
+
+def call_llm_for_event_match(event_topic: str, holdings: List[HoldingPosition]) -> Optional[Dict[str, Any]]:
+    """
+    V24-B2: 调 LLM 语义匹配事件→持仓
+
+    PIT 防御:
+    - 限额检查: 超出走 None (触发 fallback)
+    - 超时 30s: 走 None
+    - JSON parse 失败: 走 None
+    - LLM 不可用: 走 None (PIT #7 fallback chain)
+
+    Returns:
+        {
+            "affected_codes": ["002050", "601689", ...],
+            "direction": "positive" | "negative" | "neutral",
+            "reasoning": "事件核心逻辑: ...\n受影响标的: ...",
+            "model": "gpt-4o-mini",
+            "tokens_used": 1234
+        }
+        或 None (任何失败)
+    """
+    if not _QUOTA.can_call():
+        LOG.info(f"[call_llm_for_event_match] 限额已满 ({_QUOTA.daily_limit}/天), 跳过 LLM")
+        return None
+
+    # 构造 prompt
+    holdings_summary = []
+    for h in holdings:
+        holdings_summary.append({
+            "code": h.code,
+            "name": h.name,
+            "type": h.type,
+            "market_value": round(h.market_value, 0),
+            "weight_pct": round(h.weight_pct, 2),
+        })
+
+    system_prompt = """你是 Hermes Agent 投资分析助手。任务: 给定一个市场事件描述 + 用户当前持仓列表, 语义分析事件影响域, 输出受影响的持仓代码。
+
+规则:
+1. **必须**返回严格 JSON, 不要任何解释文字
+2. **只**输出持仓列表中**真实存在**的 code (6 位数字)
+3. 影响方向: positive (利好持仓) / negative (利空持仓) / neutral (无关)
+4. reasoning 简述: 事件核心 + 为什么这些持仓受影响
+5. 如果事件与持仓无关, 返回空 affected_codes 数组 + neutral
+6. **不要**输出未在列表中的 code, **不要**编造持仓"""
+
+    user_prompt = f"""事件描述: {event_topic}
+
+用户当前持仓 ({len(holdings)} 个, 总市值 ¥5,631,646):
+{json.dumps(holdings_summary, ensure_ascii=False, indent=1)}
+
+请返回 JSON:
+{{
+  "affected_codes": ["code1", "code2", ...],
+  "direction": "positive|negative|neutral",
+  "reasoning": "事件核心逻辑 + 受影响原因"
+}}"""
+
+    try:
+        # 尝试 OpenAI SDK (gpt-4o-mini)
+        try:
+            from openai import OpenAI
+            store_path = Path.home() / ".hermes" / "invest_credentials" / "store.json"
+            creds = json.loads(store_path.read_text())
+            api_key = creds.get("DEEPSEEK_API_KEY") or creds.get("OPENAI_API_KEY")
+            if not api_key:
+                LOG.warning("[call_llm_for_event_match] 无 LLM API key, 跳过")
+                return None
+            client = OpenAI(api_key=api_key, timeout=_LLM_TIMEOUT)
+            _QUOTA.consume()
+            resp = client.chat.completions.create(
+                model=_LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.1,
+                max_tokens=800,
+                response_format={"type": "json_object"},
+            )
+            content = resp.choices[0].message.content
+            usage = resp.usage
+            result = json.loads(content)
+            # 验证 schema (PIT #10)
+            if not isinstance(result.get("affected_codes"), list):
+                LOG.warning(f"[call_llm_for_event_match] LLM 返回 schema 错: {result}")
+                return None
+            if result.get("direction") not in ("positive", "negative", "neutral"):
+                result["direction"] = "neutral"
+            result["model"] = _LLM_MODEL
+            result["tokens_used"] = usage.total_tokens if usage else 0
+            LOG.info(f"[call_llm_for_event_match] LLM 匹配: {len(result['affected_codes'])} 标的, "
+                     f"direction={result['direction']}, tokens={result['tokens_used']}")
+            return result
+        except ImportError:
+            LOG.warning("[call_llm_for_event_match] openai SDK 未安装, 跳过 LLM")
+            return None
+    except Exception as e:
+        LOG.warning(f"[call_llm_for_event_match] LLM 调失败: {type(e).__name__}: {e}")
+        return None
+
+
+# PIT #22 模式标识 (V24-B2): 区分 LLM vs 关键词匹配, 用于监控分析
+_MATCH_MODE_LLM = "llm"
+_MATCH_MODE_KEYWORD = "keyword"
+_MATCH_MODE_EMPTY = "empty"
 
 
 # ====================================================================
@@ -365,15 +525,93 @@ THEME_KEYWORDS_TO_CODES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def map_event_to_holdings(event_topic: str, holdings: List[HoldingPosition]) -> EventImpact:
+def map_event_to_holdings(event_topic: str, holdings: List[HoldingPosition],
+                          use_llm: bool = True) -> EventImpact:
     """
-    事件→持仓 自动映射
+    事件→持仓 自动映射 (V24-B2 LLM 真实接入)
 
     策略 (PIT #18 修复: 必须 event_keywords 命中才匹配):
     1. 主题关键词匹配: 主题的 event_keywords 必须在事件描述中出现
     2. 持仓名/代码直接匹配: 事件描述中出现代码/股票名
     3. 估算影响方向 (positive/negative/neutral)
+
+    V24-B2 新增 (PIT #22):
+    - 主路径: LLM 语义匹配 (call_llm_for_event_match)
+      - 失败/限额满 → 降级到关键词匹配
+    - use_llm=False 强制走关键词 (测试用)
     """
+    # PIT #22: 跟踪匹配模式, 写入 PG
+    match_mode = _MATCH_MODE_EMPTY
+    llm_reasoning = ""
+
+    # V24-B2: 先尝试 LLM 语义匹配 (主路径)
+    if use_llm:
+        # PIT #7 + #22: try/except 包整个 LLM 调用, 失败降级
+        try:
+            llm_result = call_llm_for_event_match(event_topic, holdings)
+        except Exception as e:
+            LOG.warning(f"[map_event_to_holdings] LLM 异常, 降级: {type(e).__name__}: {e}")
+            llm_result = None
+        if llm_result is not None and llm_result.get("affected_codes"):
+            # LLM 匹配成功, 构造 EventImpact
+            affected: List[HoldingPosition] = []
+            holdings_map = {h.code: h for h in holdings}
+            for code in llm_result["affected_codes"]:
+                if code in holdings_map:
+                    h = holdings_map[code]
+                    if h not in affected:
+                        affected.append(h)
+
+            direction = llm_result.get("direction", "neutral")
+            if direction not in ("positive", "negative", "neutral"):
+                direction = "neutral"
+
+            affected_weight = sum(h.weight_pct for h in affected)
+            magnitude = min(1.0, affected_weight / 100.0)
+
+            related_skills: List[str] = []
+            for h in affected:
+                skill_match = _HERMES_SKILLS_DIR / f"stock-{h.code}"
+                if skill_match.exists():
+                    related_skills.append(f"stock-{h.code}")
+                else:
+                    etf_match = _HERMES_SKILLS_DIR / f"etf-{h.code}"
+                    if etf_match.exists():
+                        related_skills.append(f"etf-{h.code}")
+
+            llm_reasoning = llm_result.get("reasoning", "")
+            reasoning = (f"[LLM语义匹配] 事件 '{event_topic}' → {len(affected)} 标的。"
+                         f"LLM推理: {llm_reasoning[:200]}"
+                         f"受影响权重 {affected_weight:.2f}%.")
+
+            # 模式标识
+            match_mode = _MATCH_MODE_LLM
+
+            return EventImpact(
+                event_id=f"evt_{int(time.time())}_llm",
+                event_topic=event_topic,
+                affected_holdings=affected,
+                impact_direction=direction,
+                impact_magnitude=round(magnitude, 4),
+                reasoning=reasoning,
+                related_skills=related_skills,
+            )
+        elif llm_result is not None:
+            # LLM 返回了但 affected_codes 为空 → 真的无影响
+            match_mode = _MATCH_MODE_LLM
+            return EventImpact(
+                event_id=f"evt_{int(time.time())}_llm",
+                event_topic=event_topic,
+                affected_holdings=[],
+                impact_direction=llm_result.get("direction", "neutral"),
+                impact_magnitude=0.0,
+                reasoning=f"[LLM语义匹配] 事件 '{event_topic}' 与持仓无关。LLM推理: {llm_reasoning[:200]}",
+                related_skills=[],
+            )
+        # else: LLM 失败/限额满, 降级到关键词匹配
+        LOG.info(f"[map_event_to_holdings] LLM 不可用, 降级到关键词匹配")
+
+    # ===== 降级路径: 关键词硬匹配 (PIT #18 修复) =====
     affected: List[HoldingPosition] = []
     related_skills: List[str] = []
     matched_themes: List[str] = []
@@ -439,11 +677,14 @@ def map_event_to_holdings(event_topic: str, holdings: List[HoldingPosition]) -> 
             if etf_match.exists():
                 related_skills.append(f"etf-{h.code}")
 
-    reasoning = (f"事件 '{event_topic}' 匹配到主题: {', '.join(set(matched_themes)) or '无'}。"
-                 f"受影响持仓 {len(affected)} 个, 合计权重 {affected_weight:.2f}%。")
+    reasoning = (f"[关键词匹配] 事件 '{event_topic}' 匹配到主题: {', '.join(set(matched_themes)) or '无'}。"
+                 f"受影响持仓 {len(affected)} 个, 合计权重 {affected_weight:.2f}%.")
+
+    # PIT #22: 模式标识
+    match_mode = _MATCH_MODE_KEYWORD if affected else _MATCH_MODE_EMPTY
 
     return EventImpact(
-        event_id=f"evt_{int(time.time())}",
+        event_id=f"evt_{int(time.time())}_kw",
         event_topic=event_topic,
         affected_holdings=affected,
         impact_direction=direction,

@@ -621,6 +621,20 @@ def pattern_9_portfolio_copilot() -> Tuple[bool, List[str]]:
         )
         errors: List[str] = []
 
+        # ⚠️ PIT #22 + V24-B2: 模式 9 调 map_event_to_holdings 默认 use_llm=True, mock 掉
+        import hermes_portfolio_copilot as hpc
+        original_hpc_llm = hpc.call_llm_for_event_match
+        def mock_llm_p9(event_topic, holdings):
+            if "SpaceX" in event_topic or "卫星" in event_topic:
+                return {
+                    "affected_codes": ["300136", "002149", "600487"],
+                    "direction": "positive",
+                    "reasoning": "SpaceX 利好", "model": "mock", "tokens_used": 100,
+                }
+            return {"affected_codes": [], "direction": "neutral",
+                    "reasoning": "无关", "model": "mock", "tokens_used": 50}
+        hpc.call_llm_for_event_match = mock_llm_p9
+
         with PortfolioCopilot() as copilot:
             # 1. 持仓 45 行
             if len(copilot.holdings) != 45:
@@ -689,10 +703,16 @@ def pattern_9_portfolio_copilot() -> Tuple[bool, List[str]]:
 
         if errors:
             print(f"  ❌ 模式 9 失败: {errors}")
+            hpc.call_llm_for_event_match = original_hpc_llm  # 还原
             return False, errors
         print(f"  ✅ 模式 9 通过")
+        hpc.call_llm_for_event_match = original_hpc_llm  # 还原
         return True, []
     except Exception as e:
+        try:
+            hpc.call_llm_for_event_match = original_hpc_llm
+        except Exception:
+            pass
         return False, [f"模式 9 异常: {e}"]
 
 
@@ -708,6 +728,21 @@ def pattern_10_dashboard_bridge() -> Tuple[bool, List[str]]:
             ActionStatus, ensure_pg_tables,
         )
         errors: List[str] = []
+
+        # ⚠️ PIT #22 + V24-B2: PortfolioCopilot 现在调 LLM, mock 掉避免 30s 超时
+        import hermes_portfolio_copilot as hpc
+        original_hpc_llm = hpc.call_llm_for_event_match
+        def mock_llm_p10(event_topic, holdings):
+            if "SpaceX" in event_topic or "卫星" in event_topic:
+                return {
+                    "affected_codes": ["300136", "002149", "600487"],
+                    "direction": "positive",
+                    "reasoning": "SpaceX 利好",
+                    "model": "mock", "tokens_used": 100,
+                }
+            return {"affected_codes": [], "direction": "neutral",
+                    "reasoning": "无关", "model": "mock", "tokens_used": 50}
+        hpc.call_llm_for_event_match = mock_llm_p10
 
         ensure_pg_tables()
         bridge = DashboardBridge(user_id="aileo_p10", persist_to_pg=True)
@@ -801,10 +836,16 @@ def pattern_10_dashboard_bridge() -> Tuple[bool, List[str]]:
 
         if errors:
             print(f"  ❌ 模式 10 失败: {errors}")
+            hpc.call_llm_for_event_match = original_hpc_llm  # 还原 mock
             return False, errors
         print(f"  ✅ 模式 10 通过")
+        hpc.call_llm_for_event_match = original_hpc_llm  # 还原 mock
         return True, []
     except Exception as e:
+        try:
+            hpc.call_llm_for_event_match = original_hpc_llm
+        except Exception:
+            pass
         return False, [f"模式 10 异常: {e}"]
 
 
@@ -955,6 +996,20 @@ def pattern_12_v22_to_v23_integration() -> Tuple[bool, List[str]]:
         )
         errors: List[str] = []
 
+        # ⚠️ PIT #22 + V24-B2: 端到端测试会调 PortfolioCopilot → LLM, mock 掉
+        import hermes_portfolio_copilot as hpc
+        original_hpc_llm = hpc.call_llm_for_event_match
+        def mock_llm_p12(event_topic, holdings):
+            if "SpaceX" in event_topic or "卫星" in event_topic:
+                return {
+                    "affected_codes": ["300136", "002149", "600487"],
+                    "direction": "positive",
+                    "reasoning": "SpaceX 利好", "model": "mock", "tokens_used": 100,
+                }
+            return {"affected_codes": [], "direction": "neutral",
+                    "reasoning": "无关", "model": "mock", "tokens_used": 50}
+        hpc.call_llm_for_event_match = mock_llm_p12
+
         # 1. v2.3 模块全部 import
         imports = verify_module_imports()
         for m in V23_MODULES:
@@ -1050,11 +1105,139 @@ def pattern_12_v22_to_v23_integration() -> Tuple[bool, List[str]]:
 
         if errors:
             print(f"  ❌ 模式 12 失败: {errors}")
+            hpc.call_llm_for_event_match = original_hpc_llm  # 还原
             return False, errors
         print(f"  ✅ 模式 12 通过")
+        hpc.call_llm_for_event_match = original_hpc_llm  # 还原
         return True, []
     except Exception as e:
+        try:
+            hpc.call_llm_for_event_match = original_hpc_llm
+        except Exception:
+            pass
         return False, [f"模式 12 异常: {e}"]
+
+
+# ============================================================
+# 模式 13: V24-B2 LLM 真实接入 + Fallback 链 (V24 B2)
+# ============================================================
+
+
+def pattern_13_v24_b2_llm_integration() -> Tuple[bool, List[str]]:
+    """模式 13: V24-B2 方案 6 LLM 真实接入 (PIT #22 模式标识 + PIT #7 Fallback 链)"""
+    errors = []
+    print("\n=== [模式 13] V24-B2 LLM 真实接入 (方案 6 升级) ===")
+    try:
+        # 1. LLM 客户端 + 限额管理存在
+        from hermes_portfolio_copilot import (
+            call_llm_for_event_match, map_event_to_holdings,
+            _DailyLLMQuota, _QUOTA,
+            _MATCH_MODE_LLM, _MATCH_MODE_KEYWORD, _MATCH_MODE_EMPTY,
+            THEME_KEYWORDS_TO_CODES,
+        )
+        if call_llm_for_event_match is None:
+            errors.append("call_llm_for_event_match 未定义")
+        if _QUOTA is None or not hasattr(_QUOTA, "can_call"):
+            errors.append("_DailyLLMQuota 类未实现")
+        if _MATCH_MODE_LLM != "llm" or _MATCH_MODE_KEYWORD != "keyword":
+            errors.append("PIT #22 模式标识常量未正确定义")
+        if not errors:
+            print(f"  ✅ LLM 客户端 + 限额管理 + 模式标识存在 (limit={_QUOTA.daily_limit}/天)")
+
+        # 2. 加载真实持仓
+        from hermes_portfolio_copilot import load_current_holdings
+        holdings = load_current_holdings()
+        if not holdings:
+            errors.append("未加载到持仓")
+            return False, errors
+        print(f"  ✅ 持仓 {len(holdings)} 个")
+
+        # 3. LLM 路径 (mock openai 已注入, 不打真实网络)
+        import time
+
+        # ⚠️ 重要: hpc 在 import 时 `from openai import OpenAI` 是在函数内 (line 294)
+        # 改 openai.OpenAI 不影响 hpc 内的 OpenAI 局部名
+        # 解法: 直接 mock hpc.call_llm_for_event_match 函数本身
+        import hermes_portfolio_copilot as hpc
+        original_hpc_llm = hpc.call_llm_for_event_match
+
+        def mock_llm_succeed(event_topic, holdings):
+            if "SpaceX" in event_topic or "卫星" in event_topic:
+                return {
+                    "affected_codes": ["300136", "002149", "600487"],
+                    "direction": "positive",
+                    "reasoning": "SpaceX IPO 利好卫星链",
+                    "model": "mock-gpt-4o-mini",
+                    "tokens_used": 150,
+                }
+            return {"affected_codes": [], "direction": "neutral", "reasoning": "无关",
+                    "model": "mock", "tokens_used": 80}
+
+        hpc.call_llm_for_event_match = mock_llm_succeed
+
+        t0 = time.time()
+        impact = map_event_to_holdings("SpaceX 6月12日 IPO 定价$1.3万亿", holdings, use_llm=True)
+        llm_elapsed = time.time() - t0
+        if not impact.event_id.endswith("llm"):
+            errors.append(f"LLM 路径 event_id 应以 _llm 结尾, 实测 {impact.event_id}")
+        if len(impact.affected_holdings) != 3:
+            errors.append(f"LLM 应匹配 3 标的 (300136/002149/600487), 实测 {len(impact.affected_holdings)}")
+        if "[LLM" not in impact.reasoning:
+            errors.append("LLM reasoning 应带 [LLM 语义匹配] 前缀")
+        if llm_elapsed > 5:
+            errors.append(f"LLM 路径耗时过长: {llm_elapsed:.2f}s")
+        if not errors:
+            print(f"  ✅ LLM 路径: 3 标的命中, {llm_elapsed:.3f}s, event_id={impact.event_id}")
+
+        # 4. 关键词路径
+        t0 = time.time()
+        impact_kw = map_event_to_holdings("SpaceX 6月12日 IPO 定价$1.3万亿", holdings, use_llm=False)
+        kw_elapsed = time.time() - t0
+        if not impact_kw.event_id.endswith("kw"):
+            errors.append(f"关键词路径 event_id 应以 _kw 结尾, 实测 {impact_kw.event_id}")
+        if "[关键词" not in impact_kw.reasoning:
+            errors.append("关键词 reasoning 应带 [关键词匹配] 前缀")
+        if kw_elapsed > 0.5:
+            errors.append(f"关键词路径应 < 0.5s, 实测 {kw_elapsed:.3f}s")
+        if not errors:
+            print(f"  ✅ 关键词路径: 3 标的命中, {kw_elapsed:.3f}s, event_id={impact_kw.event_id}")
+
+        # 5. Fallback 链 (PIT #7 防御): 让 LLM 抛错 → 期望降级
+        def mock_llm_fail(event_topic, holdings):
+            raise TimeoutError("mock LLM 30s timeout")
+
+        hpc.call_llm_for_event_match = mock_llm_fail
+
+        t0 = time.time()
+        impact_fb = map_event_to_holdings("SpaceX 6月12日 IPO 定价$1.3万亿", holdings, use_llm=True)
+        fb_elapsed = time.time() - t0
+        if not impact_fb.event_id.endswith("kw"):
+            errors.append(f"Fallback 后 event_id 应以 _kw 结尾, 实测 {impact_fb.event_id}")
+        if "[关键词" not in impact_fb.reasoning:
+            errors.append("Fallback 后 reasoning 应带 [关键词匹配] 前缀")
+        if fb_elapsed > 2:
+            errors.append(f"Fallback 应 < 2s (立即失败), 实测 {fb_elapsed:.2f}s")
+        if not errors:
+            print(f"  ✅ Fallback 链: LLM 失败 → 降级关键词, {fb_elapsed:.3f}s, "
+                  f"event_id={impact_fb.event_id}")
+
+        # 还原
+        hpc.call_llm_for_event_match = original_hpc_llm
+
+        # 6. 限额管理
+        if not _QUOTA.can_call():
+            errors.append("quota 应在限额内")
+        else:
+            print(f"  ✅ 限额管理 OK (今日已用 {_QUOTA._load().get('used', 0)}/{_QUOTA.daily_limit})")
+
+        if errors:
+            print(f"  ❌ 模式 13 失败: {errors}")
+            return False, errors
+        print(f"  ✅ 模式 13 通过")
+        return True, []
+    except Exception as e:
+        import traceback
+        return False, [f"模式 13 异常: {e}\n{traceback.format_exc()[:500]}"]
 
 
 # ============================================================
@@ -1073,6 +1256,7 @@ PATTERNS = {
     10: ("DashboardBridge 方案 7 (V23 R2)", pattern_10_dashboard_bridge),
     11: ("V22Monitoring 监控 7 天 (V23 R3)", pattern_11_v22_monitoring),
     12: ("V22ToV23Integration 集成验证 (V23 R3)", pattern_12_v22_to_v23_integration),
+    13: ("V24-B2 LLM 真实接入 (V24 B2)", pattern_13_v24_b2_llm_integration),
 }
 
 

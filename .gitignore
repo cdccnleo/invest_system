@@ -39,3 +39,9 @@ credentials.json
 
 # 技能草案（AI生成临时产物，不提交）
 skills/drafts/
+
+# 备份文件 (V23-R3-T4 防止 330+ 备份文件入仓)
+backups/
+data/target_memories_shadow/
+logs/*.lock
+data/backups/

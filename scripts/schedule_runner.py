@@ -2152,6 +2152,110 @@ def job_weekly_backtest():
         send_job_failure("周线回测", str(e))
 
 
+def job_v22_monitoring_collect():
+    """
+    每日 18:30 v2.2 监控数据收集 (V23-R3-T2 集成, 2026-06-12)
+
+    - 调 v22_monitoring.py 子进程
+    - 5 大指标 → l3.v22_monitoring
+    - 7 天报告汇总 → 飞书告警 (health != healthy)
+    """
+    logger.info("=" * 50)
+    logger.info("18:30 v2.2 监控数据收集启动")
+    start_ts = time.time()
+
+    # ── 1. 跑 v22_monitoring.py 子进程 ─────────────────────────────────
+    root = Path(str(ROOT)).resolve()
+    monitor_script = root / "hermes_coordination" / "scripts" / "v22_monitoring.py"
+    venv_py = root / ".venv" / "bin" / "python3.11"
+    if not monitor_script.exists():
+        msg = f"v22_monitoring.py 不存在: {monitor_script}"
+        logger.error(msg)
+        _safe_error_alert("🔴 v22 监控脚本缺失", msg)
+        return
+    if not venv_py.exists():
+        # 退而求其次: 用 system python
+        venv_py = Path("/home/aileo/.hermes/hermes-agent/venv/bin/python3")
+
+    try:
+        import subprocess as _sp_v22m
+        proc = _sp_v22m.run(
+            [str(venv_py), str(monitor_script)],
+            capture_output=True, text=True, timeout=60,  # 7 天回填 < 1 分钟
+        )
+    except Exception as e:
+        logger.error(f"v22_monitoring 子进程启动失败: {e}")
+        _safe_error_alert("🔴 v22 监控启动失败", f"无法执行 v22_monitoring.py: {e}")
+        send_job_failure("v22 监控 (18:30)", str(e))
+        return
+
+    if proc.returncode != 0:
+        msg = f"v22_monitoring 异常退出 rc={proc.returncode}: {proc.stderr[:200]}"
+        logger.error(msg)
+        _safe_error_alert("🔴 v22 监控脚本失败", proc.stderr[:200] or f"rc={proc.returncode}")
+        send_job_failure("v22 监控 (18:30)", msg)
+        return
+
+    # ── 2. 解析 stdout (找模式 11 测试结果) ─────────────────────────
+    passed = total = elapsed = 0
+    try:
+        for line in proc.stdout.splitlines()[::-1]:
+            if "模式 11" in line and "通过" in line:
+                # 格式: 通过: 10/10 | 耗时: 0.233s
+                parts = line.split("通过:")[-1].split("|")
+                p_t = parts[0].strip().split("/")
+                passed = int(p_t[0])
+                total = int(p_t[1])
+                if len(parts) > 1 and "耗时" in parts[1]:
+                    try:
+                        elapsed = float(parts[1].strip().split(":")[1].rstrip("s").strip())
+                    except (ValueError, IndexError):
+                        elapsed = 0
+                break
+    except Exception as e:
+        logger.warning(f"无法从 v22_monitoring 输出解析: {e}")
+
+    elapsed_total = round(time.time() - start_ts, 1)
+    logger.info(
+        f"v22 监控完成: 子进程 {elapsed}s (模式 11: {passed}/{total}), "
+        f"总耗时 {elapsed_total}s"
+    )
+
+    # ── 3. 报告持久化 (cron_task_metrics) ──────────────────────────
+    try:
+        from backtester import get_db_conn
+        _conn = get_db_conn()
+        _cur = _conn.cursor()
+        _conn.commit()
+        # 报告持久化已由 v22_monitoring 内部完成 (l3.v22_monitoring)
+        # 这里只记录 cron 健康度
+        _cur.execute("""
+            SELECT count(*), count(*) FILTER (WHERE alert_level IS NOT NULL AND alert_level <> 'normal')
+            FROM l3.v22_monitoring
+            WHERE metric_date = CURRENT_DATE
+        """)
+        _row = _cur.fetchone()
+        metric_count = _row[0] or 0
+        alert_count = _row[1] or 0
+        _conn.commit()
+        _conn.close()
+        logger.info(f"今日 v22 监控: {metric_count} 指标, {alert_count} 告警")
+    except Exception as e:
+        logger.warning(f"v22 监控报告查询失败: {e}")
+        alert_count = 0
+
+    # ── 4. 推送告警 (如 health != healthy) ────────────────────────
+    if alert_count > 0:
+        try:
+            msg = f"📊 v2.2 监控告警: 今日 {alert_count} 项指标需关注\n"
+            msg += f"模式 11 测试: {passed}/{total} 通过\n"
+            msg += f"耗时: {elapsed}s\n"
+            msg += f"查看详情: http://localhost:8648/#/hermes/session 调 l3.v22_monitoring"
+            send_notification("🟡 v2.2 监控告警", msg)
+        except Exception as e:
+            logger.warning(f"v22 监控告警推送失败: {e}")
+
+
 def _get_recent_skill_calls(task_pattern: str, limit: int = 10) -> list[dict]:
     """获取近期技能调用记录（用于生成草案上下文）"""
     try:
@@ -2422,6 +2526,17 @@ def start_scheduler():
         CronTrigger(hour=18, minute=0, timezone="Asia/Shanghai"),
         id="hermes_sync_daily",
         name="Hermes × InvestPilot 双向同步 (18:00)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # 每日 18:30 v2.2 监控数据收集 (V23-R3-T2 集成, 2026-06-12)
+    # 选 18:30: 在 hermes_sync (18:00) 之后, 用同步后的最新数据
+    _scheduler.add_job(
+        job_v22_monitoring_collect,
+        CronTrigger(hour=18, minute=30, timezone="Asia/Shanghai"),
+        id="v22_monitoring_daily",
+        name="v2.2 监控数据收集 (18:30)",
         replace_existing=True,
         misfire_grace_time=600,
     )

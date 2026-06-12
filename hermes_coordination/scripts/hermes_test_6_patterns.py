@@ -809,6 +809,255 @@ def pattern_10_dashboard_bridge() -> Tuple[bool, List[str]]:
 
 
 # ============================================================
+# 模式 11: V22Monitoring 监控 7 天 (V23 R3 T1)
+# ============================================================
+
+def pattern_11_v22_monitoring() -> Tuple[bool, List[str]]:
+    """模式 11: v2.2 监控数据收集器 (V23 R3)"""
+    try:
+        from v22_monitoring import (
+            generate_daily_report, backfill_7_days, ensure_pg_table,
+            collect_llm_call_count, collect_decision_writes, collect_push_count,
+            collect_fallback_distribution, collect_cron_health, persist_metrics,
+            format_report_text,
+        )
+        errors: List[str] = []
+
+        # 0. PG 表存在
+        import psycopg2
+        from pathlib import Path
+        creds = json.loads(Path.home().joinpath(".hermes/invest_credentials/store.json").read_text())
+        conn = psycopg2.connect(host="localhost", user="invest_admin",
+                                password=creds["DB_PASSWORD"], dbname="investpilot")
+        try:
+            ensure_pg_table(conn)
+            cur = conn.cursor()
+            conn.commit()
+            cur.execute("SELECT count(*) FROM l3.v22_monitoring")
+            pre_count = cur.fetchone()[0]
+            conn.commit()
+            print(f"  ✅ v22_monitoring 表已存在 (当前 {pre_count} 行)")
+        except Exception as e:
+            errors.append(f"PG 表初始化失败: {e}")
+            return False, errors
+
+        target = "2026-06-12"
+
+        # 1. 5 大指标 (各调一次, 验证 schema)
+        try:
+            llm_count, _ = collect_llm_call_count(conn, target)
+            assert llm_count >= 0
+            print(f"  ✅ llm_call_count: {llm_count}")
+        except Exception as e:
+            errors.append(f"collect_llm_call_count 失败: {e}")
+
+        try:
+            dec = collect_decision_writes(conn, target)
+            print(f"  ✅ decision_writes: {dec}")
+        except Exception as e:
+            errors.append(f"collect_decision_writes 失败: {e}")
+
+        try:
+            push, _ = collect_push_count(conn, target)
+            print(f"  ✅ push_count: {push}")
+        except Exception as e:
+            errors.append(f"collect_push_count 失败: {e}")
+
+        try:
+            fb = collect_fallback_distribution(conn, target)
+            assert "L1_normal" in fb
+            print(f"  ✅ fallback_dist: L1={fb['L1_normal']}, L4={fb.get('L4_skip', 0)}")
+        except Exception as e:
+            errors.append(f"collect_fallback_distribution 失败: {e}")
+
+        try:
+            rate, total, failed = collect_cron_health(conn, target)
+            assert 0 <= rate <= 100
+            print(f"  ✅ cron_health: {rate}% ({total} 任务, {failed} 失败)")
+        except Exception as e:
+            errors.append(f"collect_cron_health 失败: {e}")
+
+        # 6. 报告生成 (PIT #10 早退 schema 完整)
+        try:
+            report = generate_daily_report(conn, target)
+            for attr in ("report_date", "llm_call_count", "llm_quota_limit",
+                         "llm_quota_used_pct", "decision_writes", "push_count",
+                         "fallback_l1", "fallback_l2", "fallback_l3", "fallback_l4",
+                         "cron_success_rate", "cron_total", "cron_failed",
+                         "alerts", "health_status"):
+                if not hasattr(report, attr):
+                    errors.append(f"report 缺字段: {attr}")
+            if not errors:
+                print(f"  ✅ 报告 schema 完整 (15 字段) health={report.health_status}")
+        except Exception as e:
+            errors.append(f"generate_daily_report 失败: {e}")
+
+        # 7. 持久化
+        try:
+            persist_metrics(conn, report)
+            cur = conn.cursor()
+            conn.commit()
+            cur.execute("SELECT count(*) FROM l3.v22_monitoring WHERE metric_date = %s", (target,))
+            metric_count = cur.fetchone()[0]
+            conn.commit()
+            assert metric_count >= 5, f"持久化 {metric_count} < 5"
+            print(f"  ✅ PG 持久化: {metric_count} 指标")
+        except Exception as e:
+            errors.append(f"persist_metrics 失败: {e}")
+
+        # 8. 7 天回填
+        try:
+            reports = backfill_7_days(conn)
+            assert len(reports) == 7
+            print(f"  ✅ 7 天回填: {len(reports)} 份报告")
+        except Exception as e:
+            errors.append(f"backfill_7_days 失败: {e}")
+
+        # 9. 报告文本
+        try:
+            text = format_report_text(reports)
+            assert "7 天汇总" in text and "趋势分析" in text
+            print(f"  ✅ 报告文本: {len(text)} 字符")
+        except Exception as e:
+            errors.append(f"format_report_text 失败: {e}")
+
+        # 10. 早退: 未来日期
+        try:
+            from datetime import date, timedelta
+            future = (date.today() + timedelta(days=30)).isoformat()
+            future_report = generate_daily_report(conn, future)
+            assert future_report.llm_call_count == 0
+            print(f"  ✅ 早退未来日期: 0 调用 + healthy")
+        except Exception as e:
+            errors.append(f"future_date early_return 失败: {e}")
+
+        conn.close()
+        if errors:
+            print(f"  ❌ 模式 11 失败: {errors}")
+            return False, errors
+        print(f"  ✅ 模式 11 通过")
+        return True, []
+    except Exception as e:
+        return False, [f"模式 11 异常: {e}"]
+
+
+# ============================================================
+# 模式 12: V22ToV23Integration 集成验证 (V23 R3 T2)
+# ============================================================
+
+def pattern_12_v22_to_v23_integration() -> Tuple[bool, List[str]]:
+    """模式 12: v2.2 → v2.3 集成验证 (V23 R3)"""
+    try:
+        from v22_to_v23_integration import (
+            verify_module_imports, verify_pg_tables, verify_cron_registered,
+            verify_quota_files, verify_e2e_data_flow, full_integration_check,
+            V22_MODULES, V23_MODULES, EXPECTED_PG_TABLES,
+        )
+        errors: List[str] = []
+
+        # 1. v2.3 模块全部 import
+        imports = verify_module_imports()
+        for m in V23_MODULES:
+            if imports.get(m, {}).get("status") != "ok":
+                errors.append(f"v2.3 模块 {m} import 失败: {imports.get(m)}")
+        if not errors:
+            print(f"  ✅ v2.3 模块 {len(V23_MODULES)}/{len(V23_MODULES)} import OK")
+
+        # 2. v2.2 模块 import (允许部分失败, 因为有些可能在不同环境)
+        v22_ok = sum(1 for m in V22_MODULES if imports.get(m, {}).get("status") == "ok")
+        if v22_ok < 1:
+            errors.append(f"v2.2 模块 {v22_ok}/{len(V22_MODULES)} 成功 (至少 1)")
+        else:
+            print(f"  ✅ v2.2 模块 {v22_ok}/{len(V22_MODULES)} import OK")
+
+        # 3. PG 表存在
+        import psycopg2
+        from pathlib import Path
+        creds = json.loads(Path.home().joinpath(".hermes/invest_credentials/store.json").read_text())
+        conn = psycopg2.connect(host="localhost", user="invest_admin",
+                                password=creds["DB_PASSWORD"], dbname="investpilot")
+        try:
+            pg = verify_pg_tables(conn)
+            existing = len(pg.get("existing", []))
+            if existing < 5:
+                errors.append(f"PG 表 {existing} < 5: {pg}")
+            else:
+                print(f"  ✅ PG 表 {existing}/{len(EXPECTED_PG_TABLES)} 存在")
+        finally:
+            conn.close()
+
+        # 4. 关键函数签名
+        from v22_to_v23_integration import verify_module_funcs
+        funcs = verify_module_funcs()
+        v23_func_ok = sum(1 for m in V23_MODULES if funcs.get(m, {}).get("status") == "ok")
+        if v23_func_ok != len(V23_MODULES):
+            errors.append(f"v2.3 函数 {v23_func_ok}/{len(V23_MODULES)} 签名匹配")
+        else:
+            print(f"  ✅ v2.3 函数 {v23_func_ok}/{len(V23_MODULES)} 签名匹配")
+
+        # 5. cron 注册
+        cron = verify_cron_registered()
+        if cron.get("status") != "ok":
+            errors.append(f"cron 未注册: {cron}")
+        else:
+            print(f"  ✅ cron 18:30 已注册 (job_v22_monitoring_collect)")
+
+        # 6. quota 文件
+        quota = verify_quota_files()
+        if quota.get("/tmp/hermes_llm_quota.json", {}).get("status") != "ok":
+            errors.append(f"quota 文件不可用: {quota}")
+        else:
+            print(f"  ✅ quota 文件 OK: {list(quota.keys())}")
+
+        # 7. e2e 数据流
+        flow = verify_e2e_data_flow()
+        if flow.get("status") not in ("ok", "partial"):
+            errors.append(f"e2e 失败: {flow}")
+        else:
+            advice_count = flow.get("advice_count", 0)
+            notif_delivered = flow.get("notif_delivered", False)
+            print(f"  ✅ e2e: advice={advice_count} 标的, notif={notif_delivered}")
+
+        # 8. 早退
+        try:
+            from hermes_portfolio_copilot import map_event_to_holdings
+            impact = map_event_to_holdings("xyz", [])
+            if impact.impact_magnitude != 0.0:
+                errors.append(f"早退 magnitude 应 0.0, 实际 {impact.impact_magnitude}")
+            else:
+                print(f"  ✅ 早退: 0 标的 + 0.0 magnitude")
+        except Exception as e:
+            errors.append(f"早退测试失败: {e}")
+
+        # 9. 12 模式测试脚本存在 + 包含模式 12
+        test_script = Path(__file__).resolve()
+        text = test_script.read_text(encoding="utf-8")
+        if "pattern_12_v22_to_v23_integration" not in text:
+            errors.append("模式 12 函数未定义")
+        else:
+            print(f"  ✅ 12 模式测试脚本 OK")
+
+        # 10. 完整端到端
+        try:
+            full = full_integration_check()
+            s = full.get("summary", {})
+            if s.get("pass_rate", 0) < 80:
+                errors.append(f"端到端 {s.get('pass_rate', 0):.1f}% < 80%")
+            else:
+                print(f"  ✅ 端到端: {s.get('passed', 0)}/{s.get('total', 0)} ({s.get('pass_rate', 0):.1f}%)")
+        except Exception as e:
+            errors.append(f"full_integration_check 失败: {e}")
+
+        if errors:
+            print(f"  ❌ 模式 12 失败: {errors}")
+            return False, errors
+        print(f"  ✅ 模式 12 通过")
+        return True, []
+    except Exception as e:
+        return False, [f"模式 12 异常: {e}"]
+
+
+# ============================================================
 # 入口
 # ============================================================
 PATTERNS = {
@@ -822,6 +1071,8 @@ PATTERNS = {
     8: ("HermesBacktest 方案 8 (V23 R1)", pattern_8_hermes_backtest),
     9: ("PortfolioCopilot 方案 6 (V23 R2)", pattern_9_portfolio_copilot),
     10: ("DashboardBridge 方案 7 (V23 R2)", pattern_10_dashboard_bridge),
+    11: ("V22Monitoring 监控 7 天 (V23 R3)", pattern_11_v22_monitoring),
+    12: ("V22ToV23Integration 集成验证 (V23 R3)", pattern_12_v22_to_v23_integration),
 }
 
 

@@ -1261,6 +1261,55 @@ def job_merge_holdings():
     _log_merge_to_audit(total, sources, result=result_status,
                         detail_suffix=f"elapsed={elapsed}s")
 
+    # ── 5. 跑后 sanity check (防 OpenClaw 第二套 pipeline 0 条覆盖) ─────
+    # 6/12 21:26 教训: OpenClaw 那套 excel_to_positions.py 因 openpyxl 缺失
+    # 写入了 0 行, 覆盖了我们的合并结果. 仅靠 merge_holdings 内部断言不够,
+    # 必须从磁盘读回真实文件, 用独立 schema/row_count 校验.
+    try:
+        sanity = _verify_positions_csv(merge_script.parent / "invest-data" / "positions.csv")
+        if not sanity["ok"]:
+            # merge_holdings 报 SUCCESS 但磁盘文件不健康 — 立即 ERROR 推飞书
+            err_msg = (f"持仓汇总跑后 sanity check 失败: {sanity['reason']} "
+                       f"(header={sanity['header']}, row_count={sanity['row_count']})")
+            logger.error(err_msg)
+            _safe_error_alert("🔴 positions.csv 被外部覆盖", err_msg)
+            send_job_failure("持仓汇总 (22:35) sanity check", err_msg)
+            _log_merge_to_audit(0, sources, result="ERROR",
+                                detail_suffix=f"sanity_fail: {sanity}")
+    except Exception as e:
+        logger.warning(f"sanity check 异常: {e}")
+
+
+def _verify_positions_csv(csv_path) -> dict:
+    """
+    校验 positions.csv 磁盘文件是否健康.
+
+    返回 dict {ok: bool, header: str, col_count: int, row_count: int, reason: str}
+    """
+    csv_path = Path(str(csv_path))
+    if not csv_path.exists():
+        return {"ok": False, "header": "", "col_count": 0, "row_count": 0,
+                "reason": f"文件不存在: {csv_path}"}
+    try:
+        with open(csv_path, encoding="utf-8") as f:
+            header_line = f.readline().strip()
+            row_count = sum(1 for _ in f)
+        col_count = len(header_line.split(",")) if header_line else 0
+        expected_header = "account,code,name,type,shares,cost,date,market_value,weight"
+        if header_line != expected_header:
+            return {"ok": False, "header": header_line, "col_count": col_count,
+                    "row_count": row_count,
+                    "reason": f"header 不符 (期望 9 列: {expected_header})"}
+        if row_count < 30:
+            return {"ok": False, "header": header_line, "col_count": col_count,
+                    "row_count": row_count,
+                    "reason": f"持仓数 {row_count} < 30 (明显异常, 可能被 0 条覆盖)"}
+        return {"ok": True, "header": header_line, "col_count": col_count,
+                "row_count": row_count, "reason": "ok"}
+    except Exception as e:
+        return {"ok": False, "header": "", "col_count": 0, "row_count": 0,
+                "reason": f"读取异常: {e}"}
+
 
 def _log_merge_to_audit(total: int, sources: dict, result: str,
                         detail_suffix: str = ""):

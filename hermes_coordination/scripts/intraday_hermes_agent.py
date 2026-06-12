@@ -46,6 +46,19 @@ class DailyQuota:
         self.daily_limit = daily_limit
         self.quota_file = quota_file
         self._lock = threading.Lock()
+        # PIT #21 修复 (V24-B1): 主动 touch() 文件, 避免监控指标漏算
+        # 旧逻辑: 文件不存在 → 等 try_acquire() 才创建, 中间窗口监控/集成验证 fail
+        # 新逻辑: __init__ 时主动确保文件存在, state = default
+        self._ensure_file_exists()
+
+    def _ensure_file_exists(self) -> None:
+        """PIT #21: 确保 quota 文件存在, 不存在则创建 default state"""
+        if not self.quota_file.exists():
+            try:
+                default_state = {"date": str(date.today()), "used": 0, "history": []}
+                self.quota_file.write_text(json.dumps(default_state, ensure_ascii=False))
+            except Exception as e:
+                logging.warning(f"quota 文件创建失败 (PIT #21): {e}")
 
     def _load_state(self) -> Dict:
         """加载限额状态"""

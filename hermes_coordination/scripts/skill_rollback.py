@@ -160,8 +160,12 @@ class SkillBackupManager:
                 logger.info(f"已清理超期备份: {date_dir.name}")
         return removed
 
-    def list_backups(self, skill_name: str) -> List[Path]:
-        """列出某 skill 的所有备份（按时间倒序）"""
+    def list_backups(self, skill_name: Optional[str] = None) -> List[Path]:
+        """列出备份（按时间倒序）
+
+        Args:
+            skill_name: skill 名, None 表示列全部
+        """
         if not self.backup_root.exists():
             return []
         result = []
@@ -169,8 +173,35 @@ class SkillBackupManager:
             if not date_dir.is_dir():
                 continue
             for b in sorted(date_dir.iterdir(), reverse=True):
-                if b.name.startswith(skill_name + "_"):
+                # ⚠️ PIT #12 修复: skill_name=None 时列全部
+                if skill_name is None:
                     result.append(b)
+                elif b.name.startswith(skill_name + "_"):
+                    result.append(b)
+        return result
+
+    def list_all_backups(self) -> List[Dict]:
+        """列出所有备份（含元数据）
+
+        Returns:
+            [{"path": Path, "skill_name": str, "date": str, "size_bytes": int}, ...]
+        """
+        result = []
+        for b in self.list_backups(skill_name=None):
+            # 解析 <skill_name>_<HHMMSS>
+            name = b.name
+            if "_" in name:
+                skill_name = name.rsplit("_", 1)[0]
+            else:
+                skill_name = name
+            date_str = b.parent.name
+            size = sum(f.stat().st_size for f in b.rglob('*') if f.is_file())
+            result.append({
+                "path": b,
+                "skill_name": skill_name,
+                "date": date_str,
+                "size_bytes": size,
+            })
         return result
 
     def get_latest_backup(self, skill_name: str) -> Optional[Path]:

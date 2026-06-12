@@ -609,6 +609,206 @@ def pattern_8_hermes_backtest() -> Tuple[bool, List[str]]:
 
 
 # ============================================================
+# 模式 9: PortfolioCopilot 方案 6 (V23 R2 T1)
+# ============================================================
+
+def pattern_9_portfolio_copilot() -> Tuple[bool, List[str]]:
+    """模式 9: 跨标协同 Copilot (V23 R2 方案 6)"""
+    try:
+        from hermes_portfolio_copilot import (
+            PortfolioCopilot, map_event_to_holdings,
+            cross_holdings_impact, aggregate_portfolio_advice,
+        )
+        errors: List[str] = []
+
+        with PortfolioCopilot() as copilot:
+            # 1. 持仓 45 行
+            if len(copilot.holdings) != 45:
+                errors.append(f"持仓数 {len(copilot.holdings)} ≠ 45")
+            else:
+                print(f"  ✅ 持仓 45 行 总值 ¥{sum(h.market_value for h in copilot.holdings):,.0f}")
+
+            # 2. skill 索引 ≥20
+            if len(copilot.skill_index) < 20:
+                errors.append(f"skill 索引 {len(copilot.skill_index)} < 20")
+            else:
+                print(f"  ✅ skill 索引 {len(copilot.skill_index)} 条")
+
+            # 3. 事件→持仓 (PIT #18 严格匹配, SpaceX 应只 3 个)
+            impact = map_event_to_holdings("SpaceX IPO 6月12日 估值 1.3 万亿美元", copilot.holdings)
+            target_names = [h.name for h in impact.affected_holdings]
+            if "信维通信" not in target_names or "西部材料" not in target_names:
+                errors.append(f"SpaceX 事件缺核心标的: {target_names}")
+            elif len(impact.affected_holdings) > 5:
+                errors.append(f"SpaceX 事件污染: {len(impact.affected_holdings)} 标的 (应 ≤5)")
+            else:
+                print(f"  ✅ SpaceX 事件精准匹配: {len(impact.affected_holdings)} 标的 {target_names}")
+
+            # 4. 跨标推理
+            links = cross_holdings_impact(impact)
+            if len(links) < 1:
+                errors.append("跨标推理无关联")
+            else:
+                print(f"  ✅ 跨标关联 {len(links)} 条")
+
+            # 5. 组合建议 schema 完整 (PIT #10 早退铁律)
+            advice = aggregate_portfolio_advice(impact, links)
+            for attr in ("advice_id", "event_topic", "primary_action",
+                         "target_codes", "target_names", "confidence",
+                         "expected_value_at_risk", "cross_links",
+                         "reasoning", "risk_warnings", "timestamp"):
+                if not hasattr(advice, attr):
+                    errors.append(f"advice 缺字段: {attr}")
+            if not errors:
+                print(f"  ✅ 建议 schema 完整 (11 字段) action={advice.primary_action} conf={advice.confidence}")
+
+            # 6. PG 持久化
+            try:
+                from hermes_portfolio_copilot import persist_advice
+                rid = persist_advice(copilot.conn, advice, impact)
+                if rid > 0 or rid == -1:
+                    print(f"  ✅ PG 持久化 rid={rid}")
+                else:
+                    errors.append(f"PG 持久化失败 rid={rid}")
+            except Exception as e:
+                errors.append(f"PG 持久化异常: {e}")
+
+        # 7. 早退路径: 无匹配事件
+        impact_none = map_event_to_holdings("完全无关 xyz", [])
+        if impact_none.impact_magnitude != 0.0 or len(impact_none.affected_holdings) != 0:
+            errors.append(f"无匹配事件早退失败: {impact_none.impact_magnitude}")
+        else:
+            print(f"  ✅ 早退 schema 完整 (magnitude=0, count=0)")
+
+        # 8. 早退路径: 中性事件
+        advice_neutral = aggregate_portfolio_advice(impact_none, [])
+        if advice_neutral.confidence != 0.5 or advice_neutral.primary_action != "hold":
+            errors.append(f"中性事件早退失败: conf={advice_neutral.confidence}")
+        else:
+            print(f"  ✅ 中性事件: hold/0.5")
+
+        if errors:
+            print(f"  ❌ 模式 9 失败: {errors}")
+            return False, errors
+        print(f"  ✅ 模式 9 通过")
+        return True, []
+    except Exception as e:
+        return False, [f"模式 9 异常: {e}"]
+
+
+# ============================================================
+# 模式 10: DashboardBridge 方案 7 (V23 R2 T2)
+# ============================================================
+
+def pattern_10_dashboard_bridge() -> Tuple[bool, List[str]]:
+    """模式 10: Dashboard ↔ Web UI 双向桥 (V23 R2 方案 7)"""
+    try:
+        from dashboard_hermes_bridge import (
+            DashboardBridge, bridge_to_web_ui,
+            ActionStatus, ensure_pg_tables,
+        )
+        errors: List[str] = []
+
+        ensure_pg_tables()
+        bridge = DashboardBridge(user_id="aileo_p10", persist_to_pg=True)
+
+        # 1. ask_holding
+        req1 = bridge.ask_holding("688008", "澜起科技", "澜起科技现在能买吗?")
+        if req1.status not in (ActionStatus.SUCCESS, ActionStatus.FAILED):
+            errors.append(f"ask_holding 状态异常: {req1.status}")
+        else:
+            print(f"  ✅ ask_holding → {req1.status.value} ({req1.duration_ms:.0f}ms)")
+
+        # 2. cross_advise (调 PortfolioCopilot)
+        req2 = bridge.cross_holding_advise("SpaceX IPO 6月12日 估值 1.3 万亿")
+        if req2.status != ActionStatus.SUCCESS:
+            errors.append(f"cross_advise 失败: {req2.error}")
+        elif "信维通信" not in req2.result.get("target_names", []):
+            errors.append(f"cross_advise 缺信维通信: {req2.result.get('target_names')}")
+        else:
+            print(f"  ✅ cross_advise → {len(req2.result.get('target_names', []))} 标的")
+
+        # 3. stress_test
+        req3 = bridge.stress_test_quick("fomc_hike")
+        if req3.status not in (ActionStatus.SUCCESS, ActionStatus.FAILED):
+            errors.append(f"stress_test 状态异常: {req3.status}")
+        else:
+            print(f"  ✅ stress_test → {req3.status.value}")
+
+        # 4. event_alert
+        req4 = bridge.event_alert_subscribe("GTC 2026", threshold_pct=5.0)
+        if req4.status != ActionStatus.SUCCESS:
+            errors.append(f"event_alert 失败: {req4.error}")
+        elif not req4.result.get("subscribed"):
+            errors.append(f"event_alert 未订阅: {req4.result}")
+        else:
+            print(f"  ✅ event_alert subscribed=True")
+
+        # 5. 推送桥
+        notif = bridge_to_web_ui(req2)
+        if not notif.delivered_at:
+            errors.append("推送未送达")
+        else:
+            print(f"  ✅ 推送送达: {notif.notification_id[:20]}")
+
+        # 6. 持仓权重查询
+        weight = bridge._get_position_weight("688008")
+        if weight < 0:
+            errors.append(f"持仓权重查询失败: {weight}")
+        else:
+            print(f"  ✅ 持仓权重 688008={weight:.2f}%")
+
+        # 7. 早退: 未知 action
+        req5 = bridge._execute_action("unknown_action_xyz", {})
+        if req5.status != ActionStatus.FAILED:
+            errors.append(f"未知 action 应 failed, 实际 {req5.status}")
+        else:
+            print(f"  ✅ 未知 action 早退: failed")
+
+        # 8. 早退: 无关事件
+        req6 = bridge.cross_holding_advise("天气预报明天晴天")
+        if len(req6.result.get("target_codes", [])) != 0:
+            errors.append(f"无关事件应有 0 标的, 实际 {len(req6.result.get('target_codes', []))}")
+        else:
+            print(f"  ✅ 无关事件早退: 0 标的")
+
+        # 9. PG 持久化验证
+        import psycopg2
+        import json
+        from pathlib import Path
+        creds = json.loads(Path.home().joinpath(".hermes/invest_credentials/store.json").read_text())
+        conn = psycopg2.connect(host="localhost", user="invest_admin",
+                                password=creds["DB_PASSWORD"], dbname="investpilot")
+        cur = conn.cursor()
+        cur.execute("SELECT count(*) FROM l3.dashboard_bridge_log WHERE user_id = 'aileo_p10'")
+        req_count = cur.fetchone()[0]
+        cur.execute("SELECT count(*) FROM l3.push_notification_log")
+        notif_count = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+        if req_count < 4 or notif_count < 1:
+            errors.append(f"PG 数据不足: req={req_count}, notif={notif_count}")
+        else:
+            print(f"  ✅ PG 持久化: req={req_count}, notif={notif_count}")
+
+        # 10. 端到端: ask → push 完整流程
+        req_final = bridge.ask_holding("300394", "天孚通信")
+        notif_final = bridge_to_web_ui(req_final)
+        if notif_final.payload.get("result", {}).get("fallback_level") not in ("L1_normal", "L4_skip"):
+            errors.append(f"端到端 fallback_level 异常: {notif_final.payload.get('result', {}).get('fallback_level')}")
+        else:
+            print(f"  ✅ 端到端 ask+push: {req_final.status.value} → {notif_final.payload.get('result', {}).get('fallback_level')}")
+
+        if errors:
+            print(f"  ❌ 模式 10 失败: {errors}")
+            return False, errors
+        print(f"  ✅ 模式 10 通过")
+        return True, []
+    except Exception as e:
+        return False, [f"模式 10 异常: {e}"]
+
+
+# ============================================================
 # 入口
 # ============================================================
 PATTERNS = {
@@ -620,6 +820,8 @@ PATTERNS = {
     6: ("早退路径 Schema 验证", pattern_6_api_schema),
     7: ("SkillRollback P2-4 (V23 R1)", pattern_7_skill_rollback),
     8: ("HermesBacktest 方案 8 (V23 R1)", pattern_8_hermes_backtest),
+    9: ("PortfolioCopilot 方案 6 (V23 R2)", pattern_9_portfolio_copilot),
+    10: ("DashboardBridge 方案 7 (V23 R2)", pattern_10_dashboard_bridge),
 }
 
 

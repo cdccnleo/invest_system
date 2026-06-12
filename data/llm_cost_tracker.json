@@ -9,6 +9,1456 @@
       "total_tokens": 10,
       "cost_cny": 0.012,
       "cost_usd": 0.0017
+    },
+    {
+      "timestamp": "2026-06-12T07:30:25.733821",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1229,
+      "output_tokens": 358,
+      "total_tokens": 1587,
+      "cost_cny": 1.945,
+      "cost_usd": 0.2701
+    },
+    {
+      "timestamp": "2026-06-12T07:30:31.195535",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1373,
+      "output_tokens": 464,
+      "total_tokens": 1837,
+      "cost_cny": 2.301,
+      "cost_usd": 0.3196
+    },
+    {
+      "timestamp": "2026-06-12T07:30:36.437342",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1292,
+      "output_tokens": 319,
+      "total_tokens": 1611,
+      "cost_cny": 1.93,
+      "cost_usd": 0.2681
+    },
+    {
+      "timestamp": "2026-06-12T07:30:42.190880",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1202,
+      "output_tokens": 457,
+      "total_tokens": 1659,
+      "cost_cny": 2.116,
+      "cost_usd": 0.2939
+    },
+    {
+      "timestamp": "2026-06-12T07:30:46.695760",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1351,
+      "output_tokens": 270,
+      "total_tokens": 1621,
+      "cost_cny": 1.891,
+      "cost_usd": 0.2626
+    },
+    {
+      "timestamp": "2026-06-12T07:30:51.683698",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1326,
+      "output_tokens": 355,
+      "total_tokens": 1681,
+      "cost_cny": 2.036,
+      "cost_usd": 0.2828
+    },
+    {
+      "timestamp": "2026-06-12T07:30:57.175135",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1412,
+      "output_tokens": 374,
+      "total_tokens": 1786,
+      "cost_cny": 2.16,
+      "cost_usd": 0.3
+    },
+    {
+      "timestamp": "2026-06-12T07:31:02.311822",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1388,
+      "output_tokens": 343,
+      "total_tokens": 1731,
+      "cost_cny": 2.074,
+      "cost_usd": 0.2881
+    },
+    {
+      "timestamp": "2026-06-12T07:31:06.392553",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1261,
+      "output_tokens": 228,
+      "total_tokens": 1489,
+      "cost_cny": 1.717,
+      "cost_usd": 0.2385
+    },
+    {
+      "timestamp": "2026-06-12T07:31:12.050841",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1305,
+      "output_tokens": 392,
+      "total_tokens": 1697,
+      "cost_cny": 2.089,
+      "cost_usd": 0.2901
+    },
+    {
+      "timestamp": "2026-06-12T07:31:18.082920",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1300,
+      "output_tokens": 496,
+      "total_tokens": 1796,
+      "cost_cny": 2.292,
+      "cost_usd": 0.3183
+    },
+    {
+      "timestamp": "2026-06-12T07:31:22.721168",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1269,
+      "output_tokens": 283,
+      "total_tokens": 1552,
+      "cost_cny": 1.835,
+      "cost_usd": 0.2549
+    },
+    {
+      "timestamp": "2026-06-12T07:31:27.365406",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1444,
+      "output_tokens": 279,
+      "total_tokens": 1723,
+      "cost_cny": 2.002,
+      "cost_usd": 0.2781
+    },
+    {
+      "timestamp": "2026-06-12T07:31:32.656344",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1267,
+      "output_tokens": 362,
+      "total_tokens": 1629,
+      "cost_cny": 1.991,
+      "cost_usd": 0.2765
+    },
+    {
+      "timestamp": "2026-06-12T07:31:36.873725",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1244,
+      "output_tokens": 265,
+      "total_tokens": 1509,
+      "cost_cny": 1.774,
+      "cost_usd": 0.2464
+    },
+    {
+      "timestamp": "2026-06-12T07:31:42.009215",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1447,
+      "output_tokens": 325,
+      "total_tokens": 1772,
+      "cost_cny": 2.097,
+      "cost_usd": 0.2913
+    },
+    {
+      "timestamp": "2026-06-12T07:31:47.266727",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1401,
+      "output_tokens": 358,
+      "total_tokens": 1759,
+      "cost_cny": 2.117,
+      "cost_usd": 0.294
+    },
+    {
+      "timestamp": "2026-06-12T07:31:52.767314",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1262,
+      "output_tokens": 378,
+      "total_tokens": 1640,
+      "cost_cny": 2.018,
+      "cost_usd": 0.2803
+    },
+    {
+      "timestamp": "2026-06-12T07:31:57.813736",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1265,
+      "output_tokens": 333,
+      "total_tokens": 1598,
+      "cost_cny": 1.931,
+      "cost_usd": 0.2682
+    },
+    {
+      "timestamp": "2026-06-12T07:32:02.686998",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1338,
+      "output_tokens": 295,
+      "total_tokens": 1633,
+      "cost_cny": 1.928,
+      "cost_usd": 0.2678
+    },
+    {
+      "timestamp": "2026-06-12T07:32:07.836069",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1324,
+      "output_tokens": 351,
+      "total_tokens": 1675,
+      "cost_cny": 2.026,
+      "cost_usd": 0.2814
+    },
+    {
+      "timestamp": "2026-06-12T07:32:12.863259",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1416,
+      "output_tokens": 325,
+      "total_tokens": 1741,
+      "cost_cny": 2.066,
+      "cost_usd": 0.2869
+    },
+    {
+      "timestamp": "2026-06-12T07:32:17.177802",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1366,
+      "output_tokens": 250,
+      "total_tokens": 1616,
+      "cost_cny": 1.866,
+      "cost_usd": 0.2592
+    },
+    {
+      "timestamp": "2026-06-12T07:32:22.460709",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1313,
+      "output_tokens": 390,
+      "total_tokens": 1703,
+      "cost_cny": 2.093,
+      "cost_usd": 0.2907
+    },
+    {
+      "timestamp": "2026-06-12T07:32:28.302678",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1332,
+      "output_tokens": 428,
+      "total_tokens": 1760,
+      "cost_cny": 2.188,
+      "cost_usd": 0.3039
+    },
+    {
+      "timestamp": "2026-06-12T07:32:33.203646",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1442,
+      "output_tokens": 332,
+      "total_tokens": 1774,
+      "cost_cny": 2.106,
+      "cost_usd": 0.2925
+    },
+    {
+      "timestamp": "2026-06-12T07:32:39.613044",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1341,
+      "output_tokens": 289,
+      "total_tokens": 1630,
+      "cost_cny": 1.919,
+      "cost_usd": 0.2665
+    },
+    {
+      "timestamp": "2026-06-12T07:32:45.344194",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1324,
+      "output_tokens": 442,
+      "total_tokens": 1766,
+      "cost_cny": 2.208,
+      "cost_usd": 0.3067
+    },
+    {
+      "timestamp": "2026-06-12T07:33:20.424477",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1263,
+      "output_tokens": 345,
+      "total_tokens": 1608,
+      "cost_cny": 1.953,
+      "cost_usd": 0.2712
+    },
+    {
+      "timestamp": "2026-06-12T07:33:26.217716",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1390,
+      "output_tokens": 408,
+      "total_tokens": 1798,
+      "cost_cny": 2.206,
+      "cost_usd": 0.3064
+    },
+    {
+      "timestamp": "2026-06-12T07:33:30.965783",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1353,
+      "output_tokens": 376,
+      "total_tokens": 1729,
+      "cost_cny": 2.105,
+      "cost_usd": 0.2924
+    },
+    {
+      "timestamp": "2026-06-12T07:33:36.263995",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1400,
+      "output_tokens": 411,
+      "total_tokens": 1811,
+      "cost_cny": 2.222,
+      "cost_usd": 0.3086
+    },
+    {
+      "timestamp": "2026-06-12T07:34:00.768450",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1265,
+      "output_tokens": 333,
+      "total_tokens": 1598,
+      "cost_cny": 1.931,
+      "cost_usd": 0.2682
+    },
+    {
+      "timestamp": "2026-06-12T07:34:35.746041",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1395,
+      "output_tokens": 418,
+      "total_tokens": 1813,
+      "cost_cny": 2.231,
+      "cost_usd": 0.3099
+    },
+    {
+      "timestamp": "2026-06-12T07:34:40.761640",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1401,
+      "output_tokens": 401,
+      "total_tokens": 1802,
+      "cost_cny": 2.203,
+      "cost_usd": 0.306
+    },
+    {
+      "timestamp": "2026-06-12T07:34:45.775529",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1475,
+      "output_tokens": 438,
+      "total_tokens": 1913,
+      "cost_cny": 2.351,
+      "cost_usd": 0.3265
+    },
+    {
+      "timestamp": "2026-06-12T07:34:52.426172",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1256,
+      "output_tokens": 287,
+      "total_tokens": 1543,
+      "cost_cny": 1.83,
+      "cost_usd": 0.2542
+    },
+    {
+      "timestamp": "2026-06-12T07:35:16.148192",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1244,
+      "output_tokens": 265,
+      "total_tokens": 1509,
+      "cost_cny": 1.774,
+      "cost_usd": 0.2464
+    },
+    {
+      "timestamp": "2026-06-12T07:35:22.088645",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1408,
+      "output_tokens": 492,
+      "total_tokens": 1900,
+      "cost_cny": 2.392,
+      "cost_usd": 0.3322
+    },
+    {
+      "timestamp": "2026-06-12T07:35:25.889157",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1208,
+      "output_tokens": 196,
+      "total_tokens": 1404,
+      "cost_cny": 1.6,
+      "cost_usd": 0.2222
+    },
+    {
+      "timestamp": "2026-06-12T07:35:30.679727",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1350,
+      "output_tokens": 340,
+      "total_tokens": 1690,
+      "cost_cny": 2.03,
+      "cost_usd": 0.2819
+    },
+    {
+      "timestamp": "2026-06-12T07:35:35.018944",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1311,
+      "output_tokens": 277,
+      "total_tokens": 1588,
+      "cost_cny": 1.865,
+      "cost_usd": 0.259
+    },
+    {
+      "timestamp": "2026-06-12T07:35:40.417826",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1292,
+      "output_tokens": 499,
+      "total_tokens": 1791,
+      "cost_cny": 2.29,
+      "cost_usd": 0.3181
+    },
+    {
+      "timestamp": "2026-06-12T07:35:45.149080",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1230,
+      "output_tokens": 377,
+      "total_tokens": 1607,
+      "cost_cny": 1.984,
+      "cost_usd": 0.2756
+    },
+    {
+      "timestamp": "2026-06-12T07:35:50.309705",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1416,
+      "output_tokens": 389,
+      "total_tokens": 1805,
+      "cost_cny": 2.194,
+      "cost_usd": 0.3047
+    },
+    {
+      "timestamp": "2026-06-12T07:35:55.362090",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1323,
+      "output_tokens": 375,
+      "total_tokens": 1698,
+      "cost_cny": 2.073,
+      "cost_usd": 0.2879
+    },
+    {
+      "timestamp": "2026-06-12T07:35:59.493996",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1335,
+      "output_tokens": 271,
+      "total_tokens": 1606,
+      "cost_cny": 1.877,
+      "cost_usd": 0.2607
+    },
+    {
+      "timestamp": "2026-06-12T07:36:04.558838",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1400,
+      "output_tokens": 379,
+      "total_tokens": 1779,
+      "cost_cny": 2.158,
+      "cost_usd": 0.2997
+    },
+    {
+      "timestamp": "2026-06-12T07:36:09.784382",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1259,
+      "output_tokens": 348,
+      "total_tokens": 1607,
+      "cost_cny": 1.955,
+      "cost_usd": 0.2715
+    },
+    {
+      "timestamp": "2026-06-12T07:36:14.206641",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1320,
+      "output_tokens": 279,
+      "total_tokens": 1599,
+      "cost_cny": 1.878,
+      "cost_usd": 0.2608
+    },
+    {
+      "timestamp": "2026-06-12T07:36:18.483101",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1344,
+      "output_tokens": 266,
+      "total_tokens": 1610,
+      "cost_cny": 1.876,
+      "cost_usd": 0.2606
+    },
+    {
+      "timestamp": "2026-06-12T07:36:22.484386",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1270,
+      "output_tokens": 267,
+      "total_tokens": 1537,
+      "cost_cny": 1.804,
+      "cost_usd": 0.2506
+    },
+    {
+      "timestamp": "2026-06-12T07:36:27.156177",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1180,
+      "output_tokens": 287,
+      "total_tokens": 1467,
+      "cost_cny": 1.754,
+      "cost_usd": 0.2436
+    },
+    {
+      "timestamp": "2026-06-12T07:36:35.899110",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1307,
+      "output_tokens": 458,
+      "total_tokens": 1765,
+      "cost_cny": 2.223,
+      "cost_usd": 0.3087
+    },
+    {
+      "timestamp": "2026-06-12T07:36:40.949815",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1292,
+      "output_tokens": 385,
+      "total_tokens": 1677,
+      "cost_cny": 2.062,
+      "cost_usd": 0.2864
+    },
+    {
+      "timestamp": "2026-06-12T07:36:45.401428",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1326,
+      "output_tokens": 269,
+      "total_tokens": 1595,
+      "cost_cny": 1.864,
+      "cost_usd": 0.2589
+    },
+    {
+      "timestamp": "2026-06-12T07:36:49.378970",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1224,
+      "output_tokens": 266,
+      "total_tokens": 1490,
+      "cost_cny": 1.756,
+      "cost_usd": 0.2439
+    },
+    {
+      "timestamp": "2026-06-12T07:36:53.902139",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1364,
+      "output_tokens": 365,
+      "total_tokens": 1729,
+      "cost_cny": 2.094,
+      "cost_usd": 0.2908
+    },
+    {
+      "timestamp": "2026-06-12T07:36:58.499272",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1380,
+      "output_tokens": 367,
+      "total_tokens": 1747,
+      "cost_cny": 2.114,
+      "cost_usd": 0.2936
+    },
+    {
+      "timestamp": "2026-06-12T07:37:02.913932",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1270,
+      "output_tokens": 289,
+      "total_tokens": 1559,
+      "cost_cny": 1.848,
+      "cost_usd": 0.2567
+    },
+    {
+      "timestamp": "2026-06-12T07:37:06.512769",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1360,
+      "output_tokens": 182,
+      "total_tokens": 1542,
+      "cost_cny": 1.724,
+      "cost_usd": 0.2394
+    },
+    {
+      "timestamp": "2026-06-12T07:37:12.097526",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1252,
+      "output_tokens": 415,
+      "total_tokens": 1667,
+      "cost_cny": 2.082,
+      "cost_usd": 0.2892
+    },
+    {
+      "timestamp": "2026-06-12T07:37:46.310043",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1251,
+      "output_tokens": 249,
+      "total_tokens": 1500,
+      "cost_cny": 1.749,
+      "cost_usd": 0.2429
+    },
+    {
+      "timestamp": "2026-06-12T07:37:50.927959",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1161,
+      "output_tokens": 294,
+      "total_tokens": 1455,
+      "cost_cny": 1.749,
+      "cost_usd": 0.2429
+    },
+    {
+      "timestamp": "2026-06-12T07:37:55.736983",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1278,
+      "output_tokens": 394,
+      "total_tokens": 1672,
+      "cost_cny": 2.066,
+      "cost_usd": 0.2869
+    },
+    {
+      "timestamp": "2026-06-12T07:38:00.257817",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1394,
+      "output_tokens": 302,
+      "total_tokens": 1696,
+      "cost_cny": 1.998,
+      "cost_usd": 0.2775
+    },
+    {
+      "timestamp": "2026-06-12T07:38:38.815950",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1368,
+      "output_tokens": 451,
+      "total_tokens": 1819,
+      "cost_cny": 2.27,
+      "cost_usd": 0.3153
+    },
+    {
+      "timestamp": "2026-06-12T07:38:43.621838",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1497,
+      "output_tokens": 338,
+      "total_tokens": 1835,
+      "cost_cny": 2.173,
+      "cost_usd": 0.3018
+    },
+    {
+      "timestamp": "2026-06-12T07:38:48.081762",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1348,
+      "output_tokens": 348,
+      "total_tokens": 1696,
+      "cost_cny": 2.044,
+      "cost_usd": 0.2839
+    },
+    {
+      "timestamp": "2026-06-12T07:38:52.210635",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1216,
+      "output_tokens": 229,
+      "total_tokens": 1445,
+      "cost_cny": 1.674,
+      "cost_usd": 0.2325
+    },
+    {
+      "timestamp": "2026-06-12T07:38:57.279577",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1368,
+      "output_tokens": 439,
+      "total_tokens": 1807,
+      "cost_cny": 2.246,
+      "cost_usd": 0.3119
+    },
+    {
+      "timestamp": "2026-06-12T07:39:01.237849",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1345,
+      "output_tokens": 286,
+      "total_tokens": 1631,
+      "cost_cny": 1.917,
+      "cost_usd": 0.2662
+    },
+    {
+      "timestamp": "2026-06-12T07:39:13.297830",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1401,
+      "output_tokens": 387,
+      "total_tokens": 1788,
+      "cost_cny": 2.175,
+      "cost_usd": 0.3021
+    },
+    {
+      "timestamp": "2026-06-12T07:39:18.688558",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1381,
+      "output_tokens": 401,
+      "total_tokens": 1782,
+      "cost_cny": 2.183,
+      "cost_usd": 0.3032
+    },
+    {
+      "timestamp": "2026-06-12T07:39:41.746099",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1429,
+      "output_tokens": 166,
+      "total_tokens": 1595,
+      "cost_cny": 1.761,
+      "cost_usd": 0.2446
+    },
+    {
+      "timestamp": "2026-06-12T07:39:46.996360",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1421,
+      "output_tokens": 380,
+      "total_tokens": 1801,
+      "cost_cny": 2.181,
+      "cost_usd": 0.3029
+    },
+    {
+      "timestamp": "2026-06-12T07:39:51.069934",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1440,
+      "output_tokens": 300,
+      "total_tokens": 1740,
+      "cost_cny": 2.04,
+      "cost_usd": 0.2833
+    },
+    {
+      "timestamp": "2026-06-12T07:39:55.900285",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1337,
+      "output_tokens": 301,
+      "total_tokens": 1638,
+      "cost_cny": 1.939,
+      "cost_usd": 0.2693
+    },
+    {
+      "timestamp": "2026-06-12T07:40:00.806608",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1237,
+      "output_tokens": 370,
+      "total_tokens": 1607,
+      "cost_cny": 1.977,
+      "cost_usd": 0.2746
+    },
+    {
+      "timestamp": "2026-06-12T07:40:05.374759",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1240,
+      "output_tokens": 332,
+      "total_tokens": 1572,
+      "cost_cny": 1.904,
+      "cost_usd": 0.2644
+    },
+    {
+      "timestamp": "2026-06-12T07:40:09.906557",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1299,
+      "output_tokens": 349,
+      "total_tokens": 1648,
+      "cost_cny": 1.997,
+      "cost_usd": 0.2774
+    },
+    {
+      "timestamp": "2026-06-12T07:40:14.601135",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1168,
+      "output_tokens": 279,
+      "total_tokens": 1447,
+      "cost_cny": 1.726,
+      "cost_usd": 0.2397
+    },
+    {
+      "timestamp": "2026-06-12T07:40:19.172991",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1330,
+      "output_tokens": 346,
+      "total_tokens": 1676,
+      "cost_cny": 2.022,
+      "cost_usd": 0.2808
+    },
+    {
+      "timestamp": "2026-06-12T07:40:23.647464",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1317,
+      "output_tokens": 366,
+      "total_tokens": 1683,
+      "cost_cny": 2.049,
+      "cost_usd": 0.2846
+    },
+    {
+      "timestamp": "2026-06-12T07:40:27.401391",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1411,
+      "output_tokens": 265,
+      "total_tokens": 1676,
+      "cost_cny": 1.941,
+      "cost_usd": 0.2696
+    },
+    {
+      "timestamp": "2026-06-12T07:40:32.891922",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1378,
+      "output_tokens": 565,
+      "total_tokens": 1943,
+      "cost_cny": 2.508,
+      "cost_usd": 0.3483
+    },
+    {
+      "timestamp": "2026-06-12T07:40:36.002643",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1371,
+      "output_tokens": 214,
+      "total_tokens": 1585,
+      "cost_cny": 1.799,
+      "cost_usd": 0.2499
+    },
+    {
+      "timestamp": "2026-06-12T07:40:40.547081",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1337,
+      "output_tokens": 345,
+      "total_tokens": 1682,
+      "cost_cny": 2.027,
+      "cost_usd": 0.2815
+    },
+    {
+      "timestamp": "2026-06-12T07:40:44.789697",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1338,
+      "output_tokens": 276,
+      "total_tokens": 1614,
+      "cost_cny": 1.89,
+      "cost_usd": 0.2625
+    },
+    {
+      "timestamp": "2026-06-12T07:40:49.282963",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1251,
+      "output_tokens": 342,
+      "total_tokens": 1593,
+      "cost_cny": 1.935,
+      "cost_usd": 0.2687
+    },
+    {
+      "timestamp": "2026-06-12T07:40:53.158705",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1315,
+      "output_tokens": 282,
+      "total_tokens": 1597,
+      "cost_cny": 1.879,
+      "cost_usd": 0.261
+    },
+    {
+      "timestamp": "2026-06-12T07:40:56.649355",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1250,
+      "output_tokens": 265,
+      "total_tokens": 1515,
+      "cost_cny": 1.78,
+      "cost_usd": 0.2472
+    },
+    {
+      "timestamp": "2026-06-12T07:41:01.512709",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1427,
+      "output_tokens": 363,
+      "total_tokens": 1790,
+      "cost_cny": 2.153,
+      "cost_usd": 0.299
+    },
+    {
+      "timestamp": "2026-06-12T07:41:06.267516",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1339,
+      "output_tokens": 344,
+      "total_tokens": 1683,
+      "cost_cny": 2.027,
+      "cost_usd": 0.2815
+    },
+    {
+      "timestamp": "2026-06-12T07:41:10.495493",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1280,
+      "output_tokens": 307,
+      "total_tokens": 1587,
+      "cost_cny": 1.894,
+      "cost_usd": 0.2631
+    },
+    {
+      "timestamp": "2026-06-12T07:41:14.860032",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1391,
+      "output_tokens": 324,
+      "total_tokens": 1715,
+      "cost_cny": 2.039,
+      "cost_usd": 0.2832
+    },
+    {
+      "timestamp": "2026-06-12T07:41:19.484122",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1375,
+      "output_tokens": 349,
+      "total_tokens": 1724,
+      "cost_cny": 2.073,
+      "cost_usd": 0.2879
+    },
+    {
+      "timestamp": "2026-06-12T07:41:23.369111",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1248,
+      "output_tokens": 269,
+      "total_tokens": 1517,
+      "cost_cny": 1.786,
+      "cost_usd": 0.2481
+    },
+    {
+      "timestamp": "2026-06-12T07:41:28.494509",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1308,
+      "output_tokens": 355,
+      "total_tokens": 1663,
+      "cost_cny": 2.018,
+      "cost_usd": 0.2803
+    },
+    {
+      "timestamp": "2026-06-12T07:41:32.560481",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1281,
+      "output_tokens": 290,
+      "total_tokens": 1571,
+      "cost_cny": 1.861,
+      "cost_usd": 0.2585
+    },
+    {
+      "timestamp": "2026-06-12T07:41:37.466092",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1260,
+      "output_tokens": 349,
+      "total_tokens": 1609,
+      "cost_cny": 1.958,
+      "cost_usd": 0.2719
+    },
+    {
+      "timestamp": "2026-06-12T07:41:41.885423",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1300,
+      "output_tokens": 304,
+      "total_tokens": 1604,
+      "cost_cny": 1.908,
+      "cost_usd": 0.265
+    },
+    {
+      "timestamp": "2026-06-12T07:41:46.683179",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1325,
+      "output_tokens": 385,
+      "total_tokens": 1710,
+      "cost_cny": 2.095,
+      "cost_usd": 0.291
+    },
+    {
+      "timestamp": "2026-06-12T07:41:50.976469",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1334,
+      "output_tokens": 311,
+      "total_tokens": 1645,
+      "cost_cny": 1.956,
+      "cost_usd": 0.2717
+    },
+    {
+      "timestamp": "2026-06-12T07:41:54.904524",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1346,
+      "output_tokens": 277,
+      "total_tokens": 1623,
+      "cost_cny": 1.9,
+      "cost_usd": 0.2639
+    },
+    {
+      "timestamp": "2026-06-12T07:41:59.307702",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1361,
+      "output_tokens": 303,
+      "total_tokens": 1664,
+      "cost_cny": 1.967,
+      "cost_usd": 0.2732
+    },
+    {
+      "timestamp": "2026-06-12T07:42:04.121590",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1435,
+      "output_tokens": 386,
+      "total_tokens": 1821,
+      "cost_cny": 2.207,
+      "cost_usd": 0.3065
+    },
+    {
+      "timestamp": "2026-06-12T07:42:08.207527",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1341,
+      "output_tokens": 274,
+      "total_tokens": 1615,
+      "cost_cny": 1.889,
+      "cost_usd": 0.2624
+    },
+    {
+      "timestamp": "2026-06-12T07:42:11.791962",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1336,
+      "output_tokens": 285,
+      "total_tokens": 1621,
+      "cost_cny": 1.906,
+      "cost_usd": 0.2647
+    },
+    {
+      "timestamp": "2026-06-12T07:42:16.219228",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1318,
+      "output_tokens": 280,
+      "total_tokens": 1598,
+      "cost_cny": 1.878,
+      "cost_usd": 0.2608
+    },
+    {
+      "timestamp": "2026-06-12T07:42:20.148836",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1326,
+      "output_tokens": 274,
+      "total_tokens": 1600,
+      "cost_cny": 1.874,
+      "cost_usd": 0.2603
+    },
+    {
+      "timestamp": "2026-06-12T07:42:24.355662",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1371,
+      "output_tokens": 287,
+      "total_tokens": 1658,
+      "cost_cny": 1.945,
+      "cost_usd": 0.2701
+    },
+    {
+      "timestamp": "2026-06-12T07:42:29.728718",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1390,
+      "output_tokens": 451,
+      "total_tokens": 1841,
+      "cost_cny": 2.292,
+      "cost_usd": 0.3183
+    },
+    {
+      "timestamp": "2026-06-12T07:42:34.624194",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1331,
+      "output_tokens": 299,
+      "total_tokens": 1630,
+      "cost_cny": 1.929,
+      "cost_usd": 0.2679
+    },
+    {
+      "timestamp": "2026-06-12T07:42:40.002386",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1425,
+      "output_tokens": 475,
+      "total_tokens": 1900,
+      "cost_cny": 2.375,
+      "cost_usd": 0.3299
+    },
+    {
+      "timestamp": "2026-06-12T07:42:42.931027",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1213,
+      "output_tokens": 146,
+      "total_tokens": 1359,
+      "cost_cny": 1.505,
+      "cost_usd": 0.209
+    },
+    {
+      "timestamp": "2026-06-12T07:42:47.023930",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1299,
+      "output_tokens": 293,
+      "total_tokens": 1592,
+      "cost_cny": 1.885,
+      "cost_usd": 0.2618
+    },
+    {
+      "timestamp": "2026-06-12T07:42:50.580836",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1309,
+      "output_tokens": 287,
+      "total_tokens": 1596,
+      "cost_cny": 1.883,
+      "cost_usd": 0.2615
+    },
+    {
+      "timestamp": "2026-06-12T07:42:55.983064",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1356,
+      "output_tokens": 421,
+      "total_tokens": 1777,
+      "cost_cny": 2.198,
+      "cost_usd": 0.3053
+    },
+    {
+      "timestamp": "2026-06-12T07:43:00.357609",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1352,
+      "output_tokens": 375,
+      "total_tokens": 1727,
+      "cost_cny": 2.102,
+      "cost_usd": 0.2919
+    },
+    {
+      "timestamp": "2026-06-12T07:43:04.167817",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1359,
+      "output_tokens": 271,
+      "total_tokens": 1630,
+      "cost_cny": 1.901,
+      "cost_usd": 0.264
+    },
+    {
+      "timestamp": "2026-06-12T07:43:08.786311",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1440,
+      "output_tokens": 293,
+      "total_tokens": 1733,
+      "cost_cny": 2.026,
+      "cost_usd": 0.2814
+    },
+    {
+      "timestamp": "2026-06-12T07:43:13.157641",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1501,
+      "output_tokens": 328,
+      "total_tokens": 1829,
+      "cost_cny": 2.157,
+      "cost_usd": 0.2996
+    },
+    {
+      "timestamp": "2026-06-12T07:43:17.866024",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1437,
+      "output_tokens": 423,
+      "total_tokens": 1860,
+      "cost_cny": 2.283,
+      "cost_usd": 0.3171
+    },
+    {
+      "timestamp": "2026-06-12T07:43:21.824846",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1267,
+      "output_tokens": 276,
+      "total_tokens": 1543,
+      "cost_cny": 1.819,
+      "cost_usd": 0.2526
+    },
+    {
+      "timestamp": "2026-06-12T07:43:37.062894",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1324,
+      "output_tokens": 274,
+      "total_tokens": 1598,
+      "cost_cny": 1.872,
+      "cost_usd": 0.26
+    },
+    {
+      "timestamp": "2026-06-12T07:43:41.044015",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1380,
+      "output_tokens": 342,
+      "total_tokens": 1722,
+      "cost_cny": 2.064,
+      "cost_usd": 0.2867
+    },
+    {
+      "timestamp": "2026-06-12T07:43:45.492651",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1251,
+      "output_tokens": 327,
+      "total_tokens": 1578,
+      "cost_cny": 1.905,
+      "cost_usd": 0.2646
+    },
+    {
+      "timestamp": "2026-06-12T07:43:49.647258",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1319,
+      "output_tokens": 285,
+      "total_tokens": 1604,
+      "cost_cny": 1.889,
+      "cost_usd": 0.2624
+    },
+    {
+      "timestamp": "2026-06-12T07:43:53.729102",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1388,
+      "output_tokens": 365,
+      "total_tokens": 1753,
+      "cost_cny": 2.118,
+      "cost_usd": 0.2942
+    },
+    {
+      "timestamp": "2026-06-12T07:43:57.592946",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1310,
+      "output_tokens": 236,
+      "total_tokens": 1546,
+      "cost_cny": 1.782,
+      "cost_usd": 0.2475
+    },
+    {
+      "timestamp": "2026-06-12T07:44:03.486448",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1376,
+      "output_tokens": 516,
+      "total_tokens": 1892,
+      "cost_cny": 2.408,
+      "cost_usd": 0.3344
+    },
+    {
+      "timestamp": "2026-06-12T07:44:08.141633",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1337,
+      "output_tokens": 278,
+      "total_tokens": 1615,
+      "cost_cny": 1.893,
+      "cost_usd": 0.2629
+    },
+    {
+      "timestamp": "2026-06-12T07:44:13.077048",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1364,
+      "output_tokens": 387,
+      "total_tokens": 1751,
+      "cost_cny": 2.138,
+      "cost_usd": 0.2969
+    },
+    {
+      "timestamp": "2026-06-12T07:44:17.338069",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1318,
+      "output_tokens": 284,
+      "total_tokens": 1602,
+      "cost_cny": 1.886,
+      "cost_usd": 0.2619
+    },
+    {
+      "timestamp": "2026-06-12T07:44:21.429858",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1343,
+      "output_tokens": 338,
+      "total_tokens": 1681,
+      "cost_cny": 2.019,
+      "cost_usd": 0.2804
+    },
+    {
+      "timestamp": "2026-06-12T07:44:54.877851",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1178,
+      "output_tokens": 209,
+      "total_tokens": 1387,
+      "cost_cny": 1.596,
+      "cost_usd": 0.2217
+    },
+    {
+      "timestamp": "2026-06-12T07:44:58.723124",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1333,
+      "output_tokens": 302,
+      "total_tokens": 1635,
+      "cost_cny": 1.937,
+      "cost_usd": 0.269
+    },
+    {
+      "timestamp": "2026-06-12T07:45:03.595963",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1374,
+      "output_tokens": 253,
+      "total_tokens": 1627,
+      "cost_cny": 1.88,
+      "cost_usd": 0.2611
+    },
+    {
+      "timestamp": "2026-06-12T07:45:39.195686",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1314,
+      "output_tokens": 491,
+      "total_tokens": 1805,
+      "cost_cny": 2.296,
+      "cost_usd": 0.3189
+    },
+    {
+      "timestamp": "2026-06-12T07:45:44.143735",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1336,
+      "output_tokens": 356,
+      "total_tokens": 1692,
+      "cost_cny": 2.048,
+      "cost_usd": 0.2844
+    },
+    {
+      "timestamp": "2026-06-12T07:45:48.572266",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1342,
+      "output_tokens": 335,
+      "total_tokens": 1677,
+      "cost_cny": 2.012,
+      "cost_usd": 0.2794
+    },
+    {
+      "timestamp": "2026-06-12T07:45:53.195090",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1330,
+      "output_tokens": 325,
+      "total_tokens": 1655,
+      "cost_cny": 1.98,
+      "cost_usd": 0.275
+    },
+    {
+      "timestamp": "2026-06-12T07:45:58.679754",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 1472,
+      "output_tokens": 587,
+      "total_tokens": 2059,
+      "cost_cny": 2.646,
+      "cost_usd": 0.3675
+    },
+    {
+      "timestamp": "2026-06-12T08:30:23.519326",
+      "date": "20260612",
+      "model": "deepseek-chat",
+      "input_tokens": 8,
+      "output_tokens": 2,
+      "total_tokens": 10,
+      "cost_cny": 0.012,
+      "cost_usd": 0.0017
     }
   ],
   "daily": {
@@ -27,16 +1477,32 @@
           "cost_cny": 0.012
         }
       }
+    },
+    "20260612": {
+      "calls": 145,
+      "input_tokens": 191752,
+      "output_tokens": 48468,
+      "total_tokens": 240220,
+      "cost_cny": 288.688,
+      "cost_usd": 40.0955,
+      "models": {
+        "deepseek-chat": {
+          "calls": 145,
+          "input_tokens": 191752,
+          "output_tokens": 48468,
+          "cost_cny": 288.688
+        }
+      }
     }
   },
   "monthly": {
     "202606": {
-      "calls": 1,
-      "input_tokens": 8,
-      "output_tokens": 2,
-      "total_tokens": 10,
-      "cost_cny": 0.012,
-      "cost_usd": 0.0017
+      "calls": 146,
+      "input_tokens": 191760,
+      "output_tokens": 48470,
+      "total_tokens": 240230,
+      "cost_cny": 288.7,
+      "cost_usd": 40.097
     }
   }
 }

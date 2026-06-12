@@ -6,6 +6,8 @@ Dashboard sub-module — L3 投资伙伴状态面板
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+import sys
+from pathlib import Path
 
 
 def render_l3_status():
@@ -253,3 +255,12 @@ def render_l3_status():
                 "assistant_dialog_id": result.get("assistant_dialog_id"),
                 "decisions_count": len(result["decisions"]),
             })
+
+    # ── T2-D: Hermes Dashboard Bridge 快速入口 (V23 R2 方案 7) ──────────
+    st.divider()
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "hermes_coordination" / "scripts"))
+        from dashboard_hermes_bridge import render_bridge_section
+        render_bridge_section("aileo")
+    except Exception as e:
+        st.caption(f"⚠️ Hermes Bridge 不可用: {e}")

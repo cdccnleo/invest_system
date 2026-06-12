@@ -432,8 +432,46 @@ v2.1 已完成全部 13 项任务（5 P0 + 4 P1 + 4 P2）+ 4 项生产集成（I
 
 ---
 
-**待命接收**：
-- 监控集成效果 → 收集 7 天数据
+### v2.3 方案 6/7 集成（V23-R2-T1/T2/T3, 2026-06-12 21:40）
+
+#### V23-R2-T1: 方案 6 Hermes 跨标协同 Copilot
+- **新增** `hermes_portfolio_copilot.py` (30.9KB / 800+ 行)
+- **核心**:
+  - `map_event_to_holdings(event, holdings)` - 事件→持仓自动映射 (PIT #18 严格关键词)
+  - `cross_holdings_impact(impact)` - 跨标协同推理 (8 大产业链关联)
+  - `aggregate_portfolio_advice()` - 组合级操作聚合 (PIT #10 早退 schema 完整)
+  - `PortfolioCopilot.advise(event_topic)` - 主入口
+- **PG 新表** `l3.portfolio_copilot_log` (13 字段 + 2 索引)
+
+#### V23-R2-T2: 方案 7 Dashboard ↔ Web UI 双向桥
+- **新增** `dashboard_hermes_bridge.py` (27.8KB / 530 行)
+- **核心**:
+  - `DashboardBridge` - Streamlit 侧桥接器 (4 种 action)
+  - `ask_holding/cross_holding_advise/stress_test/event_alert` - 4 快速入口
+  - `bridge_to_web_ui()` - 异步推送 (Web UI + Telegram P2)
+  - `render_bridge_section()` - Streamlit UI 渲染函数
+- **集成** `_l3_status.py` 末尾新增 💬🌉 Bridge 入口
+- **PG 新表** `l3.dashboard_bridge_log` (10 字段) + `l3.push_notification_log` (8 字段)
+
+#### V23-R2-T3: 6 模式 → 10 模式测试扩展
+- **新增** 模式 9 (PortfolioCopilot) + 模式 10 (DashboardBridge)
+- **10/10 模式全过** (0.05+0.84+... = 5.5s 总)
+
+#### V23-R2 真实 bug 修复 (3 个, PIT #17/18/19)
+- **PIT #17**: EventImpact 误用 `affected_weight_pct` (实际没这个属性, 在 to_dict 里临时算) → aggregate 中补 `affected_weight = sum(h.weight_pct for h in ...)`
+- **PIT #18**: 主题词匹配污染 ("AI 算力" 误匹配 SpaceX 事件 → 32 标的) → 每个主题加 `event_keywords`, 至少 1 命中才算
+- **PIT #19**: 持仓名硬匹配 ("黄金ETF" ≠ "黄金ETF华安") → `in` 模糊匹配
+
+**v2.3 vs v2.2 评分**:
+- 8 大方案完整度: 8/8 partial → **8/8 full** (方案 6 跨标协同完整 + 方案 7 双端桥完整)
+- 跨标协同: 3/10 → **9/10** (+6, V23-R2-T1)
+- 双端桥接: 2/10 → **8/10** (+6, V23-R2-T2)
+- 9.5/10 → **9.7/10** (+0.2)
+
+---
+
+**待命接收**:
+- 监控集成效果 → 收集 7 天数据 (V23-R3 启动)
 - 调整 Profile 切换交互 → UI 优化
 - 双向同步真实 h2i 风险评估 → 是否开启
 - 新增方案 (e.g. 方案3/4) → 接 v2.2

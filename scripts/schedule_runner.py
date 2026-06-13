@@ -2201,6 +2201,49 @@ def job_weekly_backtest():
         send_job_failure("周线回测", str(e))
 
 
+def job_position_risk_alert():
+    """
+    盘前 09:25 + 盘后 15:05 持仓风险告警 (V24-C1-T4 集成, 2026-06-13)
+
+    - 调 position_risk_manager + position_risk_triggers 子进程
+    - 3 类触发器 (止损/止盈/VaR) → 3 级降级 (webhook/WS/PG)
+    - 9/15 中报季前必备 (per memory)
+    """
+    logger.info("=" * 50)
+    logger.info("持仓风险告警启动")
+    start_ts = time.time()
+
+    root = Path(str(ROOT)).resolve()
+    risk_script = root / "hermes_coordination" / "scripts" / "position_risk_triggers.py"
+    venv_py = root / ".venv" / "bin" / "python3.11"
+    if not risk_script.exists():
+        logger.error(f"position_risk_triggers.py 不存在: {risk_script}")
+        return
+    if not venv_py.exists():
+        venv_py = Path("/home/aileo/.hermes/hermes-agent/venv/bin/python3")
+
+    try:
+        import subprocess as _sp_risk
+        proc = _sp_risk.run(
+            [str(venv_py), str(risk_script), "--run"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode != 0:
+            logger.error(f"position_risk_triggers 异常 rc={proc.returncode}: {proc.stderr[:200]}")
+            return
+        # 解析 JSON 结果
+        import json as _jr
+        result = _jr.loads(proc.stdout.strip().split("\n")[-1])
+        logger.info(
+            f"持仓风险告警完成: 生成 {result.get('generated', 0)}, "
+            f"去重后 {result.get('after_dedup', 0)} (P0={result.get('p0', 0)}), "
+            f"WS {result.get('ws', 0)}, PG {result.get('pg', 0)}, "
+            f"耗时 {round(time.time() - start_ts, 1)}s"
+        )
+    except Exception as e:
+        logger.error(f"position_risk_triggers 启动失败: {e}")
+
+
 def job_v22_monitoring_collect():
     """
     每日 18:30 v2.2 监控数据收集 (V23-R3-T2 集成, 2026-06-12)
@@ -2586,6 +2629,33 @@ def start_scheduler():
         CronTrigger(hour=18, minute=30, timezone="Asia/Shanghai"),
         id="v22_monitoring_daily",
         name="v2.2 监控数据收集 (18:30)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # V24-C1: 持仓风险告警 - 盘前 09:25 + 盘后 15:05 + 周一 09:00
+    # 7/15 中报季前必备 (per memory)
+    _scheduler.add_job(
+        job_position_risk_alert,
+        CronTrigger(hour=9, minute=25, day_of_week="mon-fri", timezone="Asia/Shanghai"),
+        id="position_risk_pre_market",
+        name="持仓风险告警 (盘前 09:25)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    _scheduler.add_job(
+        job_position_risk_alert,
+        CronTrigger(hour=15, minute=5, day_of_week="mon-fri", timezone="Asia/Shanghai"),
+        id="position_risk_post_market",
+        name="持仓风险告警 (盘后 15:05)",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    _scheduler.add_job(
+        job_position_risk_alert,
+        CronTrigger(hour=9, minute=0, day_of_week="mon", timezone="Asia/Shanghai"),
+        id="position_risk_weekly",
+        name="持仓风险告警 (周一 09:00 周报)",
         replace_existing=True,
         misfire_grace_time=600,
     )

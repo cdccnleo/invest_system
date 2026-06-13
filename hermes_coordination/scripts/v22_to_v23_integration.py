@@ -127,6 +127,24 @@ V23_MODULES = {
                           "render_websocket_js_client", "push_notification_with_notify"],
         "description": "V24-B3 WebSocket 实时推送",
     },
+    # C1: 方案 9 - 持仓风险预算
+    "position_risk_manager": {
+        "module_path": "position_risk_manager",
+        "expected_funcs": ["analyze_portfolio", "analyze_position",
+                          "fetch_current_positions", "save_snapshot"],
+        "description": "V24-C1 持仓风险核心计算",
+    },
+    "position_risk_triggers": {
+        "module_path": "position_risk_triggers",
+        "expected_funcs": ["generate_alerts", "dedup_alerts",
+                          "run_triggers", "persist_to_pg"],
+        "description": "V24-C1 持仓风险告警触发器",
+    },
+    "position_risk_dashboard": {
+        "module_path": "position_risk_dashboard",
+        "expected_funcs": ["render_risk_dashboard"],
+        "description": "V24-C1 持仓风险 Streamlit UI",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",
@@ -520,16 +538,16 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 14 模式测试脚本可执行 (V24 升级: 12 → 15)
+    # 9. 16 模式测试脚本可执行 (V24 升级: 15 → 16)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 15 在末尾
-    has_15 = "pattern_15_v24_b3_websocket" in text
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 16 在末尾
+    has_16 = "pattern_16_v24_c1_position_risk" in text
     result["tests"].append({
-        "test": "15_patterns_script",
-        "expected": "15 函数定义 (V24 升级)",
-        "actual": has_15,
-        "passed": has_15,
+        "test": "16_patterns_script",
+        "expected": "16 函数定义 (V24 升级)",
+        "actual": has_16,
+        "passed": has_16,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)

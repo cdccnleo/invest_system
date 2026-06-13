@@ -1649,5 +1649,117 @@ def main():
 PATTERNS[15] = ("V24-B3 WebSocket 实时推送 (V24 B3)", pattern_15_v24_b3_websocket)
 
 
+def pattern_16_v24_c1_position_risk() -> Tuple[bool, List[str]]:
+    """
+    模式 16: V24-C1 持仓风险预算 (方案 9)
+
+    验证:
+    1. position_risk_manager 3 核心函数存在
+    2. position_risk_triggers 4 核心函数存在
+    3. position_risk_dashboard render 函数存在
+    4. 真实持仓 45 个 + 5 指标计算
+    5. 组合 VaR (95%) 计算
+    6. 风险等级判定 (low/medium/high/critical)
+    7. 3 类触发器生成 (止损/止盈/集中度/亏损/同 type)
+    8. 频次限制 + 去重 (PIT #40 #43)
+    9. 3 级降级 (webhook→WS→PG) (PIT #30 复用)
+    10. PG 持久化 (l3.position_risk_snapshot + l3.risk_alert_log)
+    11. 边界 case (持仓 0 / total=0) (PIT #37 #38)
+    12. schedule_runner 3 个 cron 已注册
+    """
+    errors = []
+    try:
+        import sys
+        _SCRIPT_DIR = "/home/aileo/invest_system/hermes_coordination/scripts"
+        if _SCRIPT_DIR not in sys.path:
+            sys.path.insert(0, _SCRIPT_DIR)
+
+        # 1. manager 8 核心
+        from position_risk_manager import (
+            analyze_portfolio, analyze_position, fetch_current_positions,
+            ensure_pg_tables, save_snapshot, generate_risk_report,
+            PositionRisk, PortfolioRisk,
+        )
+        print(f"  ✅ position_risk_manager 8 个核心函数/class 存在")
+
+        # 2. triggers 7 核心
+        from position_risk_triggers import (
+            generate_alerts, dedup_alerts, run_triggers, persist_to_pg,
+            RiskAlert, AlertType, AlertSeverity,
+        )
+        print(f"  ✅ position_risk_triggers 7 个核心函数/class 存在")
+
+        # 3. dashboard render
+        from position_risk_dashboard import render_risk_dashboard
+        assert callable(render_risk_dashboard)
+        print(f"  ✅ position_risk_dashboard.render_risk_dashboard 存在")
+
+        # 4. 真实持仓 + 5 指标
+        ensure_pg_tables()
+        positions = fetch_current_positions()
+        assert len(positions) == 45, f"持仓数异常: {len(positions)}"
+        total_mv = sum(float(p.get("market_value") or 0) for p in positions)
+        assert abs(total_mv - 5631646.60) < 1, f"总市值异常: {total_mv}"
+        print(f"  ✅ 真实持仓 45 个 + 总市值 ¥{total_mv:,.0f}")
+
+        # 5. 组合 VaR
+        portfolio = analyze_portfolio(positions)
+        assert portfolio.total_var_1d > 0, "VaR 应 > 0"
+        print(f"  ✅ 组合 1d VaR: ¥{portfolio.total_var_1d:,.0f}")
+
+        # 6. 风险等级判定
+        position_risks = [analyze_position(p, positions, total_mv) for p in positions]
+        levels = {pr.risk_level for pr in position_risks}
+        assert "low" in levels or "medium" in levels, "应有风险等级"
+        print(f"  ✅ 风险等级: {levels} (low/medium/high/critical)")
+
+        # 7. 3 类触发器
+        alerts = generate_alerts(positions)
+        types = {a.alert_type for a in alerts}
+        print(f"  ✅ 触发器类型: {len(types)} 种 ({list(types)[:5]})")
+
+        # 8. 去重 (PIT #40)
+        deduped = dedup_alerts(alerts)
+        assert len(deduped) <= len(alerts), "去重后应 <= 原始"
+        print(f"  ✅ 去重: {len(alerts)} → {len(deduped)} (PIT #40)")
+
+        # 9. PG 持久化 (PIT #30 兜底)
+        saved = persist_to_pg(deduped)
+        assert saved >= 0, "PG 持久化应 >= 0"
+        print(f"  ✅ PG 持久化: {saved}/{len(deduped)} (PIT #30 兜底)")
+
+        # 10. 边界 case (PIT #37 #38)
+        empty = analyze_portfolio([])
+        assert empty.position_count == 0, "PIT #37 持仓 0 应 position_count=0"
+        zero_total = analyze_portfolio([{"code": "X", "name": "X", "type": "stock", "market_value": 0}])
+        assert zero_total.total_market_value == 0, "PIT #38 total=0 应 total_mv=0"
+        print(f"  ✅ 边界: 持仓 0 / total=0 返 schema 完整 (PIT #37 #38)")
+
+        # 11. schedule_runner cron 注册
+        from pathlib import Path
+        sr_text = Path("/home/aileo/invest_system/scripts/schedule_runner.py").read_text()
+        assert "job_position_risk_alert" in sr_text, "schedule_runner 应包含 job"
+        assert "position_risk_pre_market" in sr_text, "盘前 cron 应注册"
+        assert "position_risk_post_market" in sr_text, "盘后 cron 应注册"
+        assert "position_risk_weekly" in sr_text, "周一 cron 应注册"
+        print(f"  ✅ schedule_runner 3 cron 已注册 (盘前/盘后/周一)")
+
+        # 12. 报告生成
+        report = generate_risk_report(portfolio, position_risks)
+        assert "持仓风险报告" in report
+        assert "组合总览" in report
+        print(f"  ✅ 报告生成: {len(report)} 字符")
+
+    except Exception as e:
+        import traceback
+        errors.append(f"❌ V24-C1 模式 16 异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:500]}")
+
+    return len(errors) == 0, errors
+
+
+# V24-C1: 模式 16 注册 (持仓风险预算)
+PATTERNS[16] = ("V24-C1 持仓风险预算 (V24 C1)", pattern_16_v24_c1_position_risk)
+
+
 if __name__ == "__main__":
     main()

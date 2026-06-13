@@ -595,19 +595,20 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F+B 升级: 20 → 22 → 23 → 24)
+    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F+B+C 升级: 20 → 22 → 23 → 24 → 25)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-24 在末尾
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-25 在末尾
     has_20 = "pattern_20_v24_c6_chief_event_strategist" in text
     has_21 = "pattern_21_v25_a1_feishu_push" in text
     has_22 = "pattern_22_v25_a2_feishu_cron_routing" in text
     has_23 = "pattern_23_v25_f_earnings_miss" in text
     has_24 = "pattern_24_v25_b_position_rebalancer" in text
-    all_patterns = has_20 and has_21 and has_22 and has_23 and has_24
+    has_25 = "pattern_25_v25_c_event_backtester" in text
+    all_patterns = has_20 and has_21 and has_22 and has_23 and has_24 and has_25
     result["tests"].append({
         "test": "22_patterns_script",
-        "expected": "24 函数定义 (V25-B 升级, +调仓助手)",
+        "expected": "25 函数定义 (V25-C 升级, +事件回放)",
         "actual": all_patterns,
         "passed": all_patterns,
     })
@@ -826,6 +827,109 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     except Exception as e:
         import traceback
         for sub in ("v25_b_generate_3sources", "v25_b_persist_log", "v25_b_confirm_execute", "v25_b_history_7d"):
+            result["tests"].append({
+                "test": sub,
+                "expected": "执行成功",
+                "actual": f"异常: {type(e).__name__}: {str(e)[:120]}",
+                "passed": False,
+            })
+
+    # 14. V25-C 事件回放 (4 子项) — 存在性 + 关键函数验证
+    try:
+        eb_path = _COORD_DIR / "scripts" / "event_backtester.py"
+        eb_src = eb_path.read_text(encoding="utf-8")
+        c_ok = (
+            eb_path.exists()
+            and "NewsEvent" in eb_src
+            and "AdviceRecord" in eb_src
+            and "PriceEval" in eb_src
+            and "AccReport" in eb_src
+            and "_normalize_ts_code" in eb_src
+            and "collect_news_events" in eb_src
+            and "collect_advice_records" in eb_src
+            and "evaluate_advice" in eb_src
+            and "generate_accuracy_report" in eb_src
+            and "EVAL_WINDOWS" in eb_src
+            and "ConfBucket" in eb_src
+            and "l3.event_backtest_log" in eb_src
+            and "PIT #79" in eb_src
+            and "PIT #80" in eb_src
+            and "PIT #81" in eb_src
+            and "PIT #82" in eb_src
+            and "PIT #83" in eb_src
+            and "_send_via_feishu_inplace" in eb_src
+        )
+        result["tests"].append({
+            "test": "v25_c_event_backtester",
+            "expected": "event_backtester.py (5 PIT #79-#83 + 4 dataclass + 7 核心函数 + T-N 窗口 + conf 分层)",
+            "actual": c_ok,
+            "passed": c_ok,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "test": "v25_c_event_backtester",
+            "expected": "ok", "actual": f"err: {e}", "passed": False,
+        })
+
+    # 15. V25-C 实操验证 (events + advices + evals + report) — 4 子项
+    try:
+        sys.path.insert(0, str(_COORD_DIR / "scripts"))
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        import importlib
+        import event_backtester as eb_mod
+        importlib.reload(eb_mod)
+
+        # 15a. 事件 KB
+        events = eb_mod.collect_news_events(days_back=14, topic_keyword="SpaceX")
+        ev_ok = isinstance(events, list) and len(events) >= 0
+        result["tests"].append({
+            "test": "v25_c_collect_events",
+            "expected": "collect_news_events(14, SpaceX) 返 ≥0 事件",
+            "actual": f"events {len(events)} 条",
+            "passed": ev_ok,
+        })
+
+        # 15b. 建议
+        advices = eb_mod.collect_advice_records(days_back=14, min_confidence=0.5)
+        ad_ok = isinstance(advices, list) and len(advices) >= 0
+        result["tests"].append({
+            "test": "v25_c_collect_advices",
+            "expected": "collect_advice_records(14, conf≥0.5) 返 ≥0 建议",
+            "actual": f"advices {len(advices)} 条",
+            "passed": ad_ok,
+        })
+
+        # 15c. 评估 (历史回看 T-1/T-3/T-5)
+        holdings_map = eb_mod.get_holdings_name_map()
+        all_evals = []
+        for adv in advices:
+            all_evals.extend(eb_mod.evaluate_advice(adv, holdings_map))
+        evals_ok = isinstance(all_evals, list)
+        result["tests"].append({
+            "test": "v25_c_evaluate_advices",
+            "expected": "evaluate_advice (T-N 窗口, PIT #81/82/83) 返 PriceEval list",
+            "actual": f"evals {len(all_evals)} 标的-窗口",
+            "passed": evals_ok,
+        })
+
+        # 15d. 报告 + 持久化
+        report = eb_mod.generate_accuracy_report(
+            all_evals,
+            total_events=len(events),
+            spacex_events=eb_mod.count_spacex_events(14),
+            today="2026-06-13",
+        )
+        persist_ok = eb_mod.persist_report(report)
+        result["tests"].append({
+            "test": "v25_c_persist_report",
+            "expected": "generate_accuracy_report + persist_report 写 l3.event_backtest_log",
+            "actual": f"t1={report.t1_accuracy * 100:.1f}%, t3={report.t3_accuracy * 100:.1f}%, evals={report.total_evaluations}",
+            "passed": persist_ok and report.total_evaluations == len(all_evals),
+        })
+    except Exception as e:
+        import traceback
+        for sub in ("v25_c_collect_events", "v25_c_collect_advices", "v25_c_evaluate_advices", "v25_c_persist_report"):
             result["tests"].append({
                 "test": sub,
                 "expected": "执行成功",

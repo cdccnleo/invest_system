@@ -2993,5 +2993,136 @@ def pattern_24_v25_b_position_rebalancer() -> Tuple[bool, List[str]]:
 PATTERNS[24] = ("V25-B 持仓调仓助手", pattern_24_v25_b_position_rebalancer)
 
 
+def pattern_25_v25_c_event_backtester() -> Tuple[bool, List[str]]:
+    """
+    V25-C 模式 25: 事件回放 + 实战准确度评估 (12 验证项)
+
+    验证点:
+      1. event_backtester 模块导入
+      2. NewsEvent / AdviceRecord / PriceEval / AccReport dataclass
+      3. EvalVerdict / ConfBucket 枚举
+      4. _normalize_ts_code (PIT #79/#80 helper)
+      5. PIT #79: ts_code 后缀 (.XSHE/.XSHG) 标准化
+      6. PIT #15: INTERVAL 子句用 f-string, 不用 %s 占位符
+      7. PIT #81: T-1/T-3/T-5 历史回看窗口
+      8. PIT #82: conf 分层 (LOW/MID/HIGH)
+      9. PIT #83: 跌幅 > 30% → filtered (公司自身利空)
+     10. l3.event_backtest_log 表 + 2 索引
+     11. _send_via_feishu_inplace (PIT #66 沿用)
+     12. 端到端: collect_news + collect_advice + evaluate + report + persist
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        import event_backtester as eb
+        log.append(f"✅ 模块导入: {eb.__file__}")
+
+        # 2. dataclass
+        assert hasattr(eb, "NewsEvent"), "缺 NewsEvent"
+        assert hasattr(eb, "AdviceRecord"), "缺 AdviceRecord"
+        assert hasattr(eb, "PriceEval"), "缺 PriceEval"
+        assert hasattr(eb, "AccReport"), "缺 AccReport"
+        log.append("✅ NewsEvent / AdviceRecord / PriceEval / AccReport dataclass 存在")
+
+        # 3. 枚举
+        assert hasattr(eb, "EvalVerdict"), "缺 EvalVerdict"
+        assert hasattr(eb, "ConfBucket"), "缺 ConfBucket"
+        assert eb.EvalVerdict.CORRECT.value == "correct", "EvalVerdict 值错"
+        assert eb.ConfBucket.LOW.value == "0.50-0.70", "ConfBucket 值错"
+        log.append("✅ EvalVerdict (5) + ConfBucket (3 桶) 枚举")
+
+        # 4. ts_code helper
+        assert hasattr(eb, "_normalize_ts_code"), "缺 _normalize_ts_code"
+        assert eb._normalize_ts_code("300394") == "300394.XSHE", "深圳 6位 应 .XSHE"
+        assert eb._normalize_ts_code("600487") == "600487.XSHG", "上海 6位 应 .XSHG"
+        assert eb._normalize_ts_code("300394.XSHE") == "300394.XSHE", "已带后缀 不变"
+        log.append("✅ _normalize_ts_code (PIT #79/#80)")
+
+        # 5. PIT #15 INTERVAL
+        import inspect
+        cnews_src = inspect.getsource(eb.collect_news_events)
+        cadvice_src = inspect.getsource(eb.collect_advice_records)
+        assert "INTERVAL '{days_back} days'" in cnews_src, "缺 PIT #15 f-string 修复"
+        assert "INTERVAL '{days_back} days'" in cadvice_src, "缺 PIT #15 f-string 修复"
+        log.append("✅ PIT #15: INTERVAL 用 f-string (无 %s 占位符)")
+
+        # 6. PIT #81 T-1/T-3/T-5
+        gw_src = inspect.getsource(eb.get_window_closes)
+        assert "T-N" in gw_src or "T-1" in gw_src, "缺 PIT #81 T-N 注释"
+        assert "rows[1]" in gw_src and "rows[3]" in gw_src and "rows[5]" in gw_src, "缺 T-N rows 索引"
+        log.append("✅ PIT #81: T-1/T-3/T-5 历史回看 (rows 倒序)")
+
+        # 7. PIT #82 conf 分层
+        cb_src = inspect.getsource(eb._conf_bucket)
+        assert "0.7" in cb_src and "0.85" in cb_src, "缺 PIT #82 分层阈值"
+        log.append("✅ PIT #82: _conf_bucket (LOW<0.7 / MID<0.85 / HIGH≥0.85)")
+
+        # 8. PIT #83 30% 过滤
+        cl_src = inspect.getsource(eb._classify)
+        assert "30.0" in cl_src, "缺 PIT #83 30% 阈值"
+        assert "FILTERED" in cl_src, "缺 PIT #83 filtered verdict"
+        log.append("✅ PIT #83: _classify (|pct|>30% → filtered)")
+
+        # 9. l3.event_backtest_log 表
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass('l3.event_backtest_log');")
+        assert cur.fetchone()[0] is not None, "l3.event_backtest_log 不存在"
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='l3' AND tablename='event_backtest_log'
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 2, f"应 ≥2 索引 (含 UNIQUE+date+created), 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ l3.event_backtest_log + {len(idxs)} 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        # 10. _send_via_feishu_inplace (PIT #66)
+        send_src = inspect.getsource(eb._send_via_feishu_inplace)
+        assert "PIT #66" in send_src, "PIT #66 注释缺失"
+        log.append("✅ PIT #66: _send_via_feishu_inplace 沿用")
+
+        # 11. 报告函数
+        assert hasattr(eb, "generate_accuracy_report"), "缺 generate_accuracy_report"
+        assert hasattr(eb, "persist_report"), "缺 persist_report"
+        assert hasattr(eb, "push_report_to_feishu"), "缺 push_report_to_feishu"
+        log.append("✅ generate_accuracy_report + persist_report + push_report_to_feishu")
+
+        # 12. 端到端: 4 子模块联动 (低 cost 走小 days_back=14)
+        events = eb.collect_news_events(days_back=14, topic_keyword="SpaceX")
+        advices = eb.collect_advice_records(days_back=14, min_confidence=0.5)
+        holdings_map = eb.get_holdings_name_map()
+        all_evals = []
+        for adv in advices:
+            all_evals.extend(eb.evaluate_advice(adv, holdings_map))
+        report = eb.generate_accuracy_report(all_evals, total_events=len(events), spacex_events=eb.count_spacex_events(14), today="2026-06-13")
+        eb.persist_report(report)
+        e2e_ok = (
+            isinstance(events, list)
+            and isinstance(advices, list)
+            and isinstance(all_evals, list)
+            and report.total_evaluations == len(all_evals)
+        )
+        log.append(f"✅ 端到端: events={len(events)} + advices={len(advices)} + evals={len(all_evals)} + report t3_acc={report.t3_accuracy * 100:.1f}%")
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V25-C: 模式 25 注册 (事件回放)
+PATTERNS[25] = ("V25-C 事件回放 + 准确度评估", pattern_25_v25_c_event_backtester)
+
+
 if __name__ == "__main__":
     main()

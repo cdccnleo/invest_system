@@ -1402,6 +1402,184 @@ PATTERNS = {
 }
 
 
+def pattern_15_v24_b3_websocket() -> Tuple[bool, List[str]]:
+    """
+    模式 15: V24-B3 WebSocket 实时推送 (Dashboard↔Streamlit)
+
+    验证:
+    1. dashboard_hermes_websocket.py 4 核心函数存在
+    2. WSMessage schema 严格 (PIT #26)
+    3. WS server 启停 (asyncio)
+    4. 客户端 subscribe + ping/pong
+    5. push_notification_with_notify 触发 NOTIFY → WS 广播
+    6. render_websocket_js_client 输出 HTML 含 reconnect (PIT #32)
+    """
+    errors = []
+    # 1. 4 核心函数存在
+    try:
+        import sys
+        _SCRIPT_DIR = "/home/aileo/invest_system/hermes_coordination/scripts"
+        if _SCRIPT_DIR not in sys.path:
+            sys.path.insert(0, _SCRIPT_DIR)
+        from dashboard_hermes_websocket import (
+            WSMessage, WSMsgType, WSTarget,
+            HermesWebSocketServer, render_websocket_js_client,
+            push_notification_with_notify, get_websocket_status,
+        )
+        print(f"  ✅ dashboard_hermes_websocket 7 个核心函数/API 存在")
+    except ImportError as e:
+        return False, [f"❌ 导入失败: {e}"]
+
+    # 2. WSMessage schema 严格 (PIT #26)
+    try:
+        msg_ok = WSMessage(type="ping", id="p1")
+        assert msg_ok.type == "ping" and msg_ok.id == "p1" and msg_ok.ts
+        # 缺字段应 raise
+        try:
+            WSMessage.from_json('{"missing":"fields"}')
+            errors.append("❌ schema 校验: 缺字段未 raise")
+        except ValueError:
+            print(f"  ✅ schema 严格: 缺字段 raise ValueError (PIT #26)")
+    except Exception as e:
+        errors.append(f"❌ schema 测试异常: {e}")
+
+    # 3. WS server 启停 + 4. 客户端 ping/pong
+    try:
+        import asyncio
+        import threading
+        import time
+        import websockets
+
+        async def server_test():
+            server = HermesWebSocketServer(host="localhost", port=18765, token="test-token")
+            await server.start()
+            await asyncio.sleep(0.3)  # 等 server ready
+            return server
+
+        async def client_test():
+            """客户端连接 + ping/pong + 校验 schema"""
+            uri = "ws://localhost:18765/ws?token=test-token"
+            async with websockets.connect(uri) as ws:
+                # welcome
+                welcome_raw = await asyncio.wait_for(ws.recv(), timeout=2)
+                welcome = json.loads(welcome_raw)
+                assert welcome["type"] == "notification"
+                assert welcome["id"].startswith("welcome_")
+                # subscribe
+                sub = WSMessage(type="subscribe", id="s1", target="dashboard",
+                                payload={"target": "dashboard"})
+                await ws.send(sub.to_json())
+                # ping
+                ping = WSMessage(type="ping", id="p1")
+                await ws.send(ping.to_json())
+                # pong
+                pong_raw = await asyncio.wait_for(ws.recv(), timeout=2)
+                pong = json.loads(pong_raw)
+                assert pong["type"] == "pong"
+                assert pong["id"] == "pong_p1"
+                # schema 错误
+                await ws.send('{"missing":"fields"}')
+                err_raw = await asyncio.wait_for(ws.recv(), timeout=2)
+                err = json.loads(err_raw)
+                assert err["type"] == "error"
+                return True
+
+        async def run_full():
+            server = await server_test()
+            try:
+                ok = await client_test()
+                return ok
+            finally:
+                await server.stop()
+
+        ok = asyncio.run(run_full())
+        if ok:
+            print(f"  ✅ WS server 启停 + 客户端 subscribe/ping/pong/schema (5 项)")
+    except Exception as e:
+        errors.append(f"❌ WS server 集成测试异常: {type(e).__name__}: {e}")
+
+    # 5. push_notification_with_notify 触发 NOTIFY → WS 广播
+    try:
+        import asyncio
+        import websockets
+        from dashboard_hermes_bridge import QuickActionRequest, ActionStatus
+
+        async def server_test():
+            server = HermesWebSocketServer(host="localhost", port=18766, token="test-token")
+            await server.start()
+            await asyncio.sleep(2.0)  # 等 server + PG listener 充分就绪
+            return server
+
+        async def listener(ready_event):
+            """客户端等 NOTIFY 触发广播"""
+            uri = "ws://localhost:18766/ws?token=test-token"
+            async with websockets.connect(uri) as ws:
+                await ws.recv()  # welcome
+                sub = WSMessage(type="subscribe", id="s1", target="dashboard",
+                                payload={"target": "dashboard"})
+                await ws.send(sub.to_json())
+                await asyncio.sleep(0.3)
+                ready_event.set()  # 信号: 已订阅
+                # 等 8s 内 NOTIFY 广播
+                notif_raw = await asyncio.wait_for(ws.recv(), timeout=8)
+                notif_d = json.loads(notif_raw)
+                assert notif_d["type"] == "notification"
+                assert "title" in notif_d.get("payload", {}), f"payload keys: {list(notif_d.get('payload', {}).keys())}"
+                return notif_d
+
+        async def trigger(ready_event):
+            """写 PG + NOTIFY (等 listener ready)"""
+            await asyncio.wait_for(ready_event.wait(), timeout=3)
+            await asyncio.sleep(0.2)  # 再稳一下
+            req = QuickActionRequest(
+                request_id="req_p15_test",
+                user_id="aileo",
+                action_type="event_alert",
+                payload={"event_topic": "模式 15 测试", "threshold_pct": 3.0},
+                status=ActionStatus.SUCCESS,
+                result={"response": "模式 15 NOTIFY 测试", "confidence": 0.95},
+                duration_ms=1700.0,
+            )
+            return push_notification_with_notify(req, target="dashboard")
+
+        async def run_notify():
+            server = await server_test()
+            ready = asyncio.Event()
+            try:
+                listener_ret, _trigger_ret = await asyncio.gather(listener(ready), trigger(ready))
+                return True, listener_ret
+            finally:
+                await server.stop()
+
+        ok, notif = asyncio.run(run_notify())
+        if ok:
+            print(f"  ✅ NOTIFY → WS 广播全链路通: {notif['payload']['title']}")
+    except Exception as e:
+        import traceback
+        errors.append(f"❌ NOTIFY→WS 测试异常: {type(e).__name__}: {e}\n{traceback.format_exc()[:500]}")
+
+    # 6. render_websocket_js_client 输出 HTML 含 reconnect (PIT #32)
+    try:
+        html = render_websocket_js_client()
+        assert "WebSocket" in html
+        assert "onclose" in html
+        assert "setTimeout(connect, 3000)" in html  # PIT #32 自动 reconnect
+        assert "subscribe" in html
+        print(f"  ✅ JS 客户端 HTML 含 WebSocket + 自动 reconnect 3s (PIT #32)")
+    except AssertionError as e:
+        errors.append(f"❌ JS 客户端 HTML 校验失败: {e}")
+
+    # 7. 集成: bridge.render_websocket_panel 函数存在
+    try:
+        from dashboard_hermes_bridge import render_websocket_panel
+        assert callable(render_websocket_panel)
+        print(f"  ✅ render_websocket_panel 已集成到 bridge.py")
+    except (ImportError, AssertionError) as e:
+        errors.append(f"❌ render_websocket_panel 集成失败: {e}")
+
+    return len(errors) == 0, errors
+
+
 @dataclass
 class TestReport:
     pattern: int
@@ -1465,6 +1643,10 @@ def main():
         print(f"JSON 报告: {out_file}")
 
     sys.exit(0 if passed == total else 1)
+
+
+# V24-B3: 模式 15 注册 (放在 main 后避免 forward reference 错误)
+PATTERNS[15] = ("V24-B3 WebSocket 实时推送 (V24 B3)", pattern_15_v24_b3_websocket)
 
 
 if __name__ == "__main__":

@@ -120,6 +120,13 @@ V23_MODULES = {
                           "get_ainvest_llm_client", "get_cached_ainvest_client"],
         "description": "V24-B2.1 AInvest LLM 客户端",
     },
+    # B3: 方案 7 升级 - WebSocket 实时推送
+    "dashboard_hermes_websocket": {
+        "module_path": "dashboard_hermes_websocket",
+        "expected_funcs": ["WSMessage", "HermesWebSocketServer",
+                          "render_websocket_js_client", "push_notification_with_notify"],
+        "description": "V24-B3 WebSocket 实时推送",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",
@@ -513,15 +520,16 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 12 模式测试脚本可执行 (用 sys.path 验证)
+    # 9. 14 模式测试脚本可执行 (V24 升级: 12 → 15)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")[:5000]
-    has_12 = "pattern_12_v22_to_v23_integration" in text
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 15 在末尾
+    has_15 = "pattern_15_v24_b3_websocket" in text
     result["tests"].append({
-        "test": "12_patterns_script",
-        "expected": "12 函数定义", "actual": has_12,
-        "passed": has_12,
+        "test": "15_patterns_script",
+        "expected": "15 函数定义 (V24 升级)",
+        "actual": has_15,
+        "passed": has_15,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)

@@ -719,6 +719,115 @@ def _selftest_pattern_10() -> Dict[str, Any]:
     return result
 
 
+# ====================================================================
+# 7. V24-B3: WebSocket 实时面板 (PG 持久化升级为 WebSocket 推送)
+# ====================================================================
+
+def render_websocket_panel(
+    user_id: str = "aileo",
+    ws_host: str = "localhost",
+    ws_port: int = 8765,
+    max_items: int = 20,
+) -> None:
+    """
+    Streamlit 渲染: 📡 WebSocket 实时推送面板 (V24-B3 新增)
+
+    用法:
+        from dashboard_hermes_bridge import render_websocket_panel
+        render_websocket_panel("aileo", ws_host="localhost", ws_port=8765)
+
+    **升级路径**:
+    - V23-R2: push_notification 写 PG, 需刷新页面才看到
+    - V24-B3: 写 PG + PG NOTIFY + WS server 实时广播, 1-2s 收到
+
+    **降级链** (3 级):
+    1. WebSocket 实时 (主, 1-2s)
+    2. HTTP 轮询 PG (兜底, 5s)
+    3. 直接 SQL 查 push_notification_log (最后)
+    """
+    if not _HAS_STREAMLIT:
+        LOG.warning("[render_websocket_panel] streamlit not available, skip")
+        return
+
+    # 懒加载 WebSocket 模块 (PIT #27: 跨模块 import 容错)
+    try:
+        from dashboard_hermes_websocket import (
+            render_websocket_js_client, get_websocket_status,
+            push_notification_with_notify, WSTarget,
+        )
+        _HAS_WS_PANEL = True
+    except ImportError as e:
+        LOG.warning(f"[render_websocket_panel] WS module not available: {e}")
+        _HAS_WS_PANEL = False
+
+    st.markdown("### 📡 WebSocket 实时推送 (V24-B3 新增)")
+    st.caption("方案7 升级: PG 持久化 → 实时推送, 1-2s 收到")
+
+    if not _HAS_WS_PANEL:
+        st.error("WebSocket 模块未安装, 请先 `pip install websockets`")
+        return
+
+    # 区域 1: WS server 状态
+    col1, col2, col3 = st.columns(3)
+    status = get_websocket_status(ws_host, ws_port)
+    with col1:
+        st.metric("WS Server", "🟢 运行" if status.get("running") else "🔴 停止")
+    with col2:
+        st.metric("当前 client", status.get("current_clients", 0))
+    with col3:
+        st.metric("广播消息", status.get("total_messages_sent", 0))
+
+    # 区域 2: JS 客户端 (嵌入 st.components.v1.html, PIT #32 自带 reconnect)
+    st.markdown("#### 🌐 浏览器端 WebSocket 客户端")
+    ws_html = render_websocket_js_client(ws_host, ws_port)
+    st.components.v1.html(ws_html, height=80)
+
+    # 区域 3: 最近推送 (PG 直读, 降级兜底)
+    st.markdown("#### 📜 最近推送历史 (PG 持久化)")
+    if _HAS_PG:
+        try:
+            conn = get_pg_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT notification_id, target, title, body, priority, created_at, delivered_at
+                FROM l3.push_notification_log
+                WHERE created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (max_items,))
+            rows = cur.fetchall()
+            conn.close()
+            if rows:
+                import pandas as pd
+                df = pd.DataFrame(rows, columns=[
+                    "notification_id", "target", "title", "body",
+                    "priority", "created_at", "delivered_at",
+                ])
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("最近 24h 无推送")
+        except Exception as e:
+            st.warning(f"PG 查推送历史失败: {e}")
+    else:
+        st.info("PG 不可用, 跳过历史查询")
+
+    # 区域 4: 测试按钮 (触发 push + NOTIFY + WS 广播)
+    with st.expander("🧪 测试推送 (开发用)", expanded=False):
+        if st.button("📤 触发测试 push_notification_with_notify", key="ws_test_push"):
+            test_req = QuickActionRequest(
+                request_id=f"req_ws_ui_test_{uuid.uuid4().hex[:6]}",
+                user_id=user_id,
+                action_type="event_alert",
+                payload={"event_topic": "V24-B3 WebSocket 推送测试", "threshold_pct": 3.0},
+                status=ActionStatus.SUCCESS,
+                result={"response": "WebSocket 实时推送测试", "confidence": 0.95, "fallback_level": "L1_normal"},
+                duration_ms=1700.0,
+            )
+            notif = push_notification_with_notify(test_req, target="dashboard")
+            st.success(f"✅ Push 触发成功: {notif.notification_id}")
+            st.caption("1-2s 后 WebSocket 客户端应收到广播 (浏览器 console / 指标刷新)")
+
+
 if __name__ == "__main__":
     res = _selftest_pattern_10()
     print(f"\n=== 模式 10: DashboardBridge ===")

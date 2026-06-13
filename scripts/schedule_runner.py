@@ -2201,6 +2201,62 @@ def job_weekly_backtest():
         send_job_failure("周线回测", str(e))
 
 
+def job_strategy_optimization():
+    """
+    V24-C4-T3: 每周日 22:00 策略自动调优 (Walk-Forward 网格搜索)
+    - 调 strategy_optimizer.py --run 主入口
+    - 拉 L3 决策 → 网格 + Walk-Forward 滚动 → 持久化 l3.strategy_optimization_runs
+    - 实战: 21 天数据切 3 个 window, 找最优 params
+    """
+    logger.info("=" * 50)
+    logger.info("V24-C4 策略自动调优启动")
+    start_ts = time.time()
+
+    root = Path(str(ROOT)).resolve()
+    opt_script = root / "hermes_coordination" / "scripts" / "strategy_optimizer.py"
+    venv_py = root / ".venv" / "bin" / "python3.11"
+    if not opt_script.exists():
+        logger.error(f"strategy_optimizer.py 不存在: {opt_script}")
+        return
+    if not venv_py.exists():
+        venv_py = Path("/home/aileo/.hermes/hermes-agent/venv/bin/python3")
+
+    try:
+        import subprocess as _sp_opt
+        # 调子进程跑 (PIT #52 失败不阻断)
+        result = _sp_opt.run(
+            [str(venv_py), str(opt_script), "--run", "--method", "walk_forward"],
+            capture_output=True, text=True, timeout=300, cwd=str(root),
+        )
+        stdout = (result.stdout or "")[-2000:]
+        stderr = (result.stderr or "")[-500:]
+        logger.info(f"strategy_optimizer exit={result.returncode}")
+        logger.info(f"stdout: {stdout[:500]}")
+        if stderr:
+            logger.warning(f"stderr: {stderr}")
+
+        # 摘要消息
+        duration = time.time() - start_ts
+        msg = f"🎯 **V24-C4 策略调优完成**\n"
+        msg += f"耗时: {duration:.1f}s | exit={result.returncode}\n"
+        if result.returncode == 0 and "best_composite_score" in stdout:
+            # 简单提取 best_composite_score
+            import re
+            m = re.search(r"best_composite_score=(-?\d+\.?\d*)", stdout)
+            if m:
+                msg += f"Best Score: {m.group(1)}\n"
+        msg += f"\n_数据来源: l3.decision_points | 持久化: l3.strategy_optimization_runs_"
+        send_notification("🎯 策略调优报告", msg)
+
+    except _sp_opt.TimeoutExpired:
+        logger.error("strategy_optimizer 超时 (300s)")
+        _safe_error_alert("🔴 策略调优超时", "Walk-Forward 超过 300s")
+    except Exception as e:
+        logger.error(f"策略调优异常: {e}")
+        _safe_error_alert("🔴 策略调优异常", f"错误: {e}")
+        send_job_failure("V24-C4 策略调优", str(e))
+
+
 def job_position_risk_alert():
     """
     盘前 09:25 + 盘后 15:05 持仓风险告警 (V24-C1-T4 集成, 2026-06-13)
@@ -2656,6 +2712,16 @@ def start_scheduler():
         CronTrigger(hour=9, minute=0, day_of_week="mon", timezone="Asia/Shanghai"),
         id="position_risk_weekly",
         name="持仓风险告警 (周一 09:00 周报)",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # V24-C4: 策略自动调优 (每周日 22:00 Walk-Forward 网格搜索)
+    _scheduler.add_job(
+        job_strategy_optimization,
+        CronTrigger(hour=22, minute=0, day_of_week="sun", timezone="Asia/Shanghai"),
+        id="strategy_optimization_weekly",
+        name="V24-C4 策略调优 (周日 22:00)",
         replace_existing=True,
         misfire_grace_time=600,
     )

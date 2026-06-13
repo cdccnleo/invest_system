@@ -154,6 +154,15 @@ V23_MODULES = {
                           "ProfileRecommendation", "ProfileRiskOverview"],
         "description": "V24-B4 跨 Profile 隔离 + 决策对比",
     },
+    # C4: 策略自动调优 (网格 + Walk-Forward)
+    "strategy_optimizer": {
+        "module_path": "strategy_optimizer",
+        "expected_funcs": ["grid_search", "walk_forward_optimization",
+                          "run_optimization", "select_best_run",
+                          "ensure_pg_tables", "composite_score", "Trial",
+                          "OptimizationResult"],
+        "description": "V24-C4 策略自动调优 (网格 + Walk-Forward)",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",
@@ -190,12 +199,32 @@ EXPECTED_PG_TABLES = [
 # 3. 集成验证函数
 # ====================================================================
 
+def _import_module_safe(module_path: str) -> Any:
+    """V24-C4: 优先 hermes_coordination/scripts/, 避免老 strategy_optimizer.py 冲突"""
+    import importlib.util
+    import sys as _sys
+    # 1. 先尝试 hermes 路径
+    hermes_path = _SCRIPT_DIR / f"{module_path}.py"
+    if hermes_path.exists() and module_path in (
+        "strategy_optimizer",  # V24-C4 唯一冲突
+    ):
+        spec = importlib.util.spec_from_file_location(module_path, hermes_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            # ⚠️ PIT 修复: 必须注册到 sys.modules (避免 NoneType.__dict__ 错)
+            _sys.modules[module_path] = mod
+            spec.loader.exec_module(mod)
+            return mod
+    # 2. 默认 sys.path
+    return importlib.import_module(module_path)
+
+
 def verify_module_imports() -> Dict[str, Any]:
     """验证 1+2: 所有 v2.2 + v2.3 模块 import 成功"""
     results = {}
     for name, info in {**V22_MODULES, **V23_MODULES}.items():
         try:
-            mod = importlib.import_module(info["module_path"])
+            mod = _import_module_safe(info["module_path"])
             results[name] = {
                 "status": "ok",
                 "module": str(mod.__file__) if hasattr(mod, "__file__") else "unknown",
@@ -215,7 +244,7 @@ def verify_module_funcs() -> Dict[str, Any]:
     results = {}
     for name, info in {**V22_MODULES, **V23_MODULES}.items():
         try:
-            mod = importlib.import_module(info["module_path"])
+            mod = _import_module_safe(info["module_path"])
             missing = []
             for func_name in info["expected_funcs"]:
                 if not hasattr(mod, func_name):
@@ -547,16 +576,16 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 17 模式测试脚本可执行 (V24-B4 升级: 16 → 17)
+    # 9. 18 模式测试脚本可执行 (V24-C4 升级: 17 → 18)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 17 在末尾
-    has_17 = "pattern_17_v24_b4_profile_isolation" in text
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 18 在末尾
+    has_18 = "pattern_18_v24_c4_strategy_optimization" in text
     result["tests"].append({
-        "test": "17_patterns_script",
-        "expected": "17 函数定义 (V24-B4 升级)",
-        "actual": has_17,
-        "passed": has_17,
+        "test": "18_patterns_script",
+        "expected": "18 函数定义 (V24-C4 升级)",
+        "actual": has_18,
+        "passed": has_18,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)

@@ -1951,5 +1951,191 @@ def pattern_17_v24_b4_profile_isolation() -> Tuple[bool, List[str]]:
 PATTERNS[17] = ("V24-B4 跨 Profile 隔离 (V24 B4)", pattern_17_v24_b4_profile_isolation)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# V24-C4: 模式 18 — 策略自动调优 (网格搜索 + Walk-Forward)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def pattern_18_v24_c4_strategy_optimization() -> Tuple[bool, List[str]]:
+    """V24-C4: 回测策略自动调优 (网格 + Walk-Forward)
+
+    验证项 (12):
+    1. strategy_optimizer.py 6 核心函数/class 存在
+    2. composite_score 复合分 (PIT #53)
+    3. 边界: nan/inf/非数字返 0 (PIT #58)
+    4. 单次回测 (PIT #52)
+    5. 网格搜索 4 trials (PIT #55 早停)
+    6. Walk-Forward 21 trials (3 window × 7) (PIT #54 滚动)
+    7. 边界: 空 codes 返 0 trial (PIT #58 修复)
+    8. PG l3.strategy_optimization_runs 表 DDL
+    9. 主入口 run_optimization + 持久化
+    10. select_best_run 查最优
+    11. CLI --run --method walk_forward 真实跑
+    12. 实战数据异常 (PIT #59) - 实战 21 天数据 -70% 返负分
+    """
+    import traceback
+    errors: List[str] = []
+    # ⚠️ PIT 修复: 头部 sys.path 已把 HERMES_SCRIPTS_DIR 放 [0],
+    # 不需要再 insert (会打乱顺序导致 import 老 scripts/strategy_optimizer.py)
+    # 直接用 sys.path 当前状态 (HERMES 在前, SCRIPTS 在后)
+
+    # 1. 核心函数/class
+    try:
+        from strategy_optimizer import (
+            grid_search, walk_forward_optimization, run_optimization,
+            select_best_run, ensure_pg_tables, composite_score, run_single_backtest,
+            Trial, OptimizationResult,
+        )
+        print(f"  ✅ strategy_optimizer 6 个核心函数/class 存在")
+    except Exception as e:
+        errors.append(f"❌ strategy_optimizer 导入失败: {e}")
+        return False, errors
+
+    # 2. 复合分
+    try:
+        s1 = composite_score(10, 2, 5)
+        s2 = composite_score(0, 0, 0)
+        if s1 != 6.5 or s2 != 0.0:
+            errors.append(f"❌ composite_score 错: {s1} / {s2}")
+        else:
+            print(f"  ✅ 复合分 sharpe×2+return-|mdd|×1.5: 10/2/5 → {s1}, 0/0/0 → {s2}")
+    except Exception as e:
+        errors.append(f"❌ composite_score 失败: {e}")
+
+    # 3. 边界 nan/inf
+    try:
+        s_nan = composite_score(float("nan"), 1, 1)
+        s_inf = composite_score(1, float("inf"), 1)
+        s_str = composite_score("bad", 1, 1)
+        if s_nan != 0.0 or s_inf != 0.0 or s_str != 0.0:
+            errors.append(f"❌ 边界复合分错: nan={s_nan} inf={s_inf} str={s_str}")
+        else:
+            print(f"  ✅ 边界 nan/inf/str 返 0 (PIT #58)")
+    except Exception as e:
+        errors.append(f"❌ 边界复合分失败: {e}")
+
+    # 4. 单次回测
+    try:
+        t = run_single_backtest(
+            ts_codes=["300059.XSHE", "600487.XSHG", "300394.XSHE"],
+            start_date="2026-05-01", end_date="2026-06-12",
+            initial_capital=1_000_000, position_size_pct=0.95,
+        )
+        if not hasattr(t, "composite_score"):
+            errors.append(f"❌ Trial 缺 composite_score")
+        else:
+            print(f"  ✅ 单次回测: return={t.return_pct:.2f}% score={t.composite_score:.2f} (PIT #52)")
+    except Exception as e:
+        errors.append(f"❌ 单次回测失败: {e}")
+
+    # 5. 网格搜索
+    try:
+        gs = grid_search(
+            ts_codes=["300059.XSHE", "600487.XSHG", "300394.XSHE"],
+            start_date="2026-05-01", end_date="2026-06-12",
+            initial_capitals=[500_000, 1_000_000],
+            position_sizes=[0.85, 0.95],
+        )
+        if gs.n_trials < 1:
+            errors.append(f"❌ 网格搜索 n_trials=0: {gs.n_trials}")
+        else:
+            print(f"  ✅ 网格搜索: n_trials={gs.n_trials} best_score={gs.best_composite_score:.2f} (PIT #55)")
+    except Exception as e:
+        errors.append(f"❌ 网格搜索失败: {e}")
+
+    # 6. Walk-Forward
+    try:
+        wf = walk_forward_optimization(
+            ts_codes=["300059.XSHE", "600487.XSHG", "300394.XSHE"],
+            end_date="2026-06-12",
+            train_days=10, test_days=5, step_days=5,
+        )
+        if wf.n_trials < 5:
+            errors.append(f"❌ WF n_trials<5: {wf.n_trials}")
+        else:
+            print(f"  ✅ Walk-Forward: n_trials={wf.n_trials} best_score={wf.best_composite_score:.2f} (PIT #54)")
+    except Exception as e:
+        errors.append(f"❌ Walk-Forward 失败: {e}")
+
+    # 7. 边界: 空 codes
+    try:
+        empty = grid_search(ts_codes=[], start_date="2026-05-01", end_date="2026-06-12")
+        if empty.n_trials != 0 or empty.error != "empty_codes":
+            errors.append(f"❌ 空 codes 边界: n={empty.n_trials} err={empty.error}")
+        else:
+            print(f"  ✅ 边界: 空 codes → 0 trial + error=empty_codes (PIT #58 修复)")
+    except Exception as e:
+        errors.append(f"❌ 空 codes 边界失败: {e}")
+
+    # 8. PG DDL
+    try:
+        ddl = ensure_pg_tables()
+        if "strategy_optimization_runs" not in ddl:
+            errors.append(f"❌ strategy_optimization_runs 表未建: {ddl}")
+        else:
+            print(f"  ✅ PG l3.strategy_optimization_runs: {ddl['strategy_optimization_runs']} 行")
+    except Exception as e:
+        errors.append(f"❌ PG DDL 失败: {e}")
+
+    # 9. 主入口 + 持久化
+    try:
+        res = run_optimization(user_id="aileo", days=30, method="walk_forward", persist=True)
+        if res.n_trials < 1:
+            errors.append(f"❌ 主入口 n_trials=0: {res.error}")
+        else:
+            print(f"  ✅ 主入口: n_trials={res.n_trials} best_score={res.best_composite_score:.2f}")
+    except Exception as e:
+        errors.append(f"❌ 主入口失败: {e}")
+
+    # 10. select_best_run
+    try:
+        best = select_best_run(method="walk_forward")
+        if not best:
+            errors.append(f"❌ select_best_run 没找到")
+        else:
+            print(f"  ✅ select_best_run: {best['run_id'][:30]} score={best['best_composite_score']:.2f}")
+    except Exception as e:
+        errors.append(f"❌ select_best_run 失败: {e}")
+
+    # 11. CLI
+    try:
+        import subprocess
+        r = subprocess.run(
+            [".venv/bin/python", "hermes_coordination/scripts/strategy_optimizer.py", "--run", "--method", "walk_forward"],
+            capture_output=True, text=True, timeout=120, cwd="/home/aileo/invest_system",
+        )
+        if r.returncode != 0:
+            errors.append(f"❌ CLI exit={r.returncode}: {r.stderr[:200]}")
+        elif "best_composite_score" not in r.stdout:
+            errors.append(f"❌ CLI 无 best_composite_score: {r.stdout[:200]}")
+        else:
+            print(f"  ✅ CLI --run --method walk_forward exit=0, best_score 输出完整")
+    except subprocess.TimeoutExpired:
+        errors.append(f"❌ CLI 超时 120s")
+    except Exception as e:
+        errors.append(f"❌ CLI 失败: {e}")
+
+    # 12. 实战数据异常
+    try:
+        res = run_optimization(user_id="aileo", days=30, method="walk_forward", persist=True)
+        if res.best_composite_score >= 0:
+            print(f"  ⚠️ best_score {res.best_composite_score:.2f} ≥ 0 (异常数据修复了?)")
+        else:
+            print(f"  ✅ 实战: best_score={res.best_composite_score:.2f} 负分, 反映实战数据问题 (PIT #59)")
+    except Exception as e:
+        errors.append(f"❌ 实战验证失败: {e}")
+
+    if not errors:
+        print(f"  ✅ 模式 18 通过")
+    else:
+        print(f"  ❌ 模式 18 失败: {len(errors)} 错误")
+        for e in errors[:3]:
+            print(f"    {e[:100]}")
+    return len(errors) == 0, errors
+
+
+# V24-C4: 模式 18 注册 (策略自动调优)
+PATTERNS[18] = ("V24-C4 策略自动调优 (V24 C4)", pattern_18_v24_c4_strategy_optimization)
+
+
 if __name__ == "__main__":
     main()

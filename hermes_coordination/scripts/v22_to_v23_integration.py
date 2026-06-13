@@ -595,16 +595,19 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 20 模式测试脚本可执行 (V24-C6 升级: 19 → 20)
+    # 9. 22 模式测试脚本可执行 (V25-A1+A2 升级: 20 → 22, +V25-A1/A2 飞书路由)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20 在末尾
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-22 在末尾
     has_20 = "pattern_20_v24_c6_chief_event_strategist" in text
+    has_21 = "pattern_21_v25_a1_feishu_push" in text
+    has_22 = "pattern_22_v25_a2_feishu_cron_routing" in text
+    all_patterns = has_20 and has_21 and has_22
     result["tests"].append({
-        "test": "20_patterns_script",
-        "expected": "20 函数定义 (V24-C6 升级)",
-        "actual": has_20,
-        "passed": has_20,
+        "test": "22_patterns_script",
+        "expected": "22 函数定义 (V25-A1+A2 升级, +飞书路由)",
+        "actual": all_patterns,
+        "passed": all_patterns,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)
@@ -633,6 +636,49 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     except Exception as e:
         result["tests"].append({
             "test": "full_e2e_integration",
+            "expected": "ok", "actual": f"err: {e}",
+            "passed": False,
+        })
+
+    # 11. V25-A1 飞书推送就地实现存在 (PIT #66)
+    try:
+        prt_path = _COORD_DIR / "scripts" / "position_risk_triggers.py"
+        prt_src = prt_path.read_text(encoding="utf-8")
+        a1_ok = (
+            "_send_via_feishu_inplace" in prt_src
+            and "feishu_webhook" in prt_src
+            and "3 通道全空" in prt_src
+        )
+        result["tests"].append({
+            "test": "v25_a1_feishu_routing",
+            "expected": "_send_via_feishu_inplace + feishu_webhook 变量 + 3 通道全空检查",
+            "actual": a1_ok,
+            "passed": a1_ok,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "test": "v25_a1_feishu_routing",
+            "expected": "ok", "actual": f"err: {e}",
+            "passed": False,
+        })
+
+    # 12. V25-A2 C4/C6 cron 调 send_notification (飞书自动生效)
+    try:
+        runner_path = Path("/home/aileo/invest_system/scripts/schedule_runner.py")
+        runner_src = runner_path.read_text(encoding="utf-8")
+        a2_ok = (
+            "send_notification(\"🎯 策略调优报告\"" in runner_src
+            and "send_notification(\"🧠 大模型首席分析师\"" in runner_src
+        )
+        result["tests"].append({
+            "test": "v25_a2_feishu_cron",
+            "expected": "C4 + C6 send_notification 飞书自动生效",
+            "actual": a2_ok,
+            "passed": a2_ok,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "test": "v25_a2_feishu_cron",
             "expected": "ok", "actual": f"err: {e}",
             "passed": False,
         })

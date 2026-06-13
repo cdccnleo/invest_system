@@ -2435,5 +2435,297 @@ PATTERNS[19] = ("V24-C5 profit_pct 修复 (V24 C5)", pattern_19_v24_c5_profit_pc
 PATTERNS[20] = ("V24-C6 大模型首席分析师 (V24 C6)", pattern_20_v24_c6_chief_event_strategist)
 
 
+# ===================================================================
+# V25-A1+A2 模式 21+22: 飞书 webhook 推送路由
+# ===================================================================
+
+def pattern_21_v25_a1_feishu_push() -> Tuple[bool, List[str]]:
+    """模式 21: V25-A1 飞书推送路由 (持仓风险 C1 push_to_webhook 飞书通道 PATCH)
+
+    12 验证项:
+    1. position_risk_triggers 模块导入
+    2. push_to_webhook 函数存在
+    3. _send_via_feishu_inplace 函数存在
+    4. PIT #66: 飞书就地实现 (避免循环 import notification)
+    5. 3 通道优先级: 飞书 > 钉钉 > 企微
+    6. PIT #41 复用: 3 通道全空 → 返 0 (PG 兜底)
+    7. interactive card payload 结构正确 (msg_type + card + header + elements)
+    8. 3 retry exponential backoff (1s/2s/4s)
+    9. 颜色映射: P0→ERROR P1→WARNING P2→INFO (#F44336/#FF9800/#4CAF50)
+    10. 1800 字符 MAX_LEN 限制 (PIT #66 飞书卡片限制)
+    11. 实战 mock server 推送成功 (3 级别: WARNING/ERROR/INFO)
+    12. 不可达 URL 3 retry 后返 False (不抛异常, 优雅降级)
+    """
+    log: List[str] = []
+    try:
+        # 1
+        sys.path.insert(0, str(Path(__file__).parent))
+        import position_risk_triggers as prt
+        log.append("✅ 1. position_risk_triggers 导入成功")
+
+        # 2
+        assert hasattr(prt, "push_to_webhook"), "push_to_webhook 函数缺失"
+        log.append("✅ 2. push_to_webhook 函数存在")
+
+        # 3
+        assert hasattr(prt, "_send_via_feishu_inplace"), "_send_via_feishu_inplace 函数缺失"
+        log.append("✅ 3. _send_via_feishu_inplace 函数存在 (V25-A1 PATCH)")
+
+        # 4
+        import inspect
+        src = inspect.getsource(prt._send_via_feishu_inplace)
+        assert "import urllib.request" in src, "PIT #66: 应就地实现, 不依赖 notification 模块"
+        log.append("✅ 4. PIT #66: 飞书就地实现 (避免循环 import)")
+
+        # 5
+        src_webhook = inspect.getsource(prt.push_to_webhook)
+        assert "feishu_webhook" in src_webhook and "dingtalk" in src_webhook and "wechat" in src_webhook, \
+            "3 通道路由缺失"
+        # 飞书在 钉钉+企微 前面 (用变量首次出现位置)
+        feishu_pos = src_webhook.find("feishu_webhook = store.get")
+        dingtalk_pos = src_webhook.find("dingtalk = store.get")
+        wechat_pos = src_webhook.find("wechat = store.get")
+        assert feishu_pos != -1 and dingtalk_pos != -1 and wechat_pos != -1, \
+            f"3 通道变量未找到: feishu={feishu_pos} dingtalk={dingtalk_pos} wechat={wechat_pos}"
+        assert feishu_pos < dingtalk_pos < wechat_pos, \
+            f"通道顺序错: feishu={feishu_pos} dingtalk={dingtalk_pos} wechat={wechat_pos}"
+        log.append("✅ 5. 3 通道优先级: 飞书 > 钉钉 > 企微")
+
+        # 6
+        assert "no webhook configured (3 通道全空)" in src_webhook, \
+            "PIT #41 复用失败: 3 通道全空 → 返 0"
+        log.append("✅ 6. PIT #41 复用: 3 通道全空 → 返 0 (PG 兜底)")
+
+        # 7
+        assert "msg_type" in src and "interactive" in src, "interactive card payload 缺失"
+        assert "card" in src and "header" in src and "elements" in src, "card 结构不完整"
+        log.append("✅ 7. interactive card payload 结构正确")
+
+        # 8
+        assert "for attempt in range(3)" in src, "3 retry 逻辑缺失"
+        assert "2 ** attempt" in src, "exponential backoff 缺失"
+        log.append("✅ 8. 3 retry exponential backoff")
+
+        # 9
+        assert '"#F44336"' in src, "ERROR 颜色缺失"
+        assert '"#FF9800"' in src, "WARNING 颜色缺失"
+        assert '"#4CAF50"' in src, "INFO 颜色缺失"
+        assert 'severity == "P0"' in src_webhook, "P0 → ERROR 映射缺失"
+        log.append("✅ 9. 颜色映射: P0→ERROR P1→WARNING P2→INFO")
+
+        # 10
+        assert "MAX_LEN" in src and "1800" in src, "1800 字符限制缺失"
+        log.append("✅ 10. 1800 字符 MAX_LEN 限制 (PIT #66 飞书卡片)")
+
+        # 11 - 实战 mock 推送
+        import threading
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        captured = {"count": 0, "last": None}
+
+        class MockH(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(n).decode("utf-8")
+                captured["count"] += 1
+                captured["last"] = json.loads(body)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"code": 0, "msg": "ok"}).encode())
+            def log_message(self, *args, **kwargs):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), MockH)
+        port = srv.server_port
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        mock_url = f"http://127.0.0.1:{port}/feishu"
+
+        for level, color in [("WARNING", "#FF9800"), ("ERROR", "#F44336"), ("INFO", "#4CAF50")]:
+            captured["count"] = 0
+            ok = prt._send_via_feishu_inplace(
+                mock_url, f"测试 {level}", "持仓 688008 澜起", level=level,
+            )
+            assert ok and captured["count"] == 1, f"{level} 推送失败"
+            color_actual = captured["last"]["card"]["header"]["template"]
+            assert color_actual == color, f"{level} 颜色错: {color_actual}"
+        log.append(f"✅ 11. 实战 mock 推送 3 级别 OK (W/E/I)")
+        srv.shutdown()
+
+        # 12 - 不可达 URL
+        ok_bad = prt._send_via_feishu_inplace(
+            "http://127.0.0.1:1/unreachable", "降级测试", "x", level="INFO",
+        )
+        assert ok_bad is False, "不可达 URL 应返 False"
+        log.append("✅ 12. 不可达 URL 3 retry 后返 False (优雅降级)")
+
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 验证失败: {e}")
+        return False, log
+    except Exception as e:
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        return False, log
+
+
+def pattern_22_v25_a2_feishu_cron_routing() -> Tuple[bool, List[str]]:
+    """模式 22: V25-A2 V24-C4/C6 飞书推送路由 (无需代码改动, 验证通道)
+
+    12 验证项:
+    1. notification 模块导入
+    2. send_notification 主入口存在
+    3. 默认 channels = [dingtalk, wechat, feishu, bark] (4 通道)
+    4. 飞书通道独立判断, 无 webhook → False (不抛异常)
+    5. send_via_feishu 内部用 FEISHU_WEBHOOK env/store
+    6. 实战 mock: C4 (策略调优) 飞书路由 OK
+    7. 实战 mock: C6 (首席分析师) 飞书路由 OK
+    8. job_strategy_optimization 调 send_notification (V24-C4)
+    9. job_chief_event_analyst 调 send_notification (V24-C6)
+    10. C4 send_notification 飞书路径 payload 包含 best_score
+    11. C6 send_notification 飞书路径 payload 包含 3 事件汇总
+    12. schedule_runner 不会因飞书推送失败而崩溃 (try/except 包裹)
+    """
+    log: List[str] = []
+    try:
+        # 1
+        sys.path.insert(0, "/home/aileo/invest_system/scripts")
+        import notification as ntf
+        log.append("✅ 1. notification 模块导入成功")
+
+        # 2
+        assert hasattr(ntf, "send_notification"), "send_notification 主入口缺失"
+        log.append("✅ 2. send_notification 主入口存在")
+
+        # 3
+        import inspect
+        src = inspect.getsource(ntf.send_notification)
+        assert '"dingtalk"' in src and '"wechat"' in src and '"feishu"' in src and '"bark"' in src, \
+            "默认 channels 应含 4 通道"
+        log.append("✅ 3. 默认 channels = [dingtalk, wechat, feishu, bark]")
+
+        # 4
+        assert "FEISHU_WEBHOOK" in inspect.getsource(ntf.send_via_feishu), "飞书通道独立判断缺失"
+        # 无 webhook 应返 False
+        os.environ["FEISHU_WEBHOOK"] = ""
+        import importlib
+        importlib.reload(ntf)
+        r = ntf.send_notification("空 webhook 测试", "x")
+        assert r["feishu"] is False, f"空 webhook 应返 False, 实际 {r['feishu']}"
+        log.append("✅ 4. 飞书通道无 webhook → False (不抛异常)")
+        del os.environ["FEISHU_WEBHOOK"]
+
+        # 5
+        assert hasattr(ntf, "send_via_feishu"), "send_via_feishu 实现缺失"
+        log.append("✅ 5. send_via_feishu 函数存在 (3 retry + interactive card)")
+
+        # 6 - C4 实战
+        import threading
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        captured = {"count": 0, "last": None}
+
+        class MockH(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(n).decode("utf-8")
+                captured["count"] += 1
+                captured["last"] = json.loads(body)
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"code": 0, "msg": "ok"}).encode())
+            def log_message(self, *args, **kwargs):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), MockH)
+        port = srv.server_port
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        mock_url = f"http://127.0.0.1:{port}/feishu"
+        os.environ["FEISHU_WEBHOOK"] = mock_url
+        importlib.reload(ntf)
+
+        # 6 - C4
+        captured["count"] = 0
+        r = ntf.send_notification(
+            "🎯 策略调优报告 (V25-A2 模拟 C4)",
+            "**best_score**: -179.75\n**耗时**: 5.71s",
+            level="SUCCESS",
+        )
+        assert r["feishu"] is True and captured["count"] == 1
+        log.append("✅ 6. C4 (策略调优) 飞书路由 OK")
+
+        # 7 - C6
+        captured["count"] = 0
+        r = ntf.send_notification(
+            "🧠 大模型首席分析师 (V25-A2 模拟 C6)",
+            "**SpaceX IPO** dir=positive conf=0.65",
+            level="INFO",
+        )
+        assert r["feishu"] is True and captured["count"] == 1
+        log.append("✅ 7. C6 (首席分析师) 飞书路由 OK")
+
+        # 8
+        runner_path = Path("/home/aileo/invest_system/scripts/schedule_runner.py")
+        runner_src = runner_path.read_text()
+        assert "send_notification(\"🎯 策略调优报告\"" in runner_src, "job_strategy_optimization 调 send_notification 缺失"
+        log.append("✅ 8. job_strategy_optimization 调 send_notification (V24-C4)")
+
+        # 9
+        assert "send_notification(\"🧠 大模型首席分析师\"" in runner_src, "job_chief_event_analyst 调 send_notification 缺失"
+        log.append("✅ 9. job_chief_event_analyst 调 send_notification (V24-C6)")
+
+        # 10
+        c4_payload = captured["last"]  # 最后一次 (C6)
+        # 我们重新跑 C4 拿正确 payload
+        captured["count"] = 0
+        ntf.send_notification("🎯 策略调优报告", "**best_score**: -179.75", level="SUCCESS")
+        c4_payload = captured["last"]
+        c4_md = c4_payload["card"]["elements"][0]["content"]
+        assert "best_score" in c4_md, f"C4 payload 应含 best_score, 实际: {c4_md[:60]}"
+        log.append("✅ 10. C4 payload 含 best_score")
+
+        # 11
+        captured["count"] = 0
+        ntf.send_notification(
+            "🧠 大模型首席分析师",
+            "**SpaceX IPO** dir=positive\n**FOMC** dir=neutral",
+            level="INFO",
+        )
+        c6_payload = captured["last"]
+        c6_md = c6_payload["card"]["elements"][0]["content"]
+        assert "SpaceX" in c6_md and "FOMC" in c6_md, f"C6 payload 应含 3 事件汇总, 实际: {c6_md[:60]}"
+        log.append("✅ 11. C6 payload 含 3 事件汇总")
+
+        # 12 - schedule_runner 飞书失败 try/except
+        # 看 C4/C6 函数是不是有 try/except 包裹 send_notification
+        # 找 job_strategy_optimization
+        import re
+        m = re.search(r"def job_strategy_optimization.*?(?=^def )", runner_src, re.DOTALL | re.MULTILINE)
+        assert m, "job_strategy_optimization 函数找不到"
+        c4_func = m.group(0)
+        assert "except" in c4_func, "C4 函数缺 try/except"
+        # C6
+        m6 = re.search(r"def job_chief_event_analyst.*?(?=^def )", runner_src, re.DOTALL | re.MULTILINE)
+        assert m6, "job_chief_event_analyst 函数找不到"
+        c6_func = m6.group(0)
+        assert "except" in c6_func, "C6 函数缺 try/except"
+        log.append("✅ 12. C4/C6 函数都有 try/except 包裹 (飞书失败不崩)")
+
+        srv.shutdown()
+        del os.environ["FEISHU_WEBHOOK"]
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 验证失败: {e}")
+        return False, log
+    except Exception as e:
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        return False, log
+
+
+# V25-A1: 模式 21 注册 (飞书推送路由)
+PATTERNS[21] = ("V25-A1 飞书推送路由 (持仓风险 C1)", pattern_21_v25_a1_feishu_push)
+
+# V25-A2: 模式 22 注册 (C4/C6 cron 飞书路由)
+PATTERNS[22] = ("V25-A2 C4/C6 cron 飞书路由", pattern_22_v25_a2_feishu_cron_routing)
+
+
 if __name__ == "__main__":
     main()

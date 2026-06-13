@@ -355,7 +355,12 @@ def push_to_websocket(alerts: List[RiskAlert]) -> int:
 
 
 def push_to_webhook(alerts: List[RiskAlert]) -> int:
-    """Level 1: 推飞书/钉钉 (PIT #41 secret 缺失时仅 PG 兜底)"""
+    """Level 1: 推飞书/钉钉/企微 (V25-A1, PIT #41 secret 缺失时仅 PG 兜底)
+
+    通道优先级: 飞书 > 钉钉 > 企微 (V25-A1 PATCH: 飞书从无 → 优先)
+    实现: 飞书复用 notification.send_via_feishu (3 retry, interactive card)
+         钉钉/企微用 markdown (旧实现保留)
+    """
     try:
         store = json.loads(
             Path("/home/aileo/.hermes/invest_credentials/store.json").read_text()
@@ -364,19 +369,42 @@ def push_to_webhook(alerts: List[RiskAlert]) -> int:
         LOG.warning(f"[webhook] store.json 读取失败: {e}")
         return 0
 
+    feishu_webhook = store.get("FEISHU_WEBHOOK", "")
     dingtalk = store.get("DINGTALK_WEBHOOK", "")
     wechat = store.get("WECHAT_WEBHOOK", "")
-    # PIT #41: secret 缺失时仅 PG 兜底
-    if not dingtalk and not wechat:
-        LOG.info("[webhook] no webhook configured, skip (PG 兜底)")
+
+    # PIT #41: 3 通道全空时仅 PG 兜底
+    if not feishu_webhook and not dingtalk and not wechat:
+        LOG.info("[webhook] no webhook configured (3 通道全空), skip (PG 兜底)")
         return 0
 
     sent = 0
+    sent_feishu = 0
+    sent_dingtalk = 0
+    sent_wechat = 0
+
     for a in alerts:
         body = _format_alert_msg(a)
-        for webhook_url in [dingtalk, wechat]:
-            if not webhook_url:
-                continue
+        title = f"⚠️ 持仓风险 {a.severity} - {a.code} {a.name}"
+
+        # 通道 1 (V25-A1): 飞书 — 复用 send_via_feishu
+        if feishu_webhook:
+            try:
+                # 飞书偏好 INFO 颜色对应"持仓风险" WARNING 级别
+                if a.severity == "P0":
+                    level = "ERROR"
+                elif a.severity == "P1":
+                    level = "WARNING"
+                else:
+                    level = "INFO"
+                if _send_via_feishu_inplace(feishu_webhook, title, body, level=level):
+                    sent += 1
+                    sent_feishu += 1
+            except Exception as e:
+                LOG.warning(f"[webhook-feishu] {a.code} fail: {e}")
+
+        # 通道 2: 钉钉 markdown (旧)
+        if dingtalk:
             try:
                 import urllib.request
                 data = json.dumps({
@@ -384,16 +412,122 @@ def push_to_webhook(alerts: List[RiskAlert]) -> int:
                     "markdown": {"title": f"⚠️ 持仓风险 {a.severity}", "text": body},
                 }, ensure_ascii=False).encode()
                 req = urllib.request.Request(
-                    webhook_url, data=data,
+                    dingtalk, data=data,
                     headers={"Content-Type": "application/json"},
                 )
                 with urllib.request.urlopen(req, timeout=5) as r:
                     if r.status == 200:
                         sent += 1
+                        sent_dingtalk += 1
             except Exception as e:
-                LOG.warning(f"[webhook] {a.code} fail: {e}")
-    LOG.info(f"[webhook] sent {sent}/{len(alerts)} to dingtalk/wechat")
+                LOG.warning(f"[webhook-dingtalk] {a.code} fail: {e}")
+
+        # 通道 3: 企微 markdown (旧)
+        if wechat:
+            try:
+                import urllib.request
+                data = json.dumps({
+                    "msgtype": "markdown",
+                    "markdown": {"title": f"⚠️ 持仓风险 {a.severity}", "text": body},
+                }, ensure_ascii=False).encode()
+                req = urllib.request.Request(
+                    wechat, data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    if r.status == 200:
+                        sent += 1
+                        sent_wechat += 1
+            except Exception as e:
+                LOG.warning(f"[webhook-wechat] {a.code} fail: {e}")
+
+    LOG.info(
+        f"[webhook] {sent}/{len(alerts)} sent "
+        f"(feishu={sent_feishu}, dingtalk={sent_dingtalk}, wechat={sent_wechat})"
+    )
     return sent
+
+
+# V25-A1 PIT #66: 飞书推送就地实现 (避免循环 import notification)
+def _send_via_feishu_inplace(webhook_url: str, title: str, content: str, level: str = "INFO") -> bool:
+    """飞书群机器人 interactive card 推送 (就地实现)
+
+    文档: https://open.feishu.cn/document/ukTMukTMukTM/ucDOz4kjN3QjL2QCN
+    3 retry exponential backoff (PIT #41 secret 缺失不重试, 立即返 False)
+    """
+    import urllib.request
+    import urllib.error
+
+    color_map = {
+        "INFO": "#4CAF50",
+        "WARNING": "#FF9800",
+        "ERROR": "#F44336",
+        "SUCCESS": "#2196F3",
+    }
+    color = color_map.get(level, "#4CAF50")
+
+    # 飞书卡片限制 1800 字符
+    MAX_LEN = 1800
+    icon = {"INFO": "ℹ️", "WARNING": "⚠️", "ERROR": "🔴", "SUCCESS": "✅"}.get(level, "ℹ️")
+    text = f"{icon} **{title}**\n\n{content}"
+
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"📊 {title}"},
+                "template": color,
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": text.replace("**", "")[:MAX_LEN],
+                },
+                {
+                    "tag": "note",
+                    "elements": [
+                        {
+                            "tag": "plain_text",
+                            "content": f"InvestPilot · {level} · V25-A1"
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                webhook_url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Connection": "close"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                raw = resp.read()
+                if not raw:
+                    LOG.warning(f"[feishu] {title} attempt {attempt+1} empty resp")
+                    continue
+                result = json.loads(raw)
+                if result and (result.get("code") == 0 or result.get("StatusCode") == 0):
+                    LOG.info(f"[feishu] {title} sent OK (attempt {attempt+1})")
+                    return True
+                else:
+                    LOG.warning(f"[feishu] {title} attempt {attempt+1} fail: {result}")
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            if attempt < 2:
+                wait = 2 ** attempt
+                LOG.warning(f"[feishu] {title} attempt {attempt+1} {type(e).__name__}: {e}, retry in {wait}s")
+                import time
+                time.sleep(wait)
+            else:
+                LOG.warning(f"[feishu] {title} all 3 attempts failed: {e}")
+                return False
+        except Exception as e:
+            LOG.warning(f"[feishu] {title} unexpected: {e}")
+            return False
+    return False
 
 
 def _format_alert_msg(a: RiskAlert) -> str:

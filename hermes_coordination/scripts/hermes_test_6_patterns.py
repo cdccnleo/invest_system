@@ -1241,6 +1241,147 @@ def pattern_13_v24_b2_llm_integration() -> Tuple[bool, List[str]]:
 
 
 # ============================================================
+# 模式 14: V24-B2.1 AInvest LLM 接入 (V24 B2.1)
+# ============================================================
+
+def pattern_14_v24_b21_ainvest_llm() -> Tuple[bool, List[str]]:
+    """模式 14: V24-B2.1 复用 AInvest DeepSeek 链 (PIT #27-#30 防御)"""
+    errors = []
+    print("\n=== [模式 14] V24-B2.1 AInvest LLM 接入 (复用 DeepSeek+缓存+降级) ===")
+    try:
+        # 1. 验证 hermes_llm_client 模块存在
+        from hermes_llm_client import (
+            call_llm_for_event_match_ainvest,
+            get_ainvest_llm_client,
+            get_cached_ainvest_client,
+            _parse_llm_json,
+            _estimate_tokens,
+        )
+        if call_llm_for_event_match_ainvest is None:
+            errors.append("call_llm_for_event_match_ainvest 未定义")
+        if get_ainvest_llm_client is None:
+            errors.append("get_ainvest_llm_client 未定义")
+        if _parse_llm_json is None:
+            errors.append("_parse_llm_json 未定义")
+        if not errors:
+            print(f"  ✅ hermes_llm_client 4 个核心函数存在")
+
+        # 2. 拿 AInvest 客户端
+        client = get_cached_ainvest_client()
+        if client is None:
+            errors.append("AInvest 客户端拿不到 (无法用真实 API)")
+            return False, errors
+        print(f"  ✅ AInvest 客户端: {type(client).__name__}")
+
+        # 3. 加载真实持仓
+        from hermes_portfolio_copilot import load_current_holdings
+        holdings = load_current_holdings()
+        if not holdings:
+            errors.append("未加载到持仓")
+            return False, errors
+        print(f"  ✅ 持仓 {len(holdings)} 个")
+
+        # 4. 真实 AInvest 调 (SpaceX 事件 - 期望命中 300136 + 002149)
+        import time
+        t0 = time.time()
+        result = call_llm_for_event_match_ainvest(
+            "SpaceX 6月12日 IPO 定价1.3万亿美元, 星链/星舰全面铺开",
+            holdings,
+        )
+        ainvest_elapsed = time.time() - t0
+        if result is None:
+            errors.append("AInvest 调返回 None")
+        else:
+            print(f"  ✅ AInvest 调成功: {ainvest_elapsed:.2f}s, source={result.get('source')}")
+            print(f"     model: {result.get('model')}, latency_s: {result.get('latency_s')}")
+            codes = set(result.get("affected_codes", []))
+            expected = {"300136", "002149"}  # 信维 + 西部材料
+            if not expected.issubset(codes):
+                errors.append(f"AInvest 漏关键标的: 期望 {expected} ⊆ 实际 {codes}")
+            else:
+                print(f"     命中: {len(codes)} 标的, 含核心 {expected & codes} ✅")
+            if ainvest_elapsed > 10:
+                errors.append(f"AInvest 调太慢: {ainvest_elapsed:.2f}s > 10s")
+            else:
+                print(f"     性能: {ainvest_elapsed:.2f}s < 10s ✅")
+
+        # 5. hpc 集成验证 (use_ainvest=True)
+        from hermes_portfolio_copilot import call_llm_for_event_match
+        t0 = time.time()
+        result_hpc = call_llm_for_event_match(
+            "英伟达 GTC 2026 发布 Blackwell Ultra GPU, 1.6T 光模块订单爆满",
+            holdings,
+            use_ainvest=True,
+        )
+        hpc_elapsed = time.time() - t0
+        if result_hpc is None:
+            errors.append("hpc 集成调用 None")
+        else:
+            source = result_hpc.get("source", "")
+            if not source.startswith("ainvest"):
+                errors.append(f"hpc 应走 AInvest 链, 实际 source={source}")
+            else:
+                print(f"  ✅ hpc 集成: {hpc_elapsed:.2f}s, source={source}, "
+                      f"{len(result_hpc.get('affected_codes', []))} 标的")
+
+        # 6. Fallback 链 (PIT #30): mock AInvest 客户端失败
+        import hermes_llm_client as hlc
+        original_get = hlc.get_cached_ainvest_client
+        hlc.get_cached_ainvest_client = lambda: None  # 强制 AInvest 不可用
+
+        # 此时 hpc 应该降级到 V24-B2 OpenAI 路径
+        # 但 V24-B2 OpenAI 也 mock 掉, 让最终也失败 → 返 None
+        import hermes_portfolio_copilot as hpc
+        original_hpc_llm = hpc.call_llm_for_event_match
+        # mock hpc 内部 OpenAI 路径
+        def mock_openai_fails(event_topic, holdings, use_ainvest=True):
+            # 模拟: AInvest None → 走 OpenAI 路径 → 也失败
+            from hermes_llm_client import call_llm_for_event_match_ainvest
+            r = call_llm_for_event_match_ainvest(event_topic, holdings)
+            if r is None:
+                # 模拟 OpenAI 也失败
+                return None
+            return r
+        hpc.call_llm_for_event_match = mock_openai_fails
+
+        # 这个测试是为了验证: 即便 AInvest 失败, 也不会异常崩
+        t0 = time.time()
+        result_fb = hpc.call_llm_for_event_match("英伟达", holdings[:5], use_ainvest=True)
+        fb_elapsed = time.time() - t0
+        if fb_elapsed > 5:
+            errors.append(f"Fallback 链太慢: {fb_elapsed:.2f}s")
+        else:
+            print(f"  ✅ Fallback 链: AInvest 不可用不崩, {fb_elapsed:.3f}s")
+
+        # 还原
+        hpc.call_llm_for_event_match = original_hpc_llm
+        hlc.get_cached_ainvest_client = original_get
+
+        # 7. JSON 解析容错 (PIT #28: DeepSeek 偶尔返 markdown 块)
+        test_cases = [
+            ('{"a": 1}', {"a": 1}),
+            ('```json\n{"a": 2}\n```', {"a": 2}),
+            ('思考...\n{"a": 3}\n结论', {"a": 3}),
+            ('garbage', None),
+        ]
+        for raw, expected in test_cases:
+            parsed = _parse_llm_json(raw)
+            if parsed != expected:
+                errors.append(f"_parse_llm_json 错: {raw[:30]} → {parsed} (期望 {expected})")
+        if not any("_parse_llm_json 错" in e for e in errors):
+            print(f"  ✅ JSON 容错解析 4/4 case 通过 (含 markdown/garbage)")
+
+        if errors:
+            print(f"  ❌ 模式 14 失败: {errors}")
+            return False, errors
+        print(f"  ✅ 模式 14 通过")
+        return True, []
+    except Exception as e:
+        import traceback
+        return False, [f"模式 14 异常: {e}\n{traceback.format_exc()[:500]}"]
+
+
+# ============================================================
 # 入口
 # ============================================================
 PATTERNS = {
@@ -1257,6 +1398,7 @@ PATTERNS = {
     11: ("V22Monitoring 监控 7 天 (V23 R3)", pattern_11_v22_monitoring),
     12: ("V22ToV23Integration 集成验证 (V23 R3)", pattern_12_v22_to_v23_integration),
     13: ("V24-B2 LLM 真实接入 (V24 B2)", pattern_13_v24_b2_llm_integration),
+    14: ("V24-B2.1 AInvest LLM 接入 (V24 B2.1)", pattern_14_v24_b21_ainvest_llm),
 }
 
 

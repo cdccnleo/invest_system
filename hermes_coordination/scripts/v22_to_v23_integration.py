@@ -113,6 +113,13 @@ V23_MODULES = {
                           "cross_holdings_impact", "aggregate_portfolio_advice"],
         "description": "方案 6 跨标协同",
     },
+    # B2.1: 复用 AInvest DeepSeek 链
+    "hermes_llm_client": {
+        "module_path": "hermes_llm_client",
+        "expected_funcs": ["call_llm_for_event_match_ainvest",
+                          "get_ainvest_llm_client", "get_cached_ainvest_client"],
+        "description": "V24-B2.1 AInvest LLM 客户端",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",

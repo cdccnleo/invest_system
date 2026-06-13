@@ -231,9 +231,17 @@ class _DailyLLMQuota:
 _QUOTA = _DailyLLMQuota()
 
 
-def call_llm_for_event_match(event_topic: str, holdings: List[HoldingPosition]) -> Optional[Dict[str, Any]]:
+def call_llm_for_event_match(event_topic: str, holdings: List[HoldingPosition],
+                             use_ainvest: bool = True) -> Optional[Dict[str, Any]]:
     """
-    V24-B2: 调 LLM 语义匹配事件→持仓
+    V24-B2 + V24-B2.1 升级: 事件→持仓 语义匹配 (双路径)
+
+    V24-B2.1 新增 (use_ainvest=True):
+    - 优先调 AInvest 已有 DeepSeek+缓存+降级链
+    - 实测 1.5-3s (vs V24-B2 OpenAI 30s+ 超时)
+    - 缓存命中 <0.1s
+    - AInvest 不可用 → V24-B2 旧 OpenAI 路径
+    - 都失败 → None (触发 hpc 关键词 fallback)
 
     PIT 防御:
     - 限额检查: 超出走 None (触发 fallback)
@@ -246,8 +254,10 @@ def call_llm_for_event_match(event_topic: str, holdings: List[HoldingPosition]) 
             "affected_codes": ["002050", "601689", ...],
             "direction": "positive" | "negative" | "neutral",
             "reasoning": "事件核心逻辑: ...\n受影响标的: ...",
-            "model": "gpt-4o-mini",
-            "tokens_used": 1234
+            "model": "deepseek-chat" | "gpt-4o-mini" | "ollama/...",
+            "tokens_used": 1234,
+            "latency_s": 1.5,
+            "source": "ainvest_deepseek" | "ainvest_ollama" | "openai" | "cache_hit"
         }
         或 None (任何失败)
     """
@@ -255,6 +265,24 @@ def call_llm_for_event_match(event_topic: str, holdings: List[HoldingPosition]) 
         LOG.info(f"[call_llm_for_event_match] 限额已满 ({_QUOTA.daily_limit}/天), 跳过 LLM")
         return None
 
+    # V24-B2.1: 优先 AInvest 链 (快 + 便宜 + 已有缓存)
+    if use_ainvest:
+        try:
+            from hermes_llm_client import call_llm_for_event_match_ainvest
+            result = call_llm_for_event_match_ainvest(event_topic, holdings, timeout=_LLM_TIMEOUT)
+            if result is not None:
+                _QUOTA.consume()
+                LOG.info(f"[call_llm_for_event_match] AInvest 链命中: {result.get('source')}, "
+                         f"{result.get('latency_s')}s, {len(result.get('affected_codes', []))} 标的")
+                return result
+            # AInvest 失败, 降级到 V24-B2 OpenAI 路径
+            LOG.info(f"[call_llm_for_event_match] AInvest 不可用, 降级 V24-B2 OpenAI")
+        except ImportError as e:
+            LOG.warning(f"[call_llm_for_event_match] hermes_llm_client 不可用: {e}, 降级 V24-B2 OpenAI")
+        except Exception as e:
+            LOG.warning(f"[call_llm_for_event_match] AInvest 异常: {type(e).__name__}: {e}, 降级")
+
+    # ===== V24-B2 旧路径: OpenAI gpt-4o-mini (降级) =====
     # 构造 prompt
     holdings_summary = []
     for h in holdings:
@@ -321,7 +349,9 @@ def call_llm_for_event_match(event_topic: str, holdings: List[HoldingPosition]) 
                 result["direction"] = "neutral"
             result["model"] = _LLM_MODEL
             result["tokens_used"] = usage.total_tokens if usage else 0
-            LOG.info(f"[call_llm_for_event_match] LLM 匹配: {len(result['affected_codes'])} 标的, "
+            result["source"] = "openai"
+            result["latency_s"] = 0.0  # OpenAI 路径没记录延迟
+            LOG.info(f"[call_llm_for_event_match] OpenAI 匹配: {len(result['affected_codes'])} 标的, "
                      f"direction={result['direction']}, tokens={result['tokens_used']}")
             return result
         except ImportError:

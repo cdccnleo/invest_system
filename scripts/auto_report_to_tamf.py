@@ -157,7 +157,7 @@ def sync_reports_to_tamf(days: int = 7, limit: int = 30) -> dict:
     try:
         cur.execute("""
             SELECT id, ts_code, title, summary, report_date,
-                   org_name, rating, target_price, stock_name
+                   source, rating, info_code
             FROM research.research_reports
             WHERE report_date >= %s
               AND summary IS NOT NULL

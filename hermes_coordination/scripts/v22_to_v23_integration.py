@@ -163,6 +163,14 @@ V23_MODULES = {
                           "OptimizationResult"],
         "description": "V24-C4 策略自动调优 (网格 + Walk-Forward)",
     },
+    # C5: profit_pct=10000% 异常修复
+    "profit_pct_recalculator": {
+        "module_path": "profit_pct_recalculator",
+        "expected_funcs": ["recalc_profit_pct", "_is_sentinel",
+                          "_safe_decrypt", "_calc_profit_pct",
+                          "FixRow", "FixReport", "_ensure_audit_table"],
+        "description": "V24-C5 profit_pct 异常修复 + audit log",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",
@@ -576,16 +584,16 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 18 模式测试脚本可执行 (V24-C4 升级: 17 → 18)
+    # 9. 19 模式测试脚本可执行 (V24-C5 升级: 18 → 19)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 18 在末尾
-    has_18 = "pattern_18_v24_c4_strategy_optimization" in text
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 19 在末尾
+    has_19 = "pattern_19_v24_c5_profit_pct_fix" in text
     result["tests"].append({
-        "test": "18_patterns_script",
-        "expected": "18 函数定义 (V24-C4 升级)",
-        "actual": has_18,
-        "passed": has_18,
+        "test": "19_patterns_script",
+        "expected": "19 函数定义 (V24-C5 升级)",
+        "actual": has_19,
+        "passed": has_19,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)

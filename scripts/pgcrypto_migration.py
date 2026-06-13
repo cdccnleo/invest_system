@@ -192,7 +192,26 @@ def migrate_positions_csv():
             market_value = float(row.get("market_value", 0) or 0)
             close_price = float(row.get("close", row.get("current_price", 0) or 0))
             profit = float(row.get("profit", 0) or 0)
-            profit_pct = float(row.get("profit_pct", 0) or 0)
+            # ⚠️ V24-C5 修复: profit_pct 不依赖 CSV 字段!
+            # 历史问题: CSV profit_pct 列是占位值 10000.0, 41/45 持仓异常.
+            # 正确解法: 用 profit / (cost * shares) * 100 推算
+            csv_pp_raw = float(row.get("profit_pct", 0) or 0)
+            cost_basis = cost * shares
+            if cost_basis > 0:
+                calc_pp = profit / cost_basis * 100.0
+                # PIT #61: 范围限制 -100% ~ +1000% (超界截断到边界)
+                calc_pp = max(-100.0, min(1000.0, calc_pp))
+                calc_pp = round(calc_pp, 4)
+            else:
+                calc_pp = 0.0
+            # PIT #61+#65: CSV 字段只在合理范围内使用, 否则用推算
+            if -100.0 <= csv_pp_raw <= 1000.0:
+                profit_pct = round(csv_pp_raw, 4)
+            else:
+                profit_pct = calc_pp
+                logger.debug(
+                    f"V24-C5 推算 profit_pct: {code} csv_pp_raw={csv_pp_raw} → calc={calc_pp}"
+                )
             weight = float(row.get("weight", 0) or 0)
             row_hash = hash_row(row)
 

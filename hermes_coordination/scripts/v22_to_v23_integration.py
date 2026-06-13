@@ -171,6 +171,17 @@ V23_MODULES = {
                           "FixRow", "FixReport", "_ensure_audit_table"],
         "description": "V24-C5 profit_pct 异常修复 + audit log",
     },
+    # C6: 大模型事件首席分析师
+    "chief_event_strategist": {
+        "module_path": "chief_event_strategist",
+        "expected_funcs": ["ChiefEventStrategist", "EventChainLink", "ChiefAdvice",
+                          "advise_event", "calc_momentum_score",
+                          "load_holdings_snapshot", "load_recent_decisions",
+                          "call_deepseek_reasoner", "_ensure_advice_table",
+                          "_cache_get", "_cache_put",
+                          "DEEPSEEK_REASONER_MODEL", "MAX_CHAIN_HOPS", "CACHE_TTL_HOURS"],
+        "description": "V24-C6 大模型事件首席分析师 (deepseek-reasoner)",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",
@@ -584,16 +595,16 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 19 模式测试脚本可执行 (V24-C5 升级: 18 → 19)
+    # 9. 20 模式测试脚本可执行 (V24-C6 升级: 19 → 20)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 19 在末尾
-    has_19 = "pattern_19_v24_c5_profit_pct_fix" in text
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20 在末尾
+    has_20 = "pattern_20_v24_c6_chief_event_strategist" in text
     result["tests"].append({
-        "test": "19_patterns_script",
-        "expected": "19 函数定义 (V24-C5 升级)",
-        "actual": has_19,
-        "passed": has_19,
+        "test": "20_patterns_script",
+        "expected": "20 函数定义 (V24-C6 升级)",
+        "actual": has_20,
+        "passed": has_20,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)

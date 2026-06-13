@@ -2257,6 +2257,63 @@ def job_strategy_optimization():
         send_job_failure("V24-C4 策略调优", str(e))
 
 
+def job_chief_event_analyst():
+    """
+    V24-C6-T3: 大模型事件首席分析师 (每周一/三/五 11:30 盘中)
+    - 调 chief_event_strategist.py --self-test + 实战 3 事件
+    - 用 deepseek-reasoner 推理 (5-10s/事件)
+    - 持久化 l3.event_strategist_advice + 推 push_notification
+    - 实战事件: 当周热门 (拉 hermes_event_analyst 队列)
+    """
+    logger.info("=" * 50)
+    logger.info("V24-C6 大模型首席分析师启动")
+    start_ts = time.time()
+
+    # 3 个本周关键事件
+    events = [
+        "SpaceX IPO 6月12日 (商业航天催化)",
+        "英伟达 GTC 2026 大会 HBM 需求",
+        "美联储 FOMC 6月16-17日利率决议",
+    ]
+
+    try:
+        from chief_event_strategist import ChiefEventStrategist
+        strategist = ChiefEventStrategist()
+
+        results = []
+        for ev in events:
+            try:
+                advice = strategist.analyze_event(ev, use_cache=False)
+                results.append(advice)
+                logger.info(
+                    f"  [{ev[:20]}] direction={advice.direction} "
+                    f"conf={advice.confidence:.2f} action={advice.primary_action} "
+                    f"chain={len(advice.chain)} 跳 {advice.duration_seconds:.1f}s"
+                )
+            except Exception as e:
+                logger.error(f"  [{ev[:20]}] 失败: {e}")
+
+        # 汇总推送
+        if results:
+            msg = f"📊 大模型首席分析师报告 (V24-C6)\n\n"
+            for a in results:
+                msg += f"**{a.event_topic}**\n"
+                msg += f"  方向: {a.direction} | 置信度: {a.confidence:.2f}\n"
+                msg += f"  建议: {a.primary_action} | 动量: {a.momentum_score:.2f}\n"
+                if a.target_codes:
+                    msg += f"  标的: {', '.join(a.target_codes[:3])}\n"
+                if a.chain:
+                    msg += f"  传导: {' → '.join(c.name for c in a.chain[:3])}\n"
+                msg += f"  ({a.duration_seconds:.1f}s)\n\n"
+            msg += f"_总耗时: {time.time() - start_ts:.1f}s | 模型: deepseek-reasoner_"
+            send_notification("🧠 大模型首席分析师", msg)
+
+    except Exception as e:
+        logger.error(f"V24-C6 异常: {e}")
+        _safe_error_alert("🔴 大模型首席分析师异常", f"错误: {e}")
+        send_job_failure("V24-C6 首席分析师", str(e))
+
+
 def job_position_risk_alert():
     """
     盘前 09:25 + 盘后 15:05 持仓风险告警 (V24-C1-T4 集成, 2026-06-13)
@@ -2724,6 +2781,16 @@ def start_scheduler():
         name="V24-C4 策略调优 (周日 22:00)",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    # V24-C6: 大模型事件首席分析师 (每周一/三/五 11:30 盘中推理)
+    _scheduler.add_job(
+        job_chief_event_analyst,
+        CronTrigger(hour=11, minute=30, day_of_week="mon,wed,fri", timezone="Asia/Shanghai"),
+        id="chief_event_analyst_intraday",
+        name="V24-C6 大模型首席分析师 (一/三/五 11:30)",
+        replace_existing=True,
+        misfire_grace_time=1800,
     )
 
     # 盘中异动监控（每5分钟，仅交易时段）

@@ -1459,6 +1459,66 @@
       "total_tokens": 10,
       "cost_cny": 0.012,
       "cost_usd": 0.0017
+    },
+    {
+      "timestamp": "2026-06-13T15:30:18.466599",
+      "date": "20260613",
+      "model": "deepseek-chat",
+      "input_tokens": 1363,
+      "output_tokens": 299,
+      "total_tokens": 1662,
+      "cost_cny": 1.961,
+      "cost_usd": 0.2724
+    },
+    {
+      "timestamp": "2026-06-13T15:30:23.078380",
+      "date": "20260613",
+      "model": "deepseek-chat",
+      "input_tokens": 1360,
+      "output_tokens": 258,
+      "total_tokens": 1618,
+      "cost_cny": 1.876,
+      "cost_usd": 0.2606
+    },
+    {
+      "timestamp": "2026-06-13T15:30:28.233182",
+      "date": "20260613",
+      "model": "deepseek-chat",
+      "input_tokens": 1420,
+      "output_tokens": 304,
+      "total_tokens": 1724,
+      "cost_cny": 2.028,
+      "cost_usd": 0.2817
+    },
+    {
+      "timestamp": "2026-06-13T15:30:33.256543",
+      "date": "20260613",
+      "model": "deepseek-chat",
+      "input_tokens": 1423,
+      "output_tokens": 405,
+      "total_tokens": 1828,
+      "cost_cny": 2.233,
+      "cost_usd": 0.3101
+    },
+    {
+      "timestamp": "2026-06-13T15:30:39.443842",
+      "date": "20260613",
+      "model": "deepseek-chat",
+      "input_tokens": 1535,
+      "output_tokens": 326,
+      "total_tokens": 1861,
+      "cost_cny": 2.187,
+      "cost_usd": 0.3037
+    },
+    {
+      "timestamp": "2026-06-13T15:30:45.991162",
+      "date": "20260613",
+      "model": "deepseek-chat",
+      "input_tokens": 1402,
+      "output_tokens": 426,
+      "total_tokens": 1828,
+      "cost_cny": 2.254,
+      "cost_usd": 0.3131
     }
   ],
   "daily": {
@@ -1493,16 +1553,32 @@
           "cost_cny": 288.688
         }
       }
+    },
+    "20260613": {
+      "calls": 6,
+      "input_tokens": 8503,
+      "output_tokens": 2018,
+      "total_tokens": 10521,
+      "cost_cny": 12.539,
+      "cost_usd": 1.7416,
+      "models": {
+        "deepseek-chat": {
+          "calls": 6,
+          "input_tokens": 8503,
+          "output_tokens": 2018,
+          "cost_cny": 12.539
+        }
+      }
     }
   },
   "monthly": {
     "202606": {
-      "calls": 146,
-      "input_tokens": 191760,
-      "output_tokens": 48470,
-      "total_tokens": 240230,
-      "cost_cny": 288.7,
-      "cost_usd": 40.097
+      "calls": 152,
+      "input_tokens": 200263,
+      "output_tokens": 50488,
+      "total_tokens": 250751,
+      "cost_cny": 301.239,
+      "cost_usd": 41.8387
     }
   }
 }

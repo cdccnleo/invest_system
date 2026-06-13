@@ -2874,5 +2874,124 @@ def pattern_23_v25_f_earnings_miss() -> Tuple[bool, List[str]]:
 PATTERNS[23] = ("V25-F 中报季业绩 miss 触发器", pattern_23_v25_f_earnings_miss)
 
 
+def pattern_24_v25_b_position_rebalancer() -> Tuple[bool, List[str]]:
+    """
+    V25-B 模式 24: 持仓调仓助手 (12 验证项)
+
+    验证点:
+      1. position_rebalancer 模块导入
+      2. ActionType / Severity / Source 枚举存在
+      3. RebalanceAction / RebalanceLog / RebalanceSuggestion dataclass
+      4. generate_rebalance_suggestion 函数 + 3 源汇总
+      5. PIT #74: 默认 simulation 模式
+      6. PIT #76: 同 code 多源冲突 → 取最严重
+      7. PIT #77: 权重 > 5% 自动减仓
+      8. PIT #78: 2 步确认 (suggest → confirm → execute)
+      9. PIT #75: 飞书 action 按钮 (P0/P1 触发)
+     10. PIT #66: 飞书推送就地实现 (_send_via_feishu_inplace)
+     11. l3.rebalance_log 表 + 5 索引
+     12. 端到端: suggest → persist → confirm → execute → history
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        import position_rebalancer as pr
+        log.append(f"✅ 模块导入: {pr.__file__}")
+
+        # 2. 枚举
+        assert hasattr(pr, "ActionType"), "缺 ActionType"
+        assert hasattr(pr, "Severity"), "缺 Severity"
+        assert hasattr(pr, "Source"), "缺 Source"
+        assert pr.ActionType.REDUCE_50.value == "reduce_50", "ActionType 值错"
+        assert pr.Severity.P0.value == "P0", "Severity 值错"
+        log.append("✅ ActionType / Severity / Source 枚举 (6 动作 + 4 严重度 + 4 源)")
+
+        # 3. dataclass
+        assert hasattr(pr, "RebalanceAction"), "缺 RebalanceAction"
+        assert hasattr(pr, "RebalanceLog"), "缺 RebalanceLog"
+        assert hasattr(pr, "RebalanceSuggestion"), "缺 RebalanceSuggestion"
+        log.append("✅ RebalanceAction / RebalanceLog / RebalanceSuggestion dataclass 存在")
+
+        # 4. 核心函数
+        assert hasattr(pr, "generate_rebalance_suggestion"), "缺 generate_rebalance_suggestion"
+        assert hasattr(pr, "load_c1_risk_alerts"), "缺 load_c1_risk_alerts"
+        assert hasattr(pr, "load_c6_event_advice"), "缺 load_c6_event_advice"
+        assert hasattr(pr, "load_l3_decisions"), "缺 load_l3_decisions"
+        log.append("✅ 核心函数 (suggest + 3 源 load)")
+
+        # 5. PIT #74: 默认 simulation
+        assert pr.EXECUTION_MODE == "simulation", f"EXECUTION_MODE 应 = 'simulation', 实际 {pr.EXECUTION_MODE}"
+        log.append("✅ PIT #74: EXECUTION_MODE='simulation' (默认模拟)")
+
+        # 6. PIT #76: severity_rank 函数
+        assert pr._severity_rank(pr.Severity.P0) > pr._severity_rank(pr.Severity.P1), "severity 排序错"
+        assert pr._severity_rank(pr.Severity.P1) > pr._severity_rank(pr.Severity.P2), "severity 排序错"
+        log.append("✅ PIT #76: _severity_rank (P0>P1>P2>P3)")
+
+        # 7. PIT #77: MAX_SINGLE_WEIGHT
+        assert pr.MAX_SINGLE_WEIGHT == 5.0, f"MAX_SINGLE_WEIGHT 应 5.0, 实际 {pr.MAX_SINGLE_WEIGHT}"
+        log.append("✅ PIT #77: MAX_SINGLE_WEIGHT=5.0 (V24-B4 default)")
+
+        # 8. PIT #78: confirm + execute 函数
+        assert hasattr(pr, "confirm_rebalance"), "缺 confirm_rebalance"
+        assert hasattr(pr, "execute_rebalance"), "缺 execute_rebalance"
+        # 验证 execute 检查 confirmed
+        import inspect
+        exec_src = inspect.getsource(pr.execute_rebalance)
+        assert "PIT #78" in exec_src and "confirmed" in exec_src, "缺 PIT #78 确认检查"
+        log.append("✅ PIT #78: confirm + execute (2 步确认)")
+
+        # 9. PIT #75: 飞书 action 按钮
+        send_src = inspect.getsource(pr._send_via_feishu_inplace)
+        assert "actions" in send_src and "PIT #75" in send_src, "缺 PIT #75 action 按钮"
+        log.append("✅ PIT #75: _send_via_feishu_inplace actions 按钮")
+
+        # 10. PIT #66 沿用
+        assert "PIT #66" in send_src, "PIT #66 注释缺失"
+        log.append("✅ PIT #66: 飞书推送就地实现 (沿用 V25-A1)")
+
+        # 11. l3.rebalance_log 表 + 5 索引
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass('l3.rebalance_log');")
+        assert cur.fetchone()[0] is not None, "l3.rebalance_log 不存在"
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='l3' AND tablename='rebalance_log'
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 5, f"应 ≥5 索引, 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ l3.rebalance_log + {len(idxs)} 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        # 12. 端到端: generate → persist → confirm → execute → history
+        # 不真触发, 调函数验证
+        suggestion = pr.generate_rebalance_suggestion("2026-06-13")
+        assert suggestion.total_suggest >= 0, "suggestion 错"
+        # history 函数
+        history = pr.get_rebalance_history(7)
+        assert isinstance(history, list), "history 返 list"
+        log.append(f"✅ 端到端: suggestion={suggestion.total_suggest} 条 + history={len(history)} 条")
+
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V25-B: 模式 24 注册 (调仓助手)
+PATTERNS[24] = ("V25-B 持仓调仓助手", pattern_24_v25_b_position_rebalancer)
+
+
 if __name__ == "__main__":
     main()

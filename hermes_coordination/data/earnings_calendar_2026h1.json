@@ -1,0 +1,205 @@
+{
+  "688008": {
+    "date": "2026-08-12",
+    "market": "科创板",
+    "industry": "电子",
+    "consensus_eps": 0.85,
+    "consensus_revenue_yoy": 25.0
+  },
+  "688025": {
+    "date": "2026-08-15",
+    "market": "科创板",
+    "industry": "电子",
+    "consensus_eps": 1.2,
+    "consensus_revenue_yoy": 30.0
+  },
+  "688279": {
+    "date": "2026-08-20",
+    "market": "科创板",
+    "industry": "电子",
+    "consensus_eps": 0.6,
+    "consensus_revenue_yoy": 18.0
+  },
+  "300394": {
+    "date": "2026-08-10",
+    "market": "创业板",
+    "industry": "通信",
+    "consensus_eps": 0.95,
+    "consensus_revenue_yoy": 28.0
+  },
+  "300136": {
+    "date": "2026-08-18",
+    "market": "创业板",
+    "industry": "电子",
+    "consensus_eps": 0.42,
+    "consensus_revenue_yoy": 12.0
+  },
+  "300124": {
+    "date": "2026-08-22",
+    "market": "创业板",
+    "industry": "电气设备",
+    "consensus_eps": 1.65,
+    "consensus_revenue_yoy": 20.0
+  },
+  "300450": {
+    "date": "2026-08-19",
+    "market": "创业板",
+    "industry": "锂电设备",
+    "consensus_eps": 0.75,
+    "consensus_revenue_yoy": 15.0
+  },
+  "300395": {
+    "date": "2026-08-25",
+    "market": "创业板",
+    "industry": "新材料",
+    "consensus_eps": 0.55,
+    "consensus_revenue_yoy": 22.0
+  },
+  "300059": {
+    "date": "2026-08-21",
+    "market": "创业板",
+    "industry": "互联网金融",
+    "consensus_eps": 0.32,
+    "consensus_revenue_yoy": 8.0
+  },
+  "300680": {
+    "date": "2026-08-28",
+    "market": "创业板",
+    "industry": "汽车零部件",
+    "consensus_eps": 0.38,
+    "consensus_revenue_yoy": 5.0
+  },
+  "301611": {
+    "date": "2026-08-26",
+    "market": "创业板",
+    "industry": "半导体材料",
+    "consensus_eps": 0.48,
+    "consensus_revenue_yoy": 35.0
+  },
+  "002156": {
+    "date": "2026-08-15",
+    "market": "深主板",
+    "industry": "半导体封测",
+    "consensus_eps": 0.45,
+    "consensus_revenue_yoy": 18.0
+  },
+  "002709": {
+    "date": "2026-08-22",
+    "market": "深主板",
+    "industry": "锂电材料",
+    "consensus_eps": 0.62,
+    "consensus_revenue_yoy": 10.0
+  },
+  "002472": {
+    "date": "2026-08-19",
+    "market": "深主板",
+    "industry": "汽车齿轮",
+    "consensus_eps": 0.58,
+    "consensus_revenue_yoy": 14.0
+  },
+  "002432": {
+    "date": "2026-08-25",
+    "market": "深主板",
+    "industry": "医疗器械",
+    "consensus_eps": 0.85,
+    "consensus_revenue_yoy": 25.0
+  },
+  "002149": {
+    "date": "2026-08-26",
+    "market": "深主板",
+    "industry": "新材料",
+    "consensus_eps": 0.38,
+    "consensus_revenue_yoy": 20.0
+  },
+  "002837": {
+    "date": "2026-08-23",
+    "market": "深主板",
+    "industry": "温控",
+    "consensus_eps": 0.52,
+    "consensus_revenue_yoy": 30.0
+  },
+  "002975": {
+    "date": "2026-08-24",
+    "market": "深主板",
+    "industry": "电子测试",
+    "consensus_eps": 0.42,
+    "consensus_revenue_yoy": 18.0
+  },
+  "002600": {
+    "date": "2026-08-20",
+    "market": "深主板",
+    "industry": "消费电子",
+    "consensus_eps": 0.28,
+    "consensus_revenue_yoy": 12.0
+  },
+  "002050": {
+    "date": "2026-08-21",
+    "market": "深主板",
+    "industry": "热管理",
+    "consensus_eps": 0.55,
+    "consensus_revenue_yoy": 15.0
+  },
+  "002384": {
+    "date": "2026-08-27",
+    "market": "深主板",
+    "industry": "PCB",
+    "consensus_eps": 0.65,
+    "consensus_revenue_yoy": 22.0
+  },
+  "002080": {
+    "date": "2026-08-29",
+    "market": "深主板",
+    "industry": "新材料",
+    "consensus_eps": 0.48,
+    "consensus_revenue_yoy": 16.0
+  },
+  "002756": {
+    "date": "2026-08-30",
+    "market": "深主板",
+    "industry": "锂电材料",
+    "consensus_eps": 0.42,
+    "consensus_revenue_yoy": 8.0
+  },
+  "002943": {
+    "date": "2026-08-22",
+    "market": "深主板",
+    "industry": "基金 (跳过)",
+    "consensus_eps": 0,
+    "consensus_revenue_yoy": 0
+  },
+  "600487": {
+    "date": "2026-08-18",
+    "market": "沪主板",
+    "industry": "通信",
+    "consensus_eps": 0.78,
+    "consensus_revenue_yoy": 18.0
+  },
+  "601689": {
+    "date": "2026-08-20",
+    "market": "沪主板",
+    "industry": "汽车零部件",
+    "consensus_eps": 0.92,
+    "consensus_revenue_yoy": 22.0
+  },
+  "601208": {
+    "date": "2026-08-26",
+    "market": "沪主板",
+    "industry": "新材料",
+    "consensus_eps": 0.35,
+    "consensus_revenue_yoy": 28.0
+  },
+  "600183": {
+    "date": "2026-08-28",
+    "market": "沪主板",
+    "industry": "PCB",
+    "consensus_eps": 0.58,
+    "consensus_revenue_yoy": 20.0
+  },
+  "000977": {
+    "date": "2026-08-23",
+    "market": "深主板",
+    "industry": "服务器",
+    "consensus_eps": 0.85,
+    "consensus_revenue_yoy": 25.0
+  }
+}

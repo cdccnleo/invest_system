@@ -595,17 +595,18 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 22 模式测试脚本可执行 (V25-A1+A2 升级: 20 → 22, +V25-A1/A2 飞书路由)
+    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F 升级: 20 → 22 → 23)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-22 在末尾
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-23 在末尾
     has_20 = "pattern_20_v24_c6_chief_event_strategist" in text
     has_21 = "pattern_21_v25_a1_feishu_push" in text
     has_22 = "pattern_22_v25_a2_feishu_cron_routing" in text
-    all_patterns = has_20 and has_21 and has_22
+    has_23 = "pattern_23_v25_f_earnings_miss" in text
+    all_patterns = has_20 and has_21 and has_22 and has_23
     result["tests"].append({
         "test": "22_patterns_script",
-        "expected": "22 函数定义 (V25-A1+A2 升级, +飞书路由)",
+        "expected": "23 函数定义 (V25-F 升级, +中报季 miss 触发器)",
         "actual": all_patterns,
         "passed": all_patterns,
     })
@@ -679,6 +680,40 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     except Exception as e:
         result["tests"].append({
             "test": "v25_a2_feishu_cron",
+            "expected": "ok", "actual": f"err: {e}",
+            "passed": False,
+        })
+
+    # 13. V25-F 中报季 miss 触发器 (4 子项)
+    try:
+        emt_path = _COORD_DIR / "scripts" / "earnings_miss_trigger.py"
+        cal_path = _COORD_DIR / "data" / "earnings_calendar_2026h1.json"
+        emt_src = emt_path.read_text(encoding="utf-8")
+        f_ok = (
+            emt_path.exists()
+            and cal_path.exists()
+            and "EarningsEvent" in emt_src
+            and "MissAlert" in emt_src
+            and "check_earnings_miss" in emt_src
+            and "_build_miss_alert" in emt_src
+            and "_build_pp_fallback_alert" in emt_src
+            and "_send_via_feishu_inplace" in emt_src
+            and "PIT #71" in emt_src
+            and "PIT #72" in emt_src
+            and "PIT #73" in emt_src
+            and "VALID_TYPES" in emt_src
+            and "MISS_THRESHOLD = 0.20" in emt_src
+            and "FEISHU_MAX_LEN = 1800" in emt_src
+        )
+        result["tests"].append({
+            "test": "v25_f_earnings_miss",
+            "expected": "earnings_miss_trigger.py (510行) + 日历 28 stock + 3 PIT + 飞书推送就地实现",
+            "actual": f_ok,
+            "passed": f_ok,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "test": "v25_f_earnings_miss",
             "expected": "ok", "actual": f"err: {e}",
             "passed": False,
         })

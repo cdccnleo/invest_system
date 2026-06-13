@@ -2727,5 +2727,152 @@ PATTERNS[21] = ("V25-A1 飞书推送路由 (持仓风险 C1)", pattern_21_v25_a1
 PATTERNS[22] = ("V25-A2 C4/C6 cron 飞书路由", pattern_22_v25_a2_feishu_cron_routing)
 
 
+def pattern_23_v25_f_earnings_miss() -> Tuple[bool, List[str]]:
+    """
+    V25-F 模式 23: 中报季业绩 miss 触发器 (12 验证项)
+
+    验证点:
+      1. earnings_miss_trigger 模块导入
+      2. EarningsEvent / MissAlert dataclass 存在
+      3. check_earnings_miss / _build_miss_alert 函数存在
+      4. PIT #71: actual_eps 缺失 = 跳过 (不误报)
+      5. PIT #72: 持仓类型 != stock 跳过
+      6. PIT #73: pp 兜底 (consensus 缺失 + pp<-10%)
+      7. miss 阈值 20% 正确
+      8. PIT #66: 飞书推送就地实现 (_send_via_feishu_inplace)
+      9. PIT #70: MAX_LEN=1800 飞书卡片限制
+     10. 3 retry exponential backoff
+     11. severity 映射 (P0=-50% miss, P1=-35% miss, P2=其他)
+     12. l3.earnings_calendar + l3.earnings_miss_log 表 + 5 索引
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        import earnings_miss_trigger as emt
+        log.append(f"✅ 模块导入: {emt.__file__}")
+
+        # 2. dataclass
+        assert hasattr(emt, "EarningsEvent"), "缺 EarningsEvent"
+        assert hasattr(emt, "MissAlert"), "缺 MissAlert"
+        assert hasattr(emt, "TriggerResult"), "缺 TriggerResult"
+        log.append("✅ EarningsEvent / MissAlert / TriggerResult dataclass 存在")
+
+        # 3. 核心函数
+        assert hasattr(emt, "check_earnings_miss"), "缺 check_earnings_miss"
+        assert hasattr(emt, "_build_miss_alert"), "缺 _build_miss_alert"
+        assert hasattr(emt, "_build_t_minus_alert"), "缺 _build_t_minus_alert"
+        assert hasattr(emt, "_build_pp_fallback_alert"), "缺 _build_pp_fallback_alert"
+        log.append("✅ 核心函数存在 (check + 3 builder)")
+
+        # 4. PIT #71: actual_eps 缺失跳过
+        # 构造一个 consensus 缺失的 EarningsEvent
+        ev_no_actual = emt.EarningsEvent(
+            code="999999", name="测试", market="测试", industry="测试",
+            disclosure_date="2026-08-15", consensus_eps=0.5, consensus_revenue_yoy=10.0,
+            actual_eps=None, miss_pct=None
+        )
+        alert_no_actual = emt._build_miss_alert(ev_no_actual)
+        assert alert_no_actual is None, f"PIT #71 失败: actual_eps=None 应返 None, 实际 {alert_no_actual}"
+        log.append("✅ PIT #71: actual_eps=None → 跳过 (不误报)")
+
+        # 5. PIT #72: 持仓类型 != stock 跳过
+        import inspect
+        src = inspect.getsource(emt.load_calendar)
+        assert "industry" in src and "(跳过)" in src, "PIT #72: 缺少基金/非 stock 跳过逻辑"
+        # 验证 VALID_TYPES
+        assert emt.VALID_TYPES == ("stock",), f"PIT #72: VALID_TYPES 应 = ('stock',), 实际 {emt.VALID_TYPES}"
+        log.append("✅ PIT #72: VALID_TYPES=('stock',) 过滤非 stock")
+
+        # 6. PIT #73: pp 兜底
+        ev_pp_bad = emt.EarningsEvent(
+            code="888888", name="测试PP", market="测试", industry="测试",
+            disclosure_date="2026-08-15", consensus_eps=0.0, consensus_revenue_yoy=0.0,  # consensus 缺失
+            actual_eps=None, miss_pct=None, profit_pct=-15.0, market_value=100000, weight_pct=1.0
+        )
+        alert_pp = emt._build_pp_fallback_alert(ev_pp_bad)
+        assert alert_pp.severity == "P2", f"pp 兜底应 P2, 实际 {alert_pp.severity}"
+        assert "pp" in alert_pp.reasoning.lower(), f"pp 兜底 reasoning 应含 pp, 实际 {alert_pp.reasoning}"
+        log.append(f"✅ PIT #73: pp=-15% < {emt.PP_FALLBACK_THRESHOLD}% → P2 兜底告警")
+
+        # 7. miss 阈值
+        assert emt.MISS_THRESHOLD == 0.20, f"miss 阈值应 0.20, 实际 {emt.MISS_THRESHOLD}"
+        log.append("✅ MISS_THRESHOLD=0.20 (实际 EPS < 预期*0.8)")
+
+        # 8. PIT #66: 飞书推送就地实现
+        assert hasattr(emt, "_send_via_feishu_inplace"), "缺 _send_via_feishu_inplace"
+        sig = inspect.signature(emt._send_via_feishu_inplace)
+        params = list(sig.parameters.keys())
+        assert "webhook_url" in params and "title" in params and "content" in params, f"飞书推送签名错: {params}"
+        log.append("✅ PIT #66: _send_via_feishu_inplace(webhook_url, title, content, level)")
+
+        # 9. PIT #70: MAX_LEN=1800
+        assert emt.FEISHU_MAX_LEN == 1800, f"MAX_LEN 应 1800, 实际 {emt.FEISHU_MAX_LEN}"
+        log.append("✅ PIT #70: FEISHU_MAX_LEN=1800 (飞书卡片 2000 留 200 缓冲)")
+
+        # 10. 3 retry exponential backoff
+        assert emt.RETRY_TIMES == 3, f"RETRY_TIMES 应 3, 实际 {emt.RETRY_TIMES}"
+        # 看 _send_via_feishu_inplace 源码确认 backoff
+        src2 = inspect.getsource(emt._send_via_feishu_inplace)
+        assert "2 ** attempt" in src2 or "time.sleep" in src2, "缺 exponential backoff"
+        log.append("✅ 3 retry + exponential backoff (time.sleep 2**attempt)")
+
+        # 11. severity 映射 - 跑一个 -52% miss 验证 P0
+        ev_p0 = emt.EarningsEvent(
+            code="300680", name="隆盛", market="创业板", industry="汽车",
+            disclosure_date="2026-08-28", consensus_eps=0.38, consensus_revenue_yoy=5.0,
+            actual_eps=0.18, miss_pct=-0.526, profit_pct=-20.78, market_value=28088, weight_pct=0.56
+        )
+        alert_p0 = emt._build_miss_alert(ev_p0)
+        assert alert_p0.severity == "P0", f"-52% miss 应 P0, 实际 {alert_p0.severity}"
+        assert alert_p0.action == "reduce_50", f"P0 应 reduce_50, 实际 {alert_p0.action}"
+        log.append(f"✅ severity 映射: miss<=-50% → P0/reduce_50")
+
+        # 边界: miss 18% (688008 实际 0.70 vs 预期 0.85)
+        ev_borderline = emt.EarningsEvent(
+            code="688008", name="澜起", market="科创板", industry="电子",
+            disclosure_date="2026-08-12", consensus_eps=0.85, consensus_revenue_yoy=25.0,
+            actual_eps=0.70, miss_pct=-0.176, profit_pct=-5.01, market_value=287268, weight_pct=5.22
+        )
+        alert_borderline = emt._build_miss_alert(ev_borderline)
+        assert alert_borderline is None, f"miss 17.6% < 20% 应跳过, 实际 {alert_borderline}"
+        log.append("✅ 边界: miss 17.6% < 20% → 跳过 (符合阈值)")
+
+        # 12. PG 表 + 索引
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        # 2 张表
+        for tbl in ["earnings_calendar", "earnings_miss_log"]:
+            cur.execute(f"SELECT to_regclass('l3.{tbl}');")
+            assert cur.fetchone()[0] is not None, f"l3.{tbl} 不存在"
+        # 5 索引
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='l3' AND tablename IN ('earnings_calendar', 'earnings_miss_log')
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 5, f"应 ≥5 索引, 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ 2 表 + {len(idxs)} 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V25-F: 模式 23 注册 (中报季 miss 触发器)
+PATTERNS[23] = ("V25-F 中报季业绩 miss 触发器", pattern_23_v25_f_earnings_miss)
+
+
 if __name__ == "__main__":
     main()

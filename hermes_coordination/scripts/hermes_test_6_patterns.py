@@ -1761,5 +1761,195 @@ def pattern_16_v24_c1_position_risk() -> Tuple[bool, List[str]]:
 PATTERNS[16] = ("V24-C1 持仓风险预算 (V24 C1)", pattern_16_v24_c1_position_risk)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# V24-B4: 模式 17 — 跨 Profile 隔离 (L3 Advisor Profile 切换)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def pattern_17_v24_b4_profile_isolation() -> Tuple[bool, List[str]]:
+    """V24-B4: 跨 Profile 隔离 (default/conservative/aggressive)
+
+    验证项 (12):
+    1. profile_strategy.py 8 核心函数/class 存在
+    2. 3 profile YAML 加载成功 (default/conservative/aggressive)
+    3. 3 profile 风险总览差异化 (max_pct/max_pe/confidence)
+    4. 持仓合规检查 (信维 300136 PE 150 → default 黑名单+PE)
+    5. 持仓合规检查 (信维 conservative 0/3 + 0/1 黑名单) 严格
+    6. 持仓合规检查 (信维 aggressive 0/0 通过) 宽松
+    7. 跨 profile 决策对比 (信维 3 套 action 不同)
+    8. event_driven + conservative → hold (PIT #46 隔离)
+    9. L3DialogEngine 接受 profile 参数
+    10. L3DialogEngine 非法 profile 降级 default
+    11. PG l3.profile_audit_log 建表 + 切换记录
+    12. 边界: 持仓空返 [] (PIT #47)
+    """
+    import traceback
+    errors: List[str] = []
+    sys.path.insert(0, str(Path(__file__).parent))
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
+
+    # 1. 核心函数/class
+    try:
+        from profile_strategy import (
+            L3ProfileAdvisor, ProfileCompliance, ProfileRecommendation,
+            ProfileRiskOverview, build_profile_aware_recommendation,
+            get_all_profiles_risk_overview, check_profile_compliance,
+            ensure_pg_tables, ALLOWED_PROFILES,
+        )
+        print(f"  ✅ profile_strategy 8 个核心函数/class 存在")
+    except Exception as e:
+        errors.append(f"❌ profile_strategy 导入失败: {e}")
+        return False, errors
+
+    if ALLOWED_PROFILES != ("default", "conservative", "aggressive"):
+        errors.append(f"❌ ALLOWED_PROFILES 错: {ALLOWED_PROFILES}")
+    else:
+        print(f"  ✅ ALLOWED_PROFILES = {ALLOWED_PROFILES}")
+
+    # 2. 3 profile YAML 加载
+    try:
+        overviews = get_all_profiles_risk_overview()
+        if len(overviews) != 3:
+            errors.append(f"❌ 3 profile 数量错: {len(overviews)}")
+        else:
+            print(f"  ✅ 3 profile 加载: {[o.profile for o in overviews]}")
+    except Exception as e:
+        errors.append(f"❌ 3 profile 加载失败: {e}")
+
+    # 3. 风险总览差异化
+    try:
+        risk_levels = {o.profile: (o.max_position_pct, o.max_pe_ttm, o.confidence_threshold)
+                       for o in overviews}
+        if risk_levels != {
+            "default": (5.0, 100, 0.65),
+            "conservative": (8.0, 30, 0.80),
+            "aggressive": (15.0, 200, 0.55),
+        }:
+            errors.append(f"❌ 风险总览不匹配: {risk_levels}")
+        else:
+            print(f"  ✅ 3 profile 风险差异化: max_pct {risk_levels['default'][0]}/{risk_levels['conservative'][0]}/{risk_levels['aggressive'][0]}")
+    except Exception as e:
+        errors.append(f"❌ 风险总览差异化失败: {e}")
+
+    # 4-6. 持仓合规 (信维 300136)
+    try:
+        test_pos = [{"code": "300136", "name": "信维通信", "current_pct": 4.0, "pe_ttm": 150, "change_52w": 350}]
+        d_results = check_profile_compliance("default", test_pos)
+        c_results = check_profile_compliance("conservative", test_pos)
+        a_results = check_profile_compliance("aggressive", test_pos)
+        d_viol = len(d_results[0].violations) if d_results else 0
+        c_viol = len(c_results[0].violations) if c_results else 0
+        a_viol = len(a_results[0].violations) if a_results else 0
+        # default: 1 (黑名单) + 1 (PE>100) = 2
+        # conservative: 1 (PE>30) + 1 (52w>100) = 2
+        # aggressive: 0
+        if not (d_viol >= 2):
+            errors.append(f"❌ default violations {d_viol} < 2")
+        if not (c_viol >= 2):
+            errors.append(f"❌ conservative violations {c_viol} < 2")
+        if a_viol != 0:
+            errors.append(f"❌ aggressive violations {a_viol} != 0")
+        if not errors:
+            print(f"  ✅ 信维合规对比: default {d_viol} violations | conservative {c_viol} | aggressive {a_viol} (宽松)")
+    except Exception as e:
+        errors.append(f"❌ 持仓合规失败: {e}")
+
+    # 7. 跨 profile 决策对比
+    try:
+        recs = build_profile_aware_recommendation(
+            target_code="300136", target_name="信维通信",
+            current_pct=4.0, pe_ttm=150, change_52w=350,
+        )
+        actions = {p: r.action for p, r in recs.items()}
+        # expected: default=sell (黑名单), conservative=reduce (PE), aggressive=buy
+        if actions.get("default") != "sell":
+            errors.append(f"❌ default action 错: {actions.get('default')}")
+        if actions.get("aggressive") not in ("buy", "hold"):
+            errors.append(f"❌ aggressive action 错: {actions.get('aggressive')}")
+        if not errors:
+            print(f"  ✅ 跨 profile 决策: default={actions['default']} conservative={actions['conservative']} aggressive={actions['aggressive']}")
+    except Exception as e:
+        errors.append(f"❌ 跨 profile 决策失败: {e}")
+
+    # 8. event_driven + conservative (PIT #46)
+    try:
+        recs = build_profile_aware_recommendation(
+            target_code="600487", target_name="亨通光电",
+            current_pct=2.0, pe_ttm=58.91, change_52w=422, event_driven=True,
+        )
+        # conservative PE 58.91 > 30 → reduce (不追事件)
+        if recs["conservative"].action != "reduce":
+            errors.append(f"❌ conservative event_driven 错: {recs['conservative'].action}")
+        if not errors:
+            print(f"  ✅ event_driven + conservative: PE>{recs['conservative'].action} (PIT #46)")
+    except Exception as e:
+        errors.append(f"❌ event_driven 测试失败: {e}")
+
+    # 9. L3DialogEngine profile 参数
+    try:
+        from l3_dialog_engine import L3DialogEngine
+        e1 = L3DialogEngine()
+        if e1.profile != "default":
+            errors.append(f"❌ default profile 错: {e1.profile}")
+        e1.conn.close()
+        e2 = L3DialogEngine(profile="aggressive")
+        if e2.profile != "aggressive":
+            errors.append(f"❌ aggressive profile 错: {e2.profile}")
+        e2.conn.close()
+        if not errors:
+            print(f"  ✅ L3DialogEngine profile 参数 OK")
+    except Exception as e:
+        errors.append(f"❌ L3DialogEngine profile 失败: {e}")
+
+    # 10. 非法 profile 降级
+    try:
+        e3 = L3DialogEngine(profile="invalid_xyz")
+        if e3.profile != "default":
+            errors.append(f"❌ 非法 profile 降级错: {e3.profile}")
+        e3.conn.close()
+        if not errors:
+            print(f"  ✅ 非法 profile 'invalid_xyz' 降级 default (PIT #44)")
+    except Exception as e:
+        errors.append(f"❌ 非法 profile 测试失败: {e}")
+
+    # 11. PG profile_audit_log
+    try:
+        ddl = ensure_pg_tables()
+        if "profile_audit_log" not in ddl:
+            errors.append(f"❌ profile_audit_log 表未建: {ddl}")
+        else:
+            print(f"  ✅ profile_audit_log 表: {ddl['profile_audit_log']} 行")
+        # 切换 + log
+        advisor = L3ProfileAdvisor(profile="default")
+        ok = advisor.log_profile_switch("default", "aggressive")
+        if not ok:
+            errors.append(f"❌ log_profile_switch 返 False")
+        else:
+            print(f"  ✅ profile 切换记录 PG 成功 (PIT #48)")
+    except Exception as e:
+        errors.append(f"❌ PG audit log 失败: {e}")
+
+    # 12. 边界 (PIT #47)
+    try:
+        empty = check_profile_compliance("default", [])
+        if empty != []:
+            errors.append(f"❌ 边界 case 错: {empty}")
+        else:
+            print(f"  ✅ 边界: 持仓空返 [] (PIT #47)")
+    except Exception as e:
+        errors.append(f"❌ 边界 case 失败: {e}")
+
+    if not errors:
+        print(f"  ✅ 模式 17 通过")
+    else:
+        print(f"  ❌ 模式 17 失败: {len(errors)} 错误")
+        for e in errors[:3]:
+            print(f"    {e[:100]}")
+    return len(errors) == 0, errors
+
+
+# V24-B4: 模式 17 注册 (跨 Profile 隔离)
+PATTERNS[17] = ("V24-B4 跨 Profile 隔离 (V24 B4)", pattern_17_v24_b4_profile_isolation)
+
+
 if __name__ == "__main__":
     main()

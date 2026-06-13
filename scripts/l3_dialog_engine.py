@@ -534,13 +534,34 @@ class L3DialogEngine:
         status = engine.get_l3_status()  # L3 能力激活状态
     """
 
-    def __init__(self, conn=None):
+    def __init__(self, conn=None, profile: str = "default"):
+        """V24-B4: 加 profile 参数, 跨 profile 隔离
+
+        Args:
+            conn: PG connection (可选, None 时自建)
+            profile: 持仓 profile (default/conservative/aggressive),
+                     失败时降级 default (PIT #44)
+        """
+        # ⚠️ PIT 修复: profile_strategy 在 hermes_coordination/scripts/ (上一级),
+        # l3_dialog_engine 在 scripts/. 局部加 path
+        import sys as _sys
+        from pathlib import Path as _Path
+        _HERMES_DIR = _Path(__file__).parent.parent / "hermes_coordination" / "scripts"
+        if str(_HERMES_DIR) not in _sys.path:
+            _sys.path.insert(0, str(_HERMES_DIR))
+        from profile_strategy import L3ProfileAdvisor  # 局部导入避免循环
         self._owned_conn = False
         if conn is None:
             self.conn = psycopg2.connect(**_get_db_config())
             self._owned_conn = True
         else:
             self.conn = conn
+        # PIT #44: profile 缺失降级 default
+        self.profile = profile if profile in ("default", "conservative", "aggressive") else "default"
+        try:
+            self.advisor = L3ProfileAdvisor(profile=self.profile)
+        except Exception:
+            self.advisor = None  # PIT #44 静默降级
 
     def __del__(self):
         if self._owned_conn and self.conn:
@@ -731,7 +752,7 @@ class L3DialogEngine:
             return "暂无操作建议，保持现有仓位"
 
     def get_l3_status(self) -> dict:
-        """返回 L3 能力激活状态"""
+        """返回 L3 能力激活状态 (V24-B4: 加 profile 字段)"""
         cur = self.conn.cursor()
 
         # 各触发器激活情况
@@ -769,6 +790,23 @@ class L3DialogEngine:
         if stress_tests:
             capability_score += 2
 
+        # V24-B4: profile 信息
+        profile_info = {}
+        if self.advisor:
+            try:
+                ov = self.advisor.get_risk_overview()
+                profile_info = {
+                    "current": self.profile,
+                    "risk_level": ov.risk_level,
+                    "max_position_pct": ov.max_position_pct,
+                    "max_pe_ttm": ov.max_pe_ttm,
+                    "confidence_threshold": ov.confidence_threshold,
+                    "whitelist_count": ov.whitelist_count,
+                    "blacklist_count": ov.blacklist_count,
+                }
+            except Exception:
+                profile_info = {"current": self.profile, "_fallback": True}
+
         return {
             "triggers": triggers,
             "behavior_records": behavior_records,
@@ -776,7 +814,21 @@ class L3DialogEngine:
             "capability_score": capability_score,  # 0-5
             "capability_label": ["沉睡", "萌芽", "激活", "成熟", "进阶", "完全"][capability_score],
             "phase": "L3 Phase A" if capability_score < 3 else "L3 Phase B" if capability_score < 5 else "L3 Phase C",  # noqa: E501
+            "profile": profile_info,  # V24-B4 新增
         }
+
+    def get_profile_status(self) -> dict:
+        """V24-B4: 返回当前 profile 详细状态 (含跨 profile 决策对比)"""
+        if not self.advisor:
+            return {"profile": self.profile, "_fallback": True}
+        try:
+            return {
+                "profile": self.profile,
+                "advisor_available": True,
+                "risk_overview": self.advisor.get_risk_overview().to_dict(),
+            }
+        except Exception as e:
+            return {"profile": self.profile, "_error": str(e)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

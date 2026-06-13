@@ -325,21 +325,25 @@ class DashboardBridge:
             }
 
     def _do_stress_test(self, payload: Dict) -> Dict:
-        """快速压力测试 (调 stress_test 模块)"""
+        """快速压力测试 (V24-B4: 调 stress_test 模块, 支持 profile)"""
         try:
             from l3_dialog_engine import L3DialogEngine
-            engine = L3DialogEngine()
+            # V24-B4: profile 参数从 payload 拿, 缺省 default
+            profile = payload.get("profile", "default")
+            engine = L3DialogEngine(profile=profile)
             scenario = payload.get("scenario", "fomc_hike")
             return {
                 "scenario": scenario,
                 "result": "executed",
                 "engine_type": "L3DialogEngine",
+                "profile": engine.profile,  # V24-B4 新增
                 "note": "详细结果见 dashboard 压力测试区",
             }
         except Exception as e:
             return {
                 "scenario": payload.get("scenario", "fomc_hike"),
                 "result": "stub",
+                "profile": payload.get("profile", "default"),  # V24-B4
                 "error": str(e),
             }
 
@@ -491,6 +495,12 @@ def render_bridge_section(user_id: str = "aileo") -> None:
 
     st.markdown("### 🌉 Hermes Dashboard Bridge (V23-R2 新增)")
     st.caption("方案7: 双向桥 (快速按钮 → L3 Advisor → 推送)")
+
+    # V24-B4: 顶部 profile 切换器
+    try:
+        render_profile_switcher_panel()
+    except Exception as _e:
+        LOG.warning(f"[render_bridge_section] profile switcher 失败: {_e}")
 
     bridge = DashboardBridge(user_id=user_id, persist_to_pg=_HAS_PG)
 
@@ -836,3 +846,93 @@ if __name__ == "__main__":
         ok = "✅" if t["passed"] else "❌"
         print(f"  {ok} {t['test']}: expected={t['expected']} actual={t['actual']}")
     sys.exit(0 if res['passed'] == res['total'] else 1)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# V24-B4: Profile 切换器 + 跨 profile 决策对比 panel
+# ═══════════════════════════════════════════════════════════════════════════
+
+def render_profile_switcher_panel() -> None:
+    """V24-B4: Streamlit 顶部 profile 切换器 (default/conservative/aggressive)
+
+    设计:
+    - st.session_state["hermes_profile"] 存当前 profile
+    - 切换时调 advisor.log_profile_switch() 记录 PG l3.profile_audit_log
+    - 顶部展示当前 profile 风险总览 (max_pct/max_pe/confidence/whitelist_count)
+    - 跨 profile 决策对比: 同一标的多 profile action (sell/buy/hold/reduce)
+    """
+    if not _HAS_STREAMLIT:
+        return
+
+    st.markdown("### 🎚️ L3 Advisor Profile 切换 (V24-B4 新增)")
+    st.caption("3 套差异化策略: default (balanced) / conservative (defensive) / aggressive (offensive)")
+
+    cols = st.columns([1, 1, 1, 2])
+    current = st.session_state.get("hermes_profile", "default")
+    with cols[0]:
+        if st.button("🛡️ Conservative", key="btn_prof_conservative", use_container_width=True):
+            _switch_profile_to("conservative", current)
+    with cols[1]:
+        if st.button("⚖️ Default", key="btn_prof_default", use_container_width=True):
+            _switch_profile_to("default", current)
+    with cols[2]:
+        if st.button("⚔️ Aggressive", key="btn_prof_aggressive", use_container_width=True):
+            _switch_profile_to("aggressive", current)
+    with cols[3]:
+        st.caption(f"当前: **{current}**")
+
+    try:
+        from profile_strategy import get_all_profiles_risk_overview
+        overviews = get_all_profiles_risk_overview()
+        ov_cols = st.columns(3)
+        for i, ov in enumerate(overviews):
+            with ov_cols[i]:
+                active = " ←" if ov.profile == current else ""
+                st.metric(
+                    label=f"{ov.profile}{active}",
+                    value=f"{ov.max_position_pct}%",
+                    delta=f"PE<{ov.max_pe_ttm} conf>{ov.confidence_threshold}",
+                )
+                st.caption(f"白名单 {ov.whitelist_count} | 黑名单 {ov.blacklist_count}")
+    except Exception as e:
+        st.caption(f"⚠️ profile 加载失败: {e}")
+
+
+def _switch_profile_to(new_profile: str, old_profile: str) -> None:
+    """V24-B4: 切换 profile + audit log"""
+    if new_profile == old_profile:
+        return
+    st.session_state["hermes_profile"] = new_profile
+    try:
+        from profile_strategy import L3ProfileAdvisor
+        advisor = L3ProfileAdvisor(profile=new_profile)
+        advisor.log_profile_switch(old_profile, new_profile)
+    except Exception:
+        pass
+    st.rerun()
+
+
+def render_profile_decision_comparison(code: str, name: str, current_pct: float = 0,
+                                        pe_ttm: float = 0, change_52w: float = 0) -> None:
+    """V24-B4: 跨 profile 决策对比 (同一标的 3 profile 决策)"""
+    if not _HAS_STREAMLIT:
+        return
+    try:
+        from profile_strategy import build_profile_aware_recommendation
+        st.markdown(f"#### 🔀 跨 Profile 决策对比 - {name}({code})")
+        recs = build_profile_aware_recommendation(
+            target_code=code, target_name=name,
+            current_pct=current_pct, pe_ttm=pe_ttm, change_52w=change_52w,
+        )
+        cols = st.columns(3)
+        for i, (p, rec) in enumerate(recs.items()):
+            with cols[i]:
+                action_emoji = {
+                    "buy": "🟢 买入", "hold": "⚪ 持有",
+                    "reduce": "🟡 减仓", "sell": "🔴 清仓",
+                }.get(rec.action, rec.action)
+                st.metric(label=p, value=action_emoji,
+                          delta=f"conf={rec.confidence:.2f}")
+                st.caption(rec.reasoning[:80])
+    except Exception as e:
+        st.caption(f"⚠️ 决策对比失败: {e}")

@@ -145,6 +145,15 @@ V23_MODULES = {
         "expected_funcs": ["render_risk_dashboard"],
         "description": "V24-C1 持仓风险 Streamlit UI",
     },
+    # B4: L3 Advisor 跨 Profile 隔离
+    "profile_strategy": {
+        "module_path": "profile_strategy",
+        "expected_funcs": ["L3ProfileAdvisor", "build_profile_aware_recommendation",
+                          "get_all_profiles_risk_overview", "check_profile_compliance",
+                          "ensure_pg_tables", "ProfileCompliance",
+                          "ProfileRecommendation", "ProfileRiskOverview"],
+        "description": "V24-B4 跨 Profile 隔离 + 决策对比",
+    },
     # R2: 方案 7 双端桥
     "dashboard_hermes_bridge": {
         "module_path": "dashboard_hermes_bridge",
@@ -538,16 +547,16 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 16 模式测试脚本可执行 (V24 升级: 15 → 16)
+    # 9. 17 模式测试脚本可执行 (V24-B4 升级: 16 → 17)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 16 在末尾
-    has_16 = "pattern_16_v24_c1_position_risk" in text
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 17 在末尾
+    has_17 = "pattern_17_v24_b4_profile_isolation" in text
     result["tests"].append({
-        "test": "16_patterns_script",
-        "expected": "16 函数定义 (V24 升级)",
-        "actual": has_16,
-        "passed": has_16,
+        "test": "17_patterns_script",
+        "expected": "17 函数定义 (V24-B4 升级)",
+        "actual": has_17,
+        "passed": has_17,
     })
 
     # 10. 端到端: 端到端完整 (持仓 → 跨标 → 推送 → 监控)

@@ -1469,6 +1469,143 @@ def job_hermes_sync():
         )
 
 
+def job_quote_streamer_5min():
+    """
+    5min 行情拉取 — V26-A (方案B 行情API集成, 2026-06-14 实战)
+
+    1. 子进程调 hermes_coordination/scripts/quote_streamer.py
+    2. 解析 stdout 拿 success/failed/cached/persisted/elapsed_sec
+    3. 写 cron_task_metrics (任务: quote_streamer_5min)
+    4. 告警分级:
+       - failed > 0 → WARNING 推飞书
+       - 全部缓存/全失败 → INFO 静默
+       - 持久化 > 0 → INFO 简报 (含变化清单)
+    5. fcntl.flock 锁: quote_streamer.py 内部 LOCK_PATH="/tmp/quote_streamer.lock"
+       即使 5min 触发 + 1.75min 执行, 第 2 进程会拿不到锁直接 skip (天然安全)
+
+    实战数据 (6/14 第一次跑):
+    - 45 持仓: 28 stock × 3.6s = 100s + 17 fund × 0.3s = 5s ≈ 105s
+    - 缓存命中: 后续触发 ~10s (缓存 TTL 300s, PIT #108)
+    """
+    import json
+    import subprocess as _sp_qs
+
+    logger.info("=" * 50)
+    logger.info("5min 行情拉取 (V26-A) 启动")
+    start_ts = time.time()
+    task_name = "quote_streamer_5min"
+
+    # ── 1. 跑 quote_streamer.py 子进程 ─────────────────────────────────
+    root = Path(str(ROOT)).resolve()
+    qs_script = root / "hermes_coordination" / "scripts" / "quote_streamer.py"
+    venv_py = root / ".venv" / "bin" / "python3.11"
+    if not qs_script.exists():
+        msg = f"quote_streamer.py 不存在: {qs_script}"
+        logger.error(msg)
+        _safe_error_alert("🔴 行情拉取脚本缺失", msg)
+        return
+    if not venv_py.exists():
+        msg = f"venv python 不存在: {venv_py}"
+        logger.error(msg)
+        _safe_error_alert("🔴 venv 缺失", msg)
+        return
+
+    try:
+        proc = _sp_qs.run(
+            [str(venv_py), str(qs_script)],
+            capture_output=True, text=True, timeout=300,  # 45 持仓最坏 105s + buffer
+        )
+    except Exception as e:
+        logger.error(f"quote_streamer 子进程启动失败: {e}")
+        _safe_error_alert("🔴 行情拉取启动失败", f"无法执行 quote_streamer.py: {e}")
+        send_job_failure("行情拉取 (5min)", str(e))
+        return
+
+    if proc.returncode != 0:
+        msg = f"quote_streamer 异常退出 rc={proc.returncode}: {proc.stderr[:200]}"
+        logger.error(msg)
+        _safe_error_alert("🔴 行情拉取脚本失败", proc.stderr[:200] or f"rc={proc.returncode}")
+        send_job_failure("行情拉取 (5min)", msg)
+        return
+
+    # ── 2. 解析 stdout (找 JSON 行, 兼容 self-test 模式) ──────────────────
+    total = success = failed = cached = persisted = 0
+    elapsed_sec = 0.0
+    summary = ""
+    try:
+        for line in proc.stdout.splitlines()[::-1]:
+            line = line.strip()
+            if line.startswith("总") and "成功" in line:
+                # self-test 模式输出格式: "  总 N, 成功 N, 失败 N, 缓存 N, 持久化 N, 耗时 N.NNs"
+                summary = line
+                # 用正则解析
+                import re as _re
+                m_total = _re.search(r"总\s+(\d+)", line)
+                m_succ = _re.search(r"成功\s+(\d+)", line)
+                m_fail = _re.search(r"失败\s+(\d+)", line)
+                m_cach = _re.search(r"缓存\s+(\d+)", line)
+                m_pers = _re.search(r"持久化\s+(\d+)", line)
+                m_ela = _re.search(r"耗时\s+([\d.]+)", line)
+                if m_total: total = int(m_total.group(1))
+                if m_succ: success = int(m_succ.group(1))
+                if m_fail: failed = int(m_fail.group(1))
+                if m_cach: cached = int(m_cach.group(1))
+                if m_pers: persisted = int(m_pers.group(1))
+                if m_ela: elapsed_sec = float(m_ela.group(1))
+                break
+    except Exception as e:
+        logger.warning(f"无法从 quote_streamer 输出解析: {e}; 视为成功但无 diff")
+        summary = "no_summary_parsed"
+
+    elapsed = round(time.time() - start_ts, 1)
+    logger.info(
+        f"行情拉取完成: 耗时 {elapsed}s, 总 {total} 成功 {success} 失败 {failed} "
+        f"缓存 {cached} 持久化 {persisted} 解析耗时 {elapsed_sec}s"
+    )
+
+    # ── 3. 写 cron_task_metrics ─────────────────────────────────────
+    try:
+        import psycopg2 as _psy
+        import json as _json
+        from psycopg2.extras import Json as _Json
+        conn = _psy.connect(host="localhost", port=5432, dbname="investpilot",
+                            user="invest_admin",
+                            password=os.environ.get("PGPASSWORD", ""))
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO public.cron_task_metrics
+              (task_name, start_time, end_time, duration_seconds, status,
+               items_processed, items_failed, metadata)
+            VALUES (%s, NOW() - INTERVAL '%s seconds', NOW(), %s, %s, %s, %s, %s)
+            """,
+            (task_name, elapsed, elapsed, "success" if failed == 0 else "partial",
+             persisted, failed, _Json({
+                 "total": total, "success": success, "failed": failed,
+                 "cached": cached, "persisted": persisted,
+                 "elapsed_sec_script": elapsed_sec,
+                 "summary_raw": summary[:200],
+             }))
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"cron_task_metrics 写入失败 (非致命): {e}")
+
+    # ── 4. 告警分级 ─────────────────────────────────────────────────
+    if failed > 0 and failed >= total // 2:  # 一半以上失败 = WARNING
+        msg = f"⚠️ 行情拉取失败 {failed}/{total}\n耗时{elapsed}s 持久化{persisted}"
+        _safe_error_alert("🟡 行情拉取部分失败", msg)
+        send_job_failure("行情拉取 (5min)", f"failed={failed}/{total}")
+    elif total == 0:
+        logger.info("行情拉取: 无标的 (可能是非交易日) INFO 静默")
+    else:
+        logger.info(
+            f"行情拉取: 成功 {success}/{total} 持久化 {persisted} (i2h={persisted})"
+        )
+
+
 def job_skill_solidification():
     """
     22:00 技能固化工作流 —
@@ -2738,6 +2875,19 @@ def start_scheduler():
         name="Hermes × InvestPilot 双向同步 (18:00)",
         replace_existing=True,
         misfire_grace_time=600,
+    )
+
+    # 5min 行情拉取 (V26-A 方案B 行情API集成, 2026-06-14 集成)
+    # 实战数据: 45 持仓 ~105s, 5min 触发天然覆盖
+    # fcntl.flock 锁 (quote_streamer.py 内部) 防止重叠执行
+    # 09:00-15:00 盘中活跃时段, 周末 + 节假日 缓存命中降级
+    _scheduler.add_job(
+        job_quote_streamer_5min,
+        CronTrigger.from_crontab("*/5 9-15 * * mon-fri", timezone="Asia/Shanghai"),
+        id="quote_streamer_5min",
+        name="V26-A 行情拉取 (盘中 5min)",
+        replace_existing=True,
+        misfire_grace_time=120,  # 5min 触发短, misfire 容忍 2min
     )
 
     # 每日 18:30 v2.2 监控数据收集 (V23-R3-T2 集成, 2026-06-12)

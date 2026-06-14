@@ -81,6 +81,21 @@ def _read_csv_robust(path: Path) -> list[list[str]]:
         return list(csv.reader(f))
 
 
+def _header_to_index_map(header_row: list[str]) -> dict[str, int]:
+    """把首行 ['基金代码', '基金名称', ...] 转为 {name: index}, 跳过空列"""
+    return {h.strip(): i for i, h in enumerate(header_row) if h and h.strip()}
+
+
+def _row_get(row: list[str], idx_map: dict[str, int], *names: str, default: str = "") -> str:
+    """按列名取值, 多个候选名按顺序回退. 列名不存在或下标越界返 default"""
+    for name in names:
+        if name in idx_map:
+            i = idx_map[name]
+            if 0 <= i < len(row):
+                return row[i]
+    return default
+
+
 def _date_str_from_filename(path: Path) -> str:
     """从 '国金证券持仓20260608.csv' 提取 '2026-06-08'"""
     m = re.search(r"(\d{8})", path.stem)
@@ -229,26 +244,29 @@ def parse_tiantian_fund(path: Path) -> list[dict]:
 
 
 def parse_huitianfu_fund(path: Path) -> list[dict]:
-    """汇添富基金 CSV: 11 列, 同一只基金可能多笔 (如 007355 分 5 笔)
-    基金代码, 基金名称, 净值日期, 最新净值, 收费方式, 持有份额, 可用份额, 不可用份额,
-    参考市值, 投入本金, 持有盈亏/本期盈亏
+    """汇添富基金 CSV: 按列名解析, 适应列顺序/列数变化 (6/12 删了"收费方式"列)
+    6/11 11 列: 基金代码, 基金名称, 净值日期, 最新净值, 收费方式, 持有份额, 可用份额, 不可用份额, 参考市值, 投入本金, 持有盈亏
+    6/12 10 列: 删了"收费方式" → 后续列前移
     同一 code 多行需汇总: 份额相加, 市值相加, 成本相加
     """
     rows = _read_csv_robust(path)
+    if not rows:
+        return []
+    idx = _header_to_index_map(rows[0])
     aggregated: dict[str, dict] = {}
-    for r in rows[1:]:  # 跳过表头
-        if not r or len(r) < 11:
-            continue
+    for r in rows[1:]:
+        if not r or not r[0] or r[0].strip() in {"人民币资产", "美元资产", "港币资产"}:
+            continue  # 跳过合计行
         if not re.match(r"^\d{3,6}$", r[0].strip()):
             continue
         try:
             code = r[0].strip().zfill(6)
             if len(code) != 6:
                 continue
-            name = r[1].strip()
-            shares = _parse_money(r[5])
-            mv = _parse_money(r[8])  # 参考市值
-            cost = _parse_money(r[9])  # 投入本金
+            name = _row_get(r, idx, "基金名称", default="").strip()
+            shares = _parse_money(_row_get(r, idx, "持有份额"))
+            mv = _parse_money(_row_get(r, idx, "参考市值"))  # 参考市值
+            cost = _parse_money(_row_get(r, idx, "投入本金"))  # 投入本金
             if code in aggregated:
                 aggregated[code]["shares"] += shares
                 aggregated[code]["market_value"] += mv

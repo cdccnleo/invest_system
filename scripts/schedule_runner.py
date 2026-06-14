@@ -1265,8 +1265,13 @@ def job_merge_holdings():
     # 6/12 21:26 教训: OpenClaw 那套 excel_to_positions.py 因 openpyxl 缺失
     # 写入了 0 行, 覆盖了我们的合并结果. 仅靠 merge_holdings 内部断言不够,
     # 必须从磁盘读回真实文件, 用独立 schema/row_count 校验.
+    #
+    # 路径用 merge_holdings.py 自己的 OUTPUT_CSV 常量 (唯一真理源),
+    # 不要在 schedule_runner 里硬编码 "/mnt/d/Hold/invest-data/positions.csv" —
+    # 那样路径漂移时 sanity check 会查错文件 (6/12 错路径 bug 教训).
     try:
-        sanity = _verify_positions_csv(merge_script.parent / "invest-data" / "positions.csv")
+        from merge_holdings import OUTPUT_CSV as _MERGED_CSV
+        sanity = _verify_positions_csv(_MERGED_CSV)
         if not sanity["ok"]:
             # merge_holdings 报 SUCCESS 但磁盘文件不健康 — 立即 ERROR 推飞书
             err_msg = (f"持仓汇总跑后 sanity check 失败: {sanity['reason']} "

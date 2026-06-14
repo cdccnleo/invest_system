@@ -1144,6 +1144,98 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     return result
 
 
+def _selftest_pattern_21():
+    """
+    V25-E 模式 21 (注: 模式 28 业务版, 序号用 21 沿用): 业绩归因分析
+    端到端 20 (5 子项): 持仓 + 业绩 + Brinson + LLM 归因 + 持久化
+    """
+    import time
+    t0 = time.time()
+    result = {"name": "V25-E 业绩归因分析 (Brinson + LLM 降级链)", "tests": []}
+    try:
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("aa_e2e", "/home/aileo/invest_system/hermes_coordination/scripts/attribution_analyzer.py")
+        aa = importlib.util.module_from_spec(spec)
+        sys.modules["aa_e2e"] = aa  # PIT: 注册到 sys.modules 防 dataclass __dict__ 错
+        spec.loader.exec_module(aa)
+        # 20a 模块导入
+        result["tests"].append({
+            "test": "v25_e_attribution_analyzer",
+            "expected": "模块存在",
+            "actual": f"模块导入: {aa.__file__.split('/')[-1]}",
+            "passed": hasattr(aa, "generate_attribution_report"),
+        })
+        # 20b 持仓快照
+        snaps = aa.get_position_snapshots(only_current=True)
+        result["tests"].append({
+            "test": "v25_e_position_snapshots",
+            "expected": "≥ 40 持仓",
+            "actual": f"持仓 {len(snaps)} 条 (实战 6/14 45 持仓)",
+            "passed": len(snaps) >= 40,
+        })
+        # 20c 业绩计算
+        portfolio = aa.compute_portfolio_metrics(snaps)
+        result["tests"].append({
+            "test": "v25_e_portfolio_metrics",
+            "expected": "总市值 > 0 + pp 合理",
+            "actual": f"总市值 ¥{portfolio.total_market_value:,.0f}, pp {portfolio.portfolio_pp:.2f}%, {portfolio.position_count} 持仓",
+            "passed": portfolio.total_market_value > 0 and 0 < abs(portfolio.portfolio_pp) < 500,
+        })
+        # 20d Brinson 归因
+        attributions = aa.compute_brinson_attribution(snaps, portfolio.portfolio_pp)
+        result["tests"].append({
+            "test": "v25_e_brinson_attribution",
+            "expected": "≥ 30 持仓有归因 + 贡献/拖累分明",
+            "actual": f"归因 {len(attributions)} 持仓, 贡献 {sum(1 for a in attributions if a.category=='contributor')}, 拖累 {sum(1 for a in attributions if a.category=='detractor')}",
+            "passed": len(attributions) >= 30 and any(a.category == 'contributor' for a in attributions),
+        })
+        # 20e 持久化
+        rid = None
+        if attributions:
+            contributors = attributions[:5]
+            detractors = sorted([a for a in attributions if a.category == "detractor"], key=lambda x: x.selection_effect)[:5]
+            t1_acc, t3_acc = aa.get_v25c_event_accuracy()
+            llm_summary, llm_status = aa.generate_llm_attribution(portfolio, contributors, detractors, t1_acc, t3_acc)
+            report = aa.AttributionReport(
+                report_date=date.today().isoformat(),
+                portfolio_metrics=portfolio,
+                top_contributors=contributors,
+                top_detractors=detractors,
+                total_allocation=0.0,
+                total_selection=round(sum(a.selection_effect for a in attributions), 4),
+                total_interaction=0.0,
+                event_accuracy_t1=round(t1_acc, 4),
+                event_accuracy_t3=round(t3_acc, 4),
+                llm_summary=llm_summary,
+                llm_status=llm_status,
+            )
+            try:
+                rid = aa.persist_report(report)
+            except Exception as pe:
+                rid = f"FAIL: {pe}"
+        result["tests"].append({
+            "test": "v25_e_persist_report",
+            "expected": "id 为整数",
+            "actual": f"持久化 id={rid} (V25-E 新表 l3.attribution_report)",
+            "passed": isinstance(rid, int) and rid > 0,
+        })
+    except Exception as e:
+        import traceback
+        for sub in ("v25_e_attribution_analyzer", "v25_e_position_snapshots", "v25_e_portfolio_metrics", "v25_e_brinson_attribution", "v25_e_persist_report"):
+            result["tests"].append({
+                "test": sub,
+                "expected": "执行成功",
+                "actual": f"异常: {type(e).__name__}: {str(e)[:120]}",
+                "passed": False,
+            })
+
+    result["duration_seconds"] = round(time.time() - t0, 3)
+    result["passed"] = sum(1 for t in result["tests"] if t["passed"])
+    result["total"] = len(result["tests"])
+    return result
+
+
 if __name__ == "__main__":
     res = _selftest_pattern_12()
     print(f"\n=== 模式 12: V22ToV23Integration ===")

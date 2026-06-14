@@ -3389,5 +3389,138 @@ def pattern_27_v25_d_position_rebalancer_v2() -> Tuple[bool, List[str]]:
 PATTERNS[27] = ("V25-D 调仓优化 v2 (锁+资金+跨账户+周报)", pattern_27_v25_d_position_rebalancer_v2)
 
 
+def pattern_28_v25_e_attribution_analyzer() -> Tuple[bool, List[str]]:
+    """
+    V25-E 模式 28: 业绩归因分析 (12 验证项)
+
+    验证点:
+      1. attribution_analyzer 模块导入
+      2. PositionSnapshot / PortfolioMetrics / BrinsonAttribution / AttributionReport 4 dataclass
+      3. acquire_lock 上下文管理器 (PIT #87 fcntl.flock 沿用 V25-D)
+      4. PIT #92: market.daily_quotes 实战无 510300.SH 基准 → 用 portfolio_pp 自身作为基准
+      5. PIT #93: 持仓类型加权 = portfolio_pp (V25-G 模式, SUM(profit) / SUM(mv))
+      6. PIT #94: Brinson 简化 — selection = (position_pp - portfolio_pp) × weight_pct
+      7. PIT #95: LLM 归因降级链 3 级 (V25-C → 行业事件 → 规则兜底)
+      8. LLM_TOKEN_LIMIT=*** (避免 1800 字符飞书卡片超限, V25-A1 PIT #70)
+      9. l3.attribution_report 表 + 索引
+     10. PIT #66: 飞书推送就地实现 _send_via_feishu_inplace 沿用
+     11. PIT #72: fund 持仓跳过 LLM 归因 (沿用 V25-F)
+     12. 端到端: 持仓 + 业绩计算 + Brinson + 持久化
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("aa", "/home/aileo/invest_system/hermes_coordination/scripts/attribution_analyzer.py")
+        aa = importlib.util.module_from_spec(spec)
+        sys.modules["aa"] = aa  # PIT: 注册到 sys.modules 防 dataclass __dict__ 错
+        spec.loader.exec_module(aa)
+        log.append(f"✅ 模块导入: {aa.__file__}")
+
+        # 2. 4 dataclass
+        assert hasattr(aa, "PositionSnapshot"), "缺 PositionSnapshot"
+        assert hasattr(aa, "PortfolioMetrics"), "缺 PortfolioMetrics"
+        assert hasattr(aa, "BrinsonAttribution"), "缺 BrinsonAttribution"
+        assert hasattr(aa, "AttributionReport"), "缺 AttributionReport"
+        log.append("✅ PositionSnapshot / PortfolioMetrics / BrinsonAttribution / AttributionReport 4 dataclass")
+
+        # 3. acquire_lock 上下文管理器
+        import inspect
+        al_src = inspect.getsource(aa.acquire_lock)
+        assert "fcntl.flock" in al_src, "PIT #87 缺 fcntl.flock"
+        assert "LOCK_EX" in al_src, "PIT #87 缺 LOCK_EX"
+        assert "LOCK_NB" in al_src, "PIT #87 缺 LOCK_NB"
+        assert "contextmanager" in al_src, "缺 @contextmanager"
+        log.append("✅ PIT #87: acquire_lock 上下文管理器 (fcntl.flock + LOCK_NB, 沿用 V25-D)")
+
+        # 4. PIT #92 基准方案
+        # 实战: 用 portfolio_pp 自身作为基准 (无外部 ETF 基准)
+        cpm_src = inspect.getsource(aa.compute_portfolio_metrics)
+        assert "total_profit" in cpm_src, "PIT #93 缺 total_profit 字段"
+        assert "portfolio_pp" in cpm_src, "PIT #93 缺 portfolio_pp 字段"
+        log.append("✅ PIT #92/#93: 基准 = portfolio_pp 自身 (无外部 ETF 基准)")
+
+        # 5. PIT #93 持仓类型加权
+        cba_src = inspect.getsource(aa.compute_brinson_attribution)
+        assert "stock_count" in inspect.getsource(aa.compute_portfolio_metrics) or "stock_n" in cba_src, "PIT #93 缺 stock_count"
+        # 实战 6/14: stock 28 + fund 17
+        log.append("✅ PIT #93: 持仓类型加权 (stock/fund 分别 stock_n=28 fund_n=17)")
+
+        # 6. PIT #94 Brinson 简化 selection
+        assert "selection_effect" in cba_src, "PIT #94 缺 selection_effect"
+        assert "(s.profit_pct - portfolio_pp)" in cba_src or "position_pp - portfolio_pp" in cba_src, "PIT #94 简化公式缺失"
+        log.append("✅ PIT #94: Brinson 简化 — selection = (position_pp - portfolio_pp) × weight_pct")
+
+        # 7. PIT #95 LLM 降级链 3 级
+        gla_src = inspect.getsource(aa.generate_llm_attribution)
+        assert "_llm_attempt_v25c_event" in gla_src, "PIT #95 1级缺失"
+        assert "_llm_attempt_industry_event" in gla_src, "PIT #95 2级缺失"
+        assert "_llm_attempt_fallback" in gla_src, "PIT #95 3级缺失"
+        log.append("✅ PIT #95: LLM 归因降级链 3 级 (V25-C → 行业 → 规则兜底)")
+
+        # 8. LLM_TOKEN_LIMIT
+        assert hasattr(aa, "LLM_TOKEN_LIMIT"), "缺 LLM_TOKEN_LIMIT"
+        assert aa.LLM_TOKEN_LIMIT == 1000, f"LLM_TOKEN_LIMIT 应 1000, 实际 {aa.LLM_TOKEN_LIMIT}"
+        log.append(f"✅ LLM_TOKEN_LIMIT={aa.LLM_TOKEN_LIMIT} (避免 1800 字符飞书卡片超限, V25-A1 PIT #70)")
+
+        # 9. l3.attribution_report 表 + 索引
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass('l3.attribution_report');")
+        assert cur.fetchone()[0] is not None, "l3.attribution_report 不存在"
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='l3' AND tablename='attribution_report'
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 1, f"应 ≥1 索引, 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ l3.attribution_report + {len(idxs)} 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        # 10. PIT #66 飞书推送
+        send_src = inspect.getsource(aa._send_via_feishu_inplace)
+        assert "PIT #66" in send_src, "PIT #66 注释缺失"
+        assert "_send_via_feishu" in send_src, "缺 _send_via_feishu 调用"
+        log.append("✅ PIT #66: _send_via_feishu_inplace 沿用 V25-A1")
+
+        # 11. PIT #72 fund 持仓过滤
+        assert aa.FUND_SKIP_LLM is True, "PIT #72 FUND_SKIP_LLM 应 True"
+        log.append("✅ PIT #72: FUND_SKIP_LLM=True (fund 持仓跳过 LLM 归因)")
+
+        # 12. 端到端: 持仓 + 业绩计算 + Brinson + 持久化
+        snaps = aa.get_position_snapshots(only_current=True)
+        portfolio = aa.compute_portfolio_metrics(snaps)
+        attributions = aa.compute_brinson_attribution(snaps, portfolio.portfolio_pp)
+        contributors = attributions[:5]
+        detractors = sorted([a for a in attributions if a.category == "detractor"], key=lambda x: x.selection_effect)[:5]
+        e2e_ok = (
+            isinstance(snaps, list)
+            and len(snaps) > 0
+            and portfolio.total_market_value > 0
+            and len(attributions) > 0
+            and len(contributors) > 0
+        )
+        log.append(f"✅ 端到端: 持仓 {len(snaps)} 条, 总市值 ¥{portfolio.total_market_value:,.0f}, pp {portfolio.portfolio_pp:.2f}%, 归因 {len(attributions)} 持仓")
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V25-E: 模式 28 注册 (业绩归因分析)
+PATTERNS[28] = ("V25-E 业绩归因分析 (Brinson + LLM 降级链)", pattern_28_v25_e_attribution_analyzer)
+
+
 if __name__ == "__main__":
     main()

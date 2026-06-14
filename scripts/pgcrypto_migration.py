@@ -256,6 +256,20 @@ def load_positions_from_db() -> list[dict]:
     """
     从 holdings.encrypted_positions 读取并解密持仓数据。
     通过 PostgreSQL 批量解密函数，一句 SQL 返回所有明文。
+
+    PIT #112 容错补丁 (2026-06-14):
+    - 6/14 20:50 公告采集 cron 触发: psycopg2.errors.ExternalRoutineInvocationException: Wrong key or corrupt data
+    - 根因: store.json 的 DB_ENCRYPTION_KEY 6/13 21:01 后被重置, 但老持仓 ciphertext 未重加密
+    - 实战: 63 行 is_current=TRUE 中, 仅 1 行 (688008) OK, 46 行 3 字段全坏, 16 行部分坏
+    - 修复: 拆分批量 SQL 为 2 步 (先读明文字段 + 加密 bytea), 再逐行逐字段 try-except decrypt
+      - 失败的字段填 None (不让整个 cron 崩溃)
+      - code/name/type (明文) 仍可用, 公告采集 (fetch_announcements.py) 不依赖加密字段
+      - 调用方拿 shares=None/cost=None/profit=None 时需自己容错 (run_analysis.py 已用 float|None)
+
+    安全性:
+    - 旧批量 SQL 是单次 commit 拿所有行, 1 行坏 → 全坏
+    - 新分步是逐行 PSQL 调用, 单行坏 → 该行 None, 其他行正常
+    - 不写入任何 PG 状态, 纯只读补丁 (PIT #86 idempotent 不适用)
     """
     import psycopg2
 
@@ -265,42 +279,72 @@ def load_positions_from_db() -> list[dict]:
                             user="invest_admin", password=pwd)
     cur = conn.cursor()
 
-    # 批量解密所有行（单次 SQL，无循环建连）
-    # is_current = TRUE 确保只读当前有效持仓（去重）
-    sql = """
+    # 步骤 1: 读明文字段 + 加密 bytea (PIT #112 容错 — 任何 1 行 decrypt 失败不让整个 cron 死)
+    # PIT #12 铁律: 列名已 information_schema 验证 (code/name/type/market_value/close_price/weight_pct/profit_pct/shares_enc/cost_enc/profit_enc/is_current)
+    sql_read = """
         SELECT code, name, type,
-               pgp_sym_decrypt(shares_enc, %s::text)::float  AS shares,
-               pgp_sym_decrypt(cost_enc,  %s::text)::float  AS cost,
-               pgp_sym_decrypt(profit_enc,%s::text)::float  AS profit,
+               shares_enc, cost_enc, profit_enc,
                market_value, close_price, weight_pct, profit_pct
         FROM holdings.encrypted_positions
         WHERE is_current = TRUE
         ORDER BY weight_pct DESC NULLS LAST, code
     """
-    cur.execute(sql, (enc_key, enc_key, enc_key))
+    cur.execute(sql_read)
     rows = cur.fetchall()
-    conn.close()
+
+    # 步骤 2: 逐行逐字段 try-except decrypt (PIT #112)
+    def _try_decrypt(raw, key):
+        """单字段 decrypt, 失败返 None. 不让单行错炸整 cron."""
+        if raw is None:
+            return None
+        try:
+            cur2 = conn.cursor()
+            cur2.execute("SELECT pgp_sym_decrypt(%s, %s)::text", (raw, key))
+            r = cur2.fetchone()
+            cur2.close()
+            return float(r[0]) if r and r[0] else None
+        except Exception:
+            return None
 
     positions = []
+    decrypt_stats = {"ok": 0, "partial": 0, "all_bad": 0}
     for r in rows:
+        shares = _try_decrypt(r[3], enc_key)
+        cost = _try_decrypt(r[4], enc_key)
+        profit = _try_decrypt(r[5], enc_key)
+
+        ok_count = sum(1 for v in [shares, cost, profit] if v is not None)
+        if ok_count == 3:
+            decrypt_stats["ok"] += 1
+        elif ok_count == 0:
+            decrypt_stats["all_bad"] += 1
+        else:
+            decrypt_stats["partial"] += 1
+
         positions.append({
             "code": str(r[0]).zfill(6),
             "name": r[1],
             "type": r[2] or "stock",
-            "shares": r[3],
-            "cost": r[4],
-            "profit": r[5],
+            "shares": shares,
+            "cost": cost,
+            "profit": profit,
             "market_value": float(r[6]) if r[6] else 0.0,
-            "close": float(r[7]) if r[7] else r[4],
+            "close": float(r[7]) if r[7] else cost,  # PIT #112: cost 可能是 None, 取 cost 或 0.0
             "weight": float(r[8]) if r[8] else 0.0,
             "profit_pct": float(r[9]) if r[9] else 0.0,
         })
+
+    conn.close()
 
     # 应用黑名单过滤（永久过滤退市债/异常标的等）
     from position_blacklist import filter_positions
     positions = filter_positions(positions)
 
-    logger.info(f"从加密持仓表读取 {len(positions)} 条记录 (黑名单过滤后)")
+    logger.info(
+        f"从加密持仓表读取 {len(positions)} 条记录 (黑名单过滤后), "
+        f"decrypt 状态: ok={decrypt_stats['ok']} partial={decrypt_stats['partial']} "
+        f"all_bad={decrypt_stats['all_bad']}"
+    )
     return positions
 
 

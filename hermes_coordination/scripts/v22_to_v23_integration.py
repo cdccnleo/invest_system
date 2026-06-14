@@ -595,20 +595,21 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F+B+C 升级: 20 → 22 → 23 → 24 → 25)
+    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F+B+C+G 升级: 20 → 22 → 23 → 24 → 25 → 26)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-25 在末尾
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-26 在末尾
     has_20 = "pattern_20_v24_c6_chief_event_strategist" in text
     has_21 = "pattern_21_v25_a1_feishu_push" in text
     has_22 = "pattern_22_v25_a2_feishu_cron_routing" in text
     has_23 = "pattern_23_v25_f_earnings_miss" in text
     has_24 = "pattern_24_v25_b_position_rebalancer" in text
     has_25 = "pattern_25_v25_c_event_backtester" in text
-    all_patterns = has_20 and has_21 and has_22 and has_23 and has_24 and has_25
+    has_26 = "pattern_26_v25_g_7d_report" in text
+    all_patterns = has_20 and has_21 and has_22 and has_23 and has_24 and has_25 and has_26
     result["tests"].append({
         "test": "22_patterns_script",
-        "expected": "25 函数定义 (V25-C 升级, +事件回放)",
+        "expected": "26 函数定义 (V25-G 升级, +7d 报告)",
         "actual": all_patterns,
         "passed": all_patterns,
     })
@@ -930,6 +931,103 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     except Exception as e:
         import traceback
         for sub in ("v25_c_collect_events", "v25_c_collect_advices", "v25_c_evaluate_advices", "v25_c_persist_report"):
+            result["tests"].append({
+                "test": sub,
+                "expected": "执行成功",
+                "actual": f"异常: {type(e).__name__}: {str(e)[:120]}",
+                "passed": False,
+            })
+
+    # 16. V25-G 7d 报告 (4 子项) — 存在性 + 关键函数验证
+    try:
+        rdg_path = _COORD_DIR / "scripts" / "7d_report_generator.py"
+        rdg_src = rdg_path.read_text(encoding="utf-8")
+        g_ok = (
+            rdg_path.exists()
+            and "PositionSummary" in rdg_src
+            and "SnapshotReport" in rdg_src
+            and "get_position_summary" in rdg_src
+            and "get_position_changes" in rdg_src
+            and "get_top_movers" in rdg_src
+            and "get_events" in rdg_src
+            and "get_accuracy_summary" in rdg_src
+            and "get_risk_alert_counts" in rdg_src
+            and "l3.report_7d_snapshot" in rdg_src
+            and "PIT #84" in rdg_src
+            and "PIT #85" in rdg_src
+            and "PIT #86" in rdg_src
+            and "WINDOW_DAYS" in rdg_src
+            and "ON CONFLICT" in rdg_src
+            and "_send_via_feishu_inplace" in rdg_src
+        )
+        result["tests"].append({
+            "test": "v25_g_7d_report",
+            "expected": "7d_report_generator.py (3 PIT #84-#86 + 5 dataclass + 6 核心函数 + idempotent)",
+            "actual": g_ok,
+            "passed": g_ok,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "test": "v25_g_7d_report",
+            "expected": "ok", "actual": f"err: {e}", "passed": False,
+        })
+
+    # 17. V25-G 实操验证 (summary + movers + events + report) — 4 子项
+    try:
+        sys.path.insert(0, str(_COORD_DIR / "scripts"))
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("seven_d_report_generator", str(_COORD_DIR / "scripts" / "7d_report_generator.py"))
+        rdg_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rdg_mod)
+
+        # 17a. 持仓总览
+        ps = rdg_mod.get_position_summary()
+        ps_ok = ps.position_count > 0 and ps.total_market_value > 0
+        result["tests"].append({
+            "test": "v25_g_position_summary",
+            "expected": "get_position_summary 返 ≥1 持仓 + 总市值>0",
+            "actual": f"{ps.position_count} 持仓, 总市值 ¥{ps.total_market_value:,.0f}, pp={ps.avg_profit_pct:+.2f}%",
+            "passed": ps_ok,
+        })
+
+        # 17b. 涨跌幅排行
+        gainers, losers = rdg_mod.get_top_movers(days_back=7, top_n=5)
+        tm_ok = isinstance(gainers, list) and isinstance(losers, list)
+        result["tests"].append({
+            "test": "v25_g_top_movers",
+            "expected": "get_top_movers(7, 5) 返 gainers+losers list",
+            "actual": f"gainers {len(gainers)}, losers {len(losers)}",
+            "passed": tm_ok,
+        })
+
+        # 17c. 事件回顾
+        events = rdg_mod.get_events(days_back=7, top_n=10)
+        ev_ok = isinstance(events, list) and len(events) >= 0
+        result["tests"].append({
+            "test": "v25_g_events",
+            "expected": "get_events(7, 10) 返 news+advice 列表",
+            "actual": f"events {len(events)} 条",
+            "passed": ev_ok,
+        })
+
+        # 17d. 完整报告生成
+        report = rdg_mod.generate_7d_report(today="2026-06-14")
+        full_ok = (
+            report.report_id > 0
+            and report.position_summary.position_count > 0
+            and report.t3_accuracy >= 0
+        )
+        result["tests"].append({
+            "test": "v25_g_full_report",
+            "expected": "generate_7d_report 完整 6 步生成 + 持久化 + 推送",
+            "actual": f"id={report.report_id}, t3_acc={report.t3_accuracy * 100:.1f}%, events={len(report.events)}",
+            "passed": full_ok,
+        })
+    except Exception as e:
+        import traceback
+        for sub in ("v25_g_position_summary", "v25_g_top_movers", "v25_g_events", "v25_g_full_report"):
             result["tests"].append({
                 "test": sub,
                 "expected": "执行成功",

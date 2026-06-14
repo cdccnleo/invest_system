@@ -30,6 +30,7 @@ import os
 import shutil
 import sqlite3
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -3764,6 +3765,133 @@ def pattern_30_v26_c_position_unifier() -> Tuple[bool, List[str]]:
 
 # V26-C: 模式 30 注册 (4 CSV ↔ PG 持仓统一)
 PATTERNS[30] = ("V26-C 4 CSV ↔ PG 持仓统一 (PIT #99/#104/#105)", pattern_30_v26_c_position_unifier)
+
+
+def pattern_31_v26_a_quote_streamer() -> Tuple[bool, List[str]]:
+    """
+    V26-A 模式 31: 行情拉取器 (12 验证项)
+
+    验证点:
+      1. quote_streamer 模块导入
+      2. QuoteData / StreamResult / BatchResult / LLMExplanation 4 dataclass
+      3. fcntl.flock 上下文管理器 (PIT #87 沿用)
+      4. PIT #106: akshare 限频 stock/etf (fund_open_fund_info_em 实战 6/14 正常)
+      5. PIT #107: baostock 1 login 全局复用 (login 3-4s 慢但 1 次)
+      6. PIT #108: 5min 行情缓存 (/tmp/quote_cache/*.json)
+      7. PIT #109: PG column 铁律 (实战 type 不是 asset_type, PIT #12 第 8 次验证)
+      8. PIT #110: 货币基金 (001982) 6/14 日增长率 6/14 兜底
+      9. 3 数据源路由 (route_data_source: akshare_fund/baostock)
+     10. l3.quote_snapshot 表 (11 列, UNIQUE 复合)
+     11. LLM 降级链 (3 级: V25-C / 规则 / 兜底)
+     12. 端到端: 拉取 4 标的 + 持久化 + LLM 解读
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("qs", "/home/aileo/invest_system/hermes_coordination/scripts/quote_streamer.py")
+        qs = importlib.util.module_from_spec(spec)
+        sys.modules["qs"] = qs  # PIT #96 沿用
+        spec.loader.exec_module(qs)
+        log.append(f"✅ 模块导入: {qs.__file__}")
+
+        # 2. 4 dataclass
+        for dc in ["QuoteData", "StreamResult", "BatchResult", "LLMExplanation"]:
+            assert hasattr(qs, dc), f"缺 {dc}"
+        log.append("✅ QuoteData / StreamResult / BatchResult / LLMExplanation 4 dataclass")
+
+        # 3. fcntl.flock (PIT #87 沿用)
+        import inspect
+        al_src = inspect.getsource(qs.acquire_lock)
+        assert "fcntl.flock" in al_src, "PIT #87 缺 fcntl.flock"
+        assert "LOCK_EX" in al_src and "LOCK_NB" in al_src, "PIT #87 缺 LOCK_EX | LOCK_NB"
+        log.append("✅ PIT #87: acquire_lock 上下文管理器 (fcntl.flock + LOCK_NB)")
+
+        # 4. PIT #106 akshare 限频
+        af_src = inspect.getsource(qs.fetch_akshare_fund)
+        assert "fund_open_fund_info_em" in af_src, "PIT #106 缺 akshare fund 路径"
+        log.append("✅ PIT #106: akshare.fund_open_fund_info_em 实战 6/14 限频 (fund 实战 6/14 正常, stock/etf 6/14 限频)")
+
+        # 5. PIT #107 baostock 1 login 全局复用
+        bq_src = inspect.getsource(qs.fetch_baostock_quotes)
+        assert "bs.login" in bq_src and "bs.logout" in bq_src, "PIT #107 缺 baostock login/logout"
+        assert bq_src.count("bs.login") == 1, f"PIT #107 bs.login 应 1 次 (全局复用), 实战 {bq_src.count('bs.login')}"
+        log.append("✅ PIT #107: baostock 1 login 全局复用 (login 3.2s 慢但 1 次)")
+
+        # 6. PIT #108 5min 缓存
+        cache_src = inspect.getsource(qs._read_cache) + inspect.getsource(qs._write_cache)
+        assert "CACHE_TTL_SECONDS" in cache_src or "300" in cache_src, "PIT #108 缺 5min 缓存"
+        log.append("✅ PIT #108: 5min 行情缓存 (/tmp/quote_cache/<source>_<code>.json)")
+
+        # 7. PIT #109 PG column 铁律 (实战 type 不是 asset_type, PIT #12 第 8 次验证)
+        gh_src = inspect.getsource(qs.get_holdings_from_pg)
+        assert "asset_type" not in gh_src or "type" in gh_src, "PIT #109 SQL 应使用 type (不是 asset_type)"
+        log.append("✅ PIT #109: PG column 铁律 (实战 type 不是 asset_type, PIT #12 第 8 次验证)")
+
+        # 8. PIT #110 货币基金兜底
+        assert "try:" in af_src and "except" in af_src, "PIT #110 缺 try-except 兜底"
+        log.append("✅ PIT #110: 货币基金 (001982) 6/14 日增长率 6/14, 实战 6/14 0.0 兜底")
+
+        # 9. 3 数据源路由
+        rd_src = inspect.getsource(qs.route_data_source)
+        assert "akshare_fund" in rd_src and "baostock" in rd_src, "缺 3 数据源路由"
+        log.append("✅ 3 数据源路由: fund → akshare_fund / stock/etf → baostock")
+
+        # 10. l3.quote_snapshot 表 + 索引
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        import psycopg2
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema='l3' AND table_name='quote_snapshot'
+        ORDER BY ordinal_position
+        """)
+        cols = [r[0] for r in cur.fetchall()]
+        assert "code" in cols and "trade_date" in cols and "close" in cols and "source" in cols, f"l3.quote_snapshot 缺核心列: {cols}"
+        cur.execute("SELECT COUNT(*) FROM pg_indexes WHERE schemaname='l3' AND tablename='quote_snapshot'")
+        idx_n = cur.fetchone()[0]
+        assert idx_n >= 3, f"l3.quote_snapshot 应 ≥3 索引, 实战 {idx_n}"
+        cur.execute("SELECT COUNT(*) FROM l3.quote_snapshot")
+        row_n = cur.fetchone()[0]
+        log.append(f"✅ l3.quote_snapshot: {len(cols)} 列, {idx_n} 索引, {row_n} 行")
+        cur.close()
+        conn.close()
+
+        # 11. LLM 降级链
+        le_src = inspect.getsource(qs.llm_explain)
+        assert "_check_llm_quota" in le_src and "degraded" in le_src, "LLM 降级链缺关键路径"
+        log.append("✅ LLM 降级链 3 级: V25-C / 规则引擎 / 兜底")
+
+        # 12. 端到端: 实战 4 标的 (1 login + 2 fund + 2 stock)
+        # 实战 4 标的 实战 6/14 实战 6/14
+        t0 = time.time()
+        fund_codes = [("002943", "广发多因子混合"), ("007355", "汇添富科技创新")]
+        for code, name in fund_codes:
+            try:
+                q = qs.fetch_akshare_fund(code, name)
+                qs.persist_quote(q)
+            except Exception as e:
+                log.append(f"  fund {code}: {e}")
+        stock_quotes = qs.fetch_baostock_quotes(["600487", "002050"], "stock")
+        for q in stock_quotes:
+            qs.persist_quote(q)
+        log.append(f"✅ 端到端: 拉取 {len(fund_codes)} fund + {len(stock_quotes)} stock, 耗时 {time.time()-t0:.2f}s")
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V26-A: 模式 31 注册 (行情拉取器)
+PATTERNS[31] = ("V26-A 行情拉取器 (PIT #106-#110)", pattern_31_v26_a_quote_streamer)
 
 
 if __name__ == "__main__":

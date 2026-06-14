@@ -1810,7 +1810,22 @@ def job_skill_spot_check():
             if not row:
                 continue
 
-            detail = _json.loads(row[0]) if row[0] else {}
+            # PIT #115 修复: audit_log.detail 列是 jsonb 类型, psycopg2 自动 parse 为 dict.
+            # 旧逻辑 _json.loads(row[0]) 在 dict 时抛 "JSON object must be str, bytes, not dict".
+            # 修法: 直接用 (dict 走 isinstance 分支, str/bytes 走 _json.loads).
+            raw_detail = row[0]
+            if raw_detail is None:
+                detail = {}
+            elif isinstance(raw_detail, dict):
+                detail = raw_detail
+            elif isinstance(raw_detail, (str, bytes, bytearray)):
+                detail = _json.loads(raw_detail) if raw_detail else {}
+            else:
+                # 未知类型 (e.g. memoryview), 尝试强转
+                try:
+                    detail = _json.loads(bytes(raw_detail).decode("utf-8")) if raw_detail else {}
+                except Exception:
+                    detail = {}
             detail.get('query', '未知查询')
             # 模拟预期结构（实际场景需人工标注 expected）
             expected = {"status": "completed"}

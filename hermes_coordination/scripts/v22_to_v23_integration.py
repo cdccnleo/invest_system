@@ -595,10 +595,10 @@ def _selftest_pattern_12() -> Dict[str, Any]:
             "passed": False,
         })
 
-    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F+B+C+G 升级: 20 → 22 → 23 → 24 → 25 → 26)
+    # 9. 22 模式测试脚本可执行 (V25-A1+A2+F+B+C+G+D 升级: 20 → 22 → 23 → 24 → 25 → 26 → 27)
     test_script = _COORD_DIR / "scripts" / "hermes_test_6_patterns.py"
     assert test_script.exists()
-    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-26 在末尾
+    text = test_script.read_text(encoding="utf-8")  # 全读, 模式 20-27 在末尾
     has_20 = "pattern_20_v24_c6_chief_event_strategist" in text
     has_21 = "pattern_21_v25_a1_feishu_push" in text
     has_22 = "pattern_22_v25_a2_feishu_cron_routing" in text
@@ -606,10 +606,11 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     has_24 = "pattern_24_v25_b_position_rebalancer" in text
     has_25 = "pattern_25_v25_c_event_backtester" in text
     has_26 = "pattern_26_v25_g_7d_report" in text
-    all_patterns = has_20 and has_21 and has_22 and has_23 and has_24 and has_25 and has_26
+    has_27 = "pattern_27_v25_d_position_rebalancer_v2" in text
+    all_patterns = has_20 and has_21 and has_22 and has_23 and has_24 and has_25 and has_26 and has_27
     result["tests"].append({
         "test": "22_patterns_script",
-        "expected": "26 函数定义 (V25-G 升级, +7d 报告)",
+        "expected": "27 函数定义 (V25-D 升级, +调仓优化 v2)",
         "actual": all_patterns,
         "passed": all_patterns,
     })
@@ -1028,6 +1029,108 @@ def _selftest_pattern_12() -> Dict[str, Any]:
     except Exception as e:
         import traceback
         for sub in ("v25_g_position_summary", "v25_g_top_movers", "v25_g_events", "v25_g_full_report"):
+            result["tests"].append({
+                "test": sub,
+                "expected": "执行成功",
+                "actual": f"异常: {type(e).__name__}: {str(e)[:120]}",
+                "passed": False,
+            })
+
+    # 18. V25-D 调仓优化 v2 (4 子项) — 存在性 + 关键函数验证
+    try:
+        prv2_path = _COORD_DIR / "scripts" / "position_rebalancer_v2.py"
+        prv2_src = prv2_path.read_text(encoding="utf-8")
+        d_ok = (
+            prv2_path.exists()
+            and "AccountPosition" in prv2_src
+            and "CashCheck" in prv2_src
+            and "LockInfo" in prv2_src
+            and "CrossAccountSummary" in prv2_src
+            and "acquire_lock" in prv2_src
+            and "fcntl.flock" in prv2_src
+            and "parse_guangfa_csv" in prv2_src
+            and "parse_guojin_stock_csv" in prv2_src
+            and "parse_guojin_fund_csv" in prv2_src
+            and "parse_huitianfu_csv" in prv2_src
+            and "summarize_cross_account" in prv2_src
+            and "check_cash" in prv2_src
+            and "MIN_CASH_MULTIPLIER" in prv2_src
+            and "l3.cross_account_summary" in prv2_src
+            and "PIT #87" in prv2_src
+            and "PIT #88" in prv2_src
+            and "PIT #89" in prv2_src
+            and "PIT #90" in prv2_src
+            and "PIT #91" in prv2_src
+            and "_send_via_feishu_inplace" in prv2_src
+        )
+        result["tests"].append({
+            "test": "v25_d_position_rebalancer_v2",
+            "expected": "position_rebalancer_v2.py (5 PIT #87-#91 + 4 dataclass + 4 CSV 解析 + fcntl.flock)",
+            "actual": d_ok,
+            "passed": d_ok,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "test": "v25_d_position_rebalancer_v2",
+            "expected": "ok", "actual": f"err: {e}", "passed": False,
+        })
+
+    # 19. V25-D 实操验证 (锁 + 4 CSV + 资金 + 跨账户) — 4 子项
+    try:
+        sys.path.insert(0, str(_COORD_DIR / "scripts"))
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("prv2", str(_COORD_DIR / "scripts" / "position_rebalancer_v2.py"))
+        prv2_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prv2_mod)
+
+        # 19a. 锁获取 (contextmanager)
+        with prv2_mod.acquire_lock(timeout=5.0) as lock_info:
+            lock_ok = lock_info.acquired
+        result["tests"].append({
+            "test": "v25_d_lock_acquire",
+            "expected": "acquire_lock contextmanager 返 lock_info.acquired=True",
+            "actual": f"PID={lock_info.pid} acquired={lock_info.acquired} waited={lock_info.waited_seconds:.2f}s",
+            "passed": lock_ok,
+        })
+
+        # 19b. 4 CSV 加载
+        positions = prv2_mod.load_all_accounts()
+        load_ok = isinstance(positions, list) and len(positions) > 0
+        result["tests"].append({
+            "test": "v25_d_load_accounts",
+            "expected": "load_all_accounts 返 ≥1 持仓 (4 CSV)",
+            "actual": f"{len(positions)} 持仓 (guangfa + guojin_stock + guojin_fund + huitianfu)",
+            "passed": load_ok,
+        })
+
+        # 19c. 资金检查
+        cash_checks = prv2_mod.check_cash(required=100000, account=None)
+        cc_ok = isinstance(cash_checks, list) and len(cash_checks) > 0
+        result["tests"].append({
+            "test": "v25_d_cash_check",
+            "expected": "check_cash(100000) 返 ≥1 账户 cash check",
+            "actual": f"{len(cash_checks)} 账户 (sufficient={[c.sufficient for c in cash_checks]})",
+            "passed": cc_ok,
+        })
+
+        # 19d. 跨账户汇总
+        summary = prv2_mod.summarize_cross_account(positions)
+        sum_ok = (
+            summary.position_count > 0
+            and summary.total_market_value > 0
+            and len(summary.accounts) >= 2
+        )
+        result["tests"].append({
+            "test": "v25_d_cross_account",
+            "expected": "summarize_cross_account 返 ≥1 持仓 + ≥2 账户",
+            "actual": f"{summary.position_count} 持仓, 总市值 ¥{summary.total_market_value:,.0f}, 账户 {summary.accounts}",
+            "passed": sum_ok,
+        })
+    except Exception as e:
+        import traceback
+        for sub in ("v25_d_lock_acquire", "v25_d_load_accounts", "v25_d_cash_check", "v25_d_cross_account"):
             result["tests"].append({
                 "test": sub,
                 "expected": "执行成功",

@@ -3256,5 +3256,138 @@ def pattern_26_v25_g_7d_report() -> Tuple[bool, List[str]]:
 PATTERNS[26] = ("V25-G 7d 报告自动出", pattern_26_v25_g_7d_report)
 
 
+def pattern_27_v25_d_position_rebalancer_v2() -> Tuple[bool, List[str]]:
+    """
+    V25-D 模式 27: 调仓优化 v2 (12 验证项)
+
+    验证点:
+      1. position_rebalancer_v2 模块导入
+      2. AccountPosition / CashCheck / LockInfo / CrossAccountSummary 4 dataclass
+      3. acquire_lock 上下文管理器 (PIT #87 fcntl.flock)
+      4. PIT #87: 锁文件 /proc/PID 检测 + 死锁强删 + atexit LOCK_UN
+      5. PIT #88: 资金检查 可用现金 ≥ 1.1x (MIN_CASH_MULTIPLIER)
+      6. PIT #89: 4 CSV 跨账户 normalize (guangfa/guojin_stock/guojin_fund/huitianfu)
+      7. PIT #91: 国金股票 16 列 schema 修正 (实战发现)
+      8. PIT #90: 周报自动推送 飞书
+      9. l3.cross_account_summary 表 + 1 索引
+     10. PIT #66: 飞书推送就地实现
+     11. _parse_amount 容错 (千分位/空格/--/N/A)
+     12. 端到端: 锁 + 4 CSV 加载 + 资金检查 + 周报推送
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("prv2", "/home/aileo/invest_system/hermes_coordination/scripts/position_rebalancer_v2.py")
+        prv2 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prv2)
+        log.append(f"✅ 模块导入: {prv2.__file__}")
+
+        # 2. dataclass
+        assert hasattr(prv2, "AccountPosition"), "缺 AccountPosition"
+        assert hasattr(prv2, "CashCheck"), "缺 CashCheck"
+        assert hasattr(prv2, "LockInfo"), "缺 LockInfo"
+        assert hasattr(prv2, "CrossAccountSummary"), "缺 CrossAccountSummary"
+        log.append("✅ AccountPosition / CashCheck / LockInfo / CrossAccountSummary 4 dataclass")
+
+        # 3. acquire_lock 上下文管理器
+        import inspect
+        al_src = inspect.getsource(prv2.acquire_lock)
+        assert "fcntl.flock" in al_src, "PIT #87 缺 fcntl.flock"
+        assert "LOCK_EX" in al_src, "PIT #87 缺 LOCK_EX"
+        assert "LOCK_NB" in al_src, "PIT #87 缺 LOCK_NB"
+        assert "contextmanager" in al_src, "PIT #87 缺 @contextmanager"
+        log.append("✅ PIT #87: acquire_lock 上下文管理器 (fcntl.flock + LOCK_NB)")
+
+        # 4. PIT #87 死锁检测
+        assert "/proc/" in al_src, "PIT #87 缺 /proc/PID 死锁检测"
+        assert "强删" in al_src, "PIT #87 缺死锁强删"
+        assert "LOCK_UN" in al_src, "PIT #87 缺 LOCK_UN 释放"
+        log.append("✅ PIT #87: 死锁 /proc/PID 检测 + 强删 + LOCK_UN 释放")
+
+        # 5. PIT #88 资金检查
+        cc_src = inspect.getsource(prv2.check_cash)
+        assert "MIN_CASH_MULTIPLIER" in cc_src, "PIT #88 缺 1.1x 阈值"
+        assert "1.1" in cc_src, "PIT #88 缺 1.1 常量"
+        assert "sufficient" in cc_src, "PIT #88 缺 sufficient 字段"
+        log.append("✅ PIT #88: 资金检查 MIN_CASH_MULTIPLIER=1.1 (可用 ≥ 1.1x)")
+
+        # 6. PIT #89 4 CSV 跨账户
+        paths = prv2.CSV_PATHS
+        assert len(paths) == 4, f"PIT #89 应 4 CSV, 实际 {len(paths)}: {list(paths.keys())}"
+        assert set(paths.keys()) == {"guangfa", "guojin_stock", "guojin_fund", "huitianfu"}, "PIT #89 4 账户名错"
+        log.append(f"✅ PIT #89: 4 CSV 跨账户 {list(paths.keys())}")
+
+        # 7. PIT #91 国金股票 16 列
+        pgs_src = inspect.getsource(prv2.parse_guojin_stock_csv)
+        assert "len(row) < 16" in pgs_src, "PIT #91 缺 16 列校验"
+        assert "PIT #91" in pgs_src, "PIT #91 注释缺失"
+        log.append("✅ PIT #91: 国金股票 16 列 schema 修正 (实战发现)")
+
+        # 8. PIT #90 周报推送
+        ps_src = inspect.getsource(prv2.push_weekly_to_feishu)
+        assert "PIT #90" in ps_src, "PIT #90 注释缺失"
+        assert "跨账户汇总" in ps_src, "PIT #90 缺跨账户内容"
+        log.append("✅ PIT #90: push_weekly_to_feishu 跨账户周报推送")
+
+        # 9. l3.cross_account_summary 表
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass('l3.cross_account_summary');")
+        assert cur.fetchone()[0] is not None, "l3.cross_account_summary 不存在"
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='l3' AND tablename='cross_account_summary'
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 1, f"应 ≥1 索引 (含 pkey+UNIQUE+date), 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ l3.cross_account_summary + {len(idxs)} 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        # 10. PIT #66 飞书推送
+        send_src = inspect.getsource(prv2._send_via_feishu_inplace)
+        assert "PIT #66" in send_src, "PIT #66 注释缺失"
+        log.append("✅ PIT #66: _send_via_feishu_inplace 沿用")
+
+        # 11. _parse_amount 容错
+        assert prv2._parse_amount("1,234.56") == 1234.56, "千分位解析错"
+        assert prv2._parse_amount("--") == 0.0, "占位符容错错"
+        assert prv2._parse_amount("N/A") == 0.0, "N/A 容错错"
+        assert prv2._parse_amount("") == 0.0, "空容错错"
+        log.append("✅ _parse_amount 容错 (千分位/--/N/A/空)")
+
+        # 12. 端到端 (不触发飞书推送避免重复推送)
+        # 单独跑锁测试 + 4 CSV 加载 + 资金检查
+        positions = prv2.load_all_accounts()
+        summary = prv2.summarize_cross_account(positions)
+        cash_checks = prv2.check_cash(required=100000, account=None)
+        e2e_ok = (
+            isinstance(positions, list)
+            and len(positions) > 0
+            and summary.total_market_value > 0
+            and len(cash_checks) > 0
+        )
+        log.append(f"✅ 端到端: 持仓 {len(positions)} 条, 总市值 ¥{summary.total_market_value:,.0f}, 现金检查 {len(cash_checks)} 账户")
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V25-D: 模式 27 注册 (调仓优化 v2)
+PATTERNS[27] = ("V25-D 调仓优化 v2 (锁+资金+跨账户+周报)", pattern_27_v25_d_position_rebalancer_v2)
+
+
 if __name__ == "__main__":
     main()

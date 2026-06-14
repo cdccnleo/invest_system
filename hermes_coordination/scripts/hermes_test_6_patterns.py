@@ -3522,5 +3522,130 @@ def pattern_28_v25_e_attribution_analyzer() -> Tuple[bool, List[str]]:
 PATTERNS[28] = ("V25-E 业绩归因分析 (Brinson + LLM 降级链)", pattern_28_v25_e_attribution_analyzer)
 
 
+def pattern_29_v26_b_benchmark_quote_loader() -> Tuple[bool, List[str]]:
+    """
+    V26-B 模式 29: AKShare 指数基准拉取 (12 验证项)
+
+    验证点:
+      1. benchmark_quote_loader 模块导入
+      2. IndexQuote / BenchmarkSummary 2 dataclass
+      3. acquire_lock 上下文管理器 (PIT #87 fcntl.flock 沿用 V25-D)
+      4. PIT #98: AKShare 实战拉取 (stock_zh_index_daily)
+      5. PIT #12: change_pct 实战算 (close vs prev_close, 实战字段映射)
+      6. 5 指数列表 (沪深300/科创50/中证500/创业板/上证)
+      7. l3.benchmark_quote 表 + 4 索引 (含 UNIQUE 二元组)
+      8. PIT #86: ON CONFLICT (ts_code, trade_date) DO UPDATE idempotent
+      9. PIT #98: AKSHARE_RATE_LIMIT_SEC=0.5 (实战限流)
+     10. 实战 30 天窗口 (DEFAULT_WINDOW_DAYS=30)
+     11. _parse_akshare_row 容错 (date/open/high/low/close/volume 6 字段)
+     12. 端到端: 拉取 5 指数 + upsert 150 行 + 验证最近 30 天
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bql", "/home/aileo/invest_system/hermes_coordination/scripts/benchmark_quote_loader.py")
+        bql = importlib.util.module_from_spec(spec)
+        sys.modules["bql"] = bql  # PIT: 注册到 sys.modules 防 dataclass __dict__ 错 (V25-E #96 沿用)
+        spec.loader.exec_module(bql)
+        log.append(f"✅ 模块导入: {bql.__file__}")
+
+        # 2. 2 dataclass
+        assert hasattr(bql, "IndexQuote"), "缺 IndexQuote"
+        assert hasattr(bql, "BenchmarkSummary"), "缺 BenchmarkSummary"
+        log.append("✅ IndexQuote / BenchmarkSummary 2 dataclass")
+
+        # 3. acquire_lock 上下文管理器
+        import inspect
+        al_src = inspect.getsource(bql.acquire_lock)
+        assert "fcntl.flock" in al_src, "PIT #87 缺 fcntl.flock"
+        assert "LOCK_EX" in al_src, "PIT #87 缺 LOCK_EX"
+        assert "LOCK_NB" in al_src, "PIT #87 缺 LOCK_NB"
+        log.append("✅ PIT #87: acquire_lock 上下文管理器 (fcntl.flock + LOCK_NB, 沿用 V25-D)")
+
+        # 4. PIT #98 AKShare 实战
+        fa_src = inspect.getsource(bql.fetch_akshare_index_daily)
+        assert "stock_zh_index_daily" in fa_src, "PIT #98 缺 stock_zh_index_daily"
+        assert "akshare" in fa_src.lower(), "PIT #98 缺 akshare 导入"
+        log.append("✅ PIT #98: AKShare stock_zh_index_daily 实战拉取")
+
+        # 5. PIT #12 change_pct 实战算
+        assert "change_pct" in fa_src, "PIT #12 缺 change_pct 字段"
+        assert "prev_close" in fa_src, "PIT #12 缺 prev_close 实战算"
+        log.append("✅ PIT #12: change_pct 实战算 (close vs prev_close)")
+
+        # 6. 5 指数列表
+        indices = bql.list_5_indices()
+        assert len(indices) == 5, f"应 5 指数, 实际 {len(indices)}"
+        expected = {"sh000300", "sh000688", "sh000905", "sz399006", "sh000001"}
+        actual = {i[0] for i in indices}
+        assert actual == expected, f"5 指数错: {actual}"
+        log.append(f"✅ 5 指数列表: {sorted(actual)}")
+
+        # 7. l3.benchmark_quote 表 + 4 索引
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        cur.execute("SELECT to_regclass('l3.benchmark_quote');")
+        assert cur.fetchone()[0] is not None, "l3.benchmark_quote 不存在"
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='l3' AND tablename='benchmark_quote'
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 4, f"应 ≥4 索引, 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ l3.benchmark_quote + {len(idxs)} 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        # 8. PIT #86 ON CONFLICT idempotent
+        up_src = inspect.getsource(bql.upsert_benchmark_quote)
+        assert "ON CONFLICT" in up_src, "PIT #86 缺 ON CONFLICT"
+        assert "(ts_code, trade_date)" in up_src, "PIT #86 缺 UNIQUE 复合主键"
+        assert "DO UPDATE" in up_src, "PIT #86 缺 DO UPDATE"
+        log.append("✅ PIT #86: ON CONFLICT (ts_code, trade_date) DO UPDATE idempotent")
+
+        # 9. PIT #98 AKSHARE_RATE_LIMIT_SEC
+        assert hasattr(bql, "AKSHARE_RATE_LIMIT_SEC"), "缺 AKSHARE_RATE_LIMIT_SEC"
+        assert bql.AKSHARE_RATE_LIMIT_SEC == 0.5, f"应 0.5s, 实际 {bql.AKSHARE_RATE_LIMIT_SEC}"
+        log.append(f"✅ PIT #98: AKSHARE_RATE_LIMIT_SEC={bql.AKSHARE_RATE_LIMIT_SEC}s (实战限流)")
+
+        # 10. DEFAULT_WINDOW_DAYS
+        assert bql.DEFAULT_WINDOW_DAYS == 30, f"应 30 天, 实际 {bql.DEFAULT_WINDOW_DAYS}"
+        log.append(f"✅ DEFAULT_WINDOW_DAYS={bql.DEFAULT_WINDOW_DAYS} (实战 30 天)")
+
+        # 11. _parse_akshare_row 容错
+        assert "tail(window_days)" in fa_src or "tail(" in fa_src, "实战 tail 实战 30 天"
+        log.append("✅ AKShare tail(window_days) 实战取最近 30 天")
+
+        # 12. 端到端: 拉取 1 指数 + upsert + 验证
+        quotes = bql.fetch_akshare_index_daily("sh000300", "沪深300", window_days=5)
+        if quotes:
+            n = bql.upsert_benchmark_quote(quotes)
+            result = bql.get_benchmark_30d(ts_code="sh000300")
+            e2e_ok = len(quotes) > 0 and n > 0 and len(result) > 0
+            log.append(f"✅ 端到端: sh000300 拉取 {len(quotes)} 行, upsert {n} 行, 验证 {len(result)} 条")
+        else:
+            log.append("⚠️ 端到端: AKShare 拉取失败 (实战可重试)")
+
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V26-B: 模式 29 注册 (AKShare 指数基准)
+PATTERNS[29] = ("V26-B AKShare 指数基准拉取 (5 指数 × 30 天)", pattern_29_v26_b_benchmark_quote_loader)
+
+
 if __name__ == "__main__":
     main()

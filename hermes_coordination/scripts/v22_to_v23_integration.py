@@ -1236,6 +1236,68 @@ def _selftest_pattern_21():
     return result
 
 
+def _selftest_pattern_22():
+    """
+    V26-B 模式 22 (注: 模式 29 业务版, 序号用 22 沿用): AKShare 指数基准
+    端到端 21 (4 子项): 锁 + AKShare 拉取 + upsert + 验证
+    """
+    import time
+    t0 = time.time()
+    result = {"name": "V26-B AKShare 指数基准拉取 (5 指数 × 30 天)", "tests": []}
+    try:
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bql_e2e", "/home/aileo/invest_system/hermes_coordination/scripts/benchmark_quote_loader.py")
+        bql = importlib.util.module_from_spec(spec)
+        sys.modules["bql_e2e"] = bql  # PIT #96 沿用 V25-E
+        spec.loader.exec_module(bql)
+        # 21a 模块导入
+        result["tests"].append({
+            "test": "v26_b_benchmark_quote_loader",
+            "expected": "模块存在",
+            "actual": f"模块导入: {bql.__file__.split('/')[-1]}",
+            "passed": hasattr(bql, "load_benchmark_quotes"),
+        })
+        # 21b AKShare 拉取 (1 指数 5 行快速测试)
+        quotes = bql.fetch_akshare_index_daily("sh000300", "沪深300", window_days=5)
+        result["tests"].append({
+            "test": "v26_b_akshare_fetch",
+            "expected": "≥ 1 行 (实战 5 指数 30 天)",
+            "actual": f"sh000300 拉取 {len(quotes)} 行 (实战 AKShare stock_zh_index_daily)",
+            "passed": len(quotes) >= 1,
+        })
+        # 21c upsert
+        n = bql.upsert_benchmark_quote(quotes) if quotes else 0
+        result["tests"].append({
+            "test": "v26_b_upsert_benchmark",
+            "expected": "id 为整数",
+            "actual": f"upsert {n} 行 (V26-B 新表 l3.benchmark_quote, PIT #86 idempotent)",
+            "passed": n > 0,
+        })
+        # 21d 验证最近 30 天
+        result_list = bql.get_benchmark_30d(ts_code="sh000300")
+        result["tests"].append({
+            "test": "v26_b_verify_30d",
+            "expected": "≥ 5 条最近 30 天",
+            "actual": f"sh000300 验证 {len(result_list)} 条 (V26-B 主函数 load_benchmark_quotes 实战 5 指数 30 天)",
+            "passed": len(result_list) >= 5,
+        })
+    except Exception as e:
+        import traceback
+        for sub in ("v26_b_benchmark_quote_loader", "v26_b_akshare_fetch", "v26_b_upsert_benchmark", "v26_b_verify_30d"):
+            result["tests"].append({
+                "test": sub,
+                "expected": "执行成功",
+                "actual": f"异常: {type(e).__name__}: {str(e)[:120]}",
+                "passed": False,
+            })
+
+    result["duration_seconds"] = round(time.time() - t0, 3)
+    result["passed"] = sum(1 for t in result["tests"] if t["passed"])
+    result["total"] = len(result["tests"])
+    return result
+
+
 if __name__ == "__main__":
     res = _selftest_pattern_12()
     print(f"\n=== 模式 12: V22ToV23Integration ===")

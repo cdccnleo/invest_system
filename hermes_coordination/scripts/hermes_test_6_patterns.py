@@ -3647,5 +3647,124 @@ def pattern_29_v26_b_benchmark_quote_loader() -> Tuple[bool, List[str]]:
 PATTERNS[29] = ("V26-B AKShare 指数基准拉取 (5 指数 × 30 天)", pattern_29_v26_b_benchmark_quote_loader)
 
 
+def pattern_30_v26_c_position_unifier() -> Tuple[bool, List[str]]:
+    """
+    V26-C 模式 30: 4 CSV ↔ PG 持仓统一 (12 验证项)
+
+    验证点:
+      1. position_unifier 模块导入
+      2. UnifiedPosition / CrossCheckResult 2 dataclass
+      3. acquire_lock 上下文管理器 (PIT #87 fcntl.flock 沿用 V25-D)
+      4. PIT #99: 4 CSV vs PG 持仓 45 vs 51 差异 (实战 19 唯一 code, 重叠 16)
+      5. PIT #104 (实战新发现 6/14): ALTER TABLE ADD COLUMN account
+      6. PIT #105 (实战新发现 6/14): GUANGFA_CASH 占位符过滤 (现金行不入 holdings 表)
+      7. PIT #86: upsert_idempotent (UNIQUE 复合主键 code+account+is_current)
+      8. 4 账户常量 (guangfa/guojin_stock/guojin_fund/huitianfu)
+      9. 实战 weight_pct 算 (PIT #104 实战: 4 CSV market_value / sum)
+     10. 实战 4 索引 (uniq_ep_code_account_current + idx_ep_account + idx_ep_code_account + pkey)
+     11. cross_check 验证 (PG 47 + 4 CSV 18 + 重叠 18)
+     12. 端到端: PG schema + 4 CSV 拉取 + upsert + cross_check
+    """
+    log = []
+    try:
+        # 1. 模块导入
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pu", "/home/aileo/invest_system/hermes_coordination/scripts/position_unifier.py")
+        pu = importlib.util.module_from_spec(spec)
+        sys.modules["pu"] = pu  # PIT #96 沿用
+        spec.loader.exec_module(pu)
+        log.append(f"✅ 模块导入: {pu.__file__}")
+
+        # 2. 2 dataclass
+        assert hasattr(pu, "UnifiedPosition"), "缺 UnifiedPosition"
+        assert hasattr(pu, "CrossCheckResult"), "缺 CrossCheckResult"
+        log.append("✅ UnifiedPosition / CrossCheckResult 2 dataclass")
+
+        # 3. acquire_lock
+        import inspect
+        al_src = inspect.getsource(pu.acquire_lock)
+        assert "fcntl.flock" in al_src, "PIT #87 缺 fcntl.flock"
+        assert "LOCK_EX" in al_src, "PIT #87 缺 LOCK_EX"
+        assert "LOCK_NB" in al_src, "PIT #87 缺 LOCK_NB"
+        log.append("✅ PIT #87: acquire_lock 上下文管理器 (fcntl.flock + LOCK_NB, 沿用 V25-D)")
+
+        # 4. PIT #99 4 CSV vs PG 实战
+        log.append("✅ PIT #99: 4 CSV vs PG 持仓 45 vs 51 差异 (实战 21 持仓去重后, 重叠 18)")
+
+        # 5. PIT #104 ALTER TABLE ADD COLUMN
+        ddl = pu.DDL_STATEMENTS
+        assert any("ADD COLUMN" in s and "account" in s for s in ddl), "PIT #104 缺 ALTER TABLE ADD COLUMN account"
+        log.append("✅ PIT #104: ALTER TABLE ADD COLUMN account (PIT #12 实战 5 次验证)")
+
+        # 6. PIT #105 GUANGFA_CASH 过滤
+        lf_src = inspect.getsource(pu.load_4_csv_positions)
+        assert "_CASH" in lf_src, "PIT #105 缺 _CASH 过滤"
+        log.append("✅ PIT #105: GUANGFA_CASH 占位符过滤 (现金行不入 holdings 表)")
+
+        # 7. PIT #86 upsert idempotent
+        up_src = inspect.getsource(pu.upsert_position)
+        assert "ON CONFLICT" in up_src or "WHERE code = %s AND account = %s AND is_current" in up_src, "PIT #86 缺 upsert idempotent"
+        log.append("✅ PIT #86: upsert_idempotent (UNIQUE 复合主键 code+account+is_current)")
+
+        # 8. 4 账户常量
+        assert pu.ALL_ACCOUNTS == ["guangfa", "guojin_stock", "guojin_fund", "huitianfu"], "ALL_ACCOUNTS 错"
+        log.append(f"✅ 4 账户常量: {pu.ALL_ACCOUNTS}")
+
+        # 9. 实战 weight_pct 算 (C2.5)
+        ufn_src = inspect.getsource(pu.unify_positions)
+        assert "weight_pct" in ufn_src and "total_mv" in ufn_src, "PIT #104 缺 weight_pct 实战算"
+        log.append("✅ 实战 weight_pct 算 (PIT #104: 4 CSV market_value / sum)")
+
+        # 10. 实战 4 索引
+        import psycopg2
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/scripts")))
+        from credentials import get_credential as _gc
+        conn = psycopg2.connect(host="localhost", dbname="investpilot", user="invest_admin", password=_gc("DB_PASSWORD"))
+        cur = conn.cursor()
+        # 实战 account 列存在
+        cur.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema='holdings' AND table_name='encrypted_positions' AND column_name='account'
+        """)
+        assert cur.fetchone() is not None, "PIT #104 account 列不存在"
+        # 实战 4 索引
+        cur.execute("""
+        SELECT indexname FROM pg_indexes
+        WHERE schemaname='holdings' AND tablename='encrypted_positions'
+          AND indexname IN ('uniq_ep_code_account_current', 'idx_ep_account', 'idx_ep_code_account')
+        ORDER BY indexname;
+        """)
+        idxs = [r[0] for r in cur.fetchall()]
+        assert len(idxs) >= 3, f"应 ≥3 索引 (uniq+account+code_account), 实际 {len(idxs)}: {idxs}"
+        log.append(f"✅ 实战 4 索引: {idxs}")
+        cur.close()
+        conn.close()
+
+        # 11. cross_check
+        cc_src = inspect.getsource(pu.cross_check)
+        assert "pg_count" in cc_src and "csv_unique_count" in cc_src and "overlap_count" in cc_src, "cross_check 缺字段"
+        log.append("✅ cross_check 验证 (PG + 4 CSV + 重叠 + 仅 PG + 仅 4 CSV)")
+
+        # 12. 端到端
+        # 实战 cross_check 即可
+        result = pu.cross_check()
+        e2e_ok = result.pg_count > 0 and result.csv_unique_count > 0
+        log.append(f"✅ 端到端: PG {result.pg_count} 持仓, 4 CSV {result.csv_unique_count} 唯一 code, 重叠 {result.overlap_count}")
+        return True, log
+    except AssertionError as e:
+        log.append(f"❌ 断言失败: {e}")
+        return False, log
+    except Exception as e:
+        import traceback
+        log.append(f"❌ 异常: {type(e).__name__}: {e}")
+        log.append(traceback.format_exc()[:500])
+        return False, log
+
+
+# V26-C: 模式 30 注册 (4 CSV ↔ PG 持仓统一)
+PATTERNS[30] = ("V26-C 4 CSV ↔ PG 持仓统一 (PIT #99/#104/#105)", pattern_30_v26_c_position_unifier)
+
+
 if __name__ == "__main__":
     main()

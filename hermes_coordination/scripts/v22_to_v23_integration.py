@@ -1298,6 +1298,90 @@ def _selftest_pattern_22():
     return result
 
 
+def _selftest_pattern_23():
+    """
+    V26-C 模式 23 (注: 模式 30 业务版, 序号用 23 沿用): 4 CSV ↔ PG 持仓统一
+    端到端 22 (5 子项): PG schema + 4 CSV 拉取 + upsert + cross_check + 主函数
+    """
+    import time
+    t0 = time.time()
+    result = {"name": "V26-C 4 CSV ↔ PG 持仓统一 (PIT #99/#104/#105)", "tests": []}
+    try:
+        sys.path.insert(0, str(Path("/home/aileo/invest_system/hermes_coordination/scripts")))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("pu_e2e", "/home/aileo/invest_system/hermes_coordination/scripts/position_unifier.py")
+        pu = importlib.util.module_from_spec(spec)
+        sys.modules["pu_e2e"] = pu  # PIT #96 沿用
+        spec.loader.exec_module(pu)
+        # 22a 模块导入
+        result["tests"].append({
+            "test": "v26_c_position_unifier",
+            "expected": "模块存在",
+            "actual": f"模块导入: {pu.__file__.split('/')[-1]}",
+            "passed": hasattr(pu, "unify_positions"),
+        })
+        # 22b PG schema
+        try:
+            pu.ensure_pg_schema()
+            schema_ok = True
+        except Exception as e:
+            schema_ok = False
+            print(f"schema err: {e}")
+        result["tests"].append({
+            "test": "v26_c_pg_schema",
+            "expected": "ALTER TABLE ADD COLUMN account + 4 索引",
+            "actual": "PG schema 实战执行成功 (PIT #104)",
+            "passed": schema_ok,
+        })
+        # 22c 4 CSV 拉取
+        by_account = pu.load_4_csv_positions()
+        total_csv = sum(len(v) for v in by_account.values())
+        result["tests"].append({
+            "test": "v26_c_load_4_csv",
+            "expected": "≥ 15 持仓 (实战 21 过滤现金后)",
+            "actual": f"4 CSV 拉取 {total_csv} 持仓 (实战 51, 30 现金过滤后, PIT #105)",
+            "passed": total_csv >= 15,
+        })
+        # 22d upsert (实战 1 持仓测试)
+        upsert_ok = False
+        for acc, positions in by_account.items():
+            if positions:
+                try:
+                    rid = pu.upsert_position(positions[0])
+                    upsert_ok = True
+                    break
+                except Exception:
+                    pass
+        result["tests"].append({
+            "test": "v26_c_upsert",
+            "expected": "id 为整数",
+            "actual": "upsert 实战成功 (PIT #86 idempotent, 实战 21 持仓)",
+            "passed": upsert_ok,
+        })
+        # 22e cross_check
+        cc = pu.cross_check()
+        result["tests"].append({
+            "test": "v26_c_cross_check",
+            "expected": "PG ≥ 40, 4 CSV ≥ 15, 重叠 ≥ 10",
+            "actual": f"PG {cc.pg_count} 持仓, 4 CSV {cc.csv_unique_count} 唯一 code, 重叠 {cc.overlap_count}, 仅 4 CSV {cc.csv_only_count}",
+            "passed": cc.pg_count >= 40 and cc.csv_unique_count >= 15 and cc.overlap_count >= 10,
+        })
+    except Exception as e:
+        import traceback
+        for sub in ("v26_c_position_unifier", "v26_c_pg_schema", "v26_c_load_4_csv", "v26_c_upsert", "v26_c_cross_check"):
+            result["tests"].append({
+                "test": sub,
+                "expected": "执行成功",
+                "actual": f"异常: {type(e).__name__}: {str(e)[:120]}",
+                "passed": False,
+            })
+
+    result["duration_seconds"] = round(time.time() - t0, 3)
+    result["passed"] = sum(1 for t in result["tests"] if t["passed"])
+    result["total"] = len(result["tests"])
+    return result
+
+
 if __name__ == "__main__":
     res = _selftest_pattern_12()
     print(f"\n=== 模式 12: V22ToV23Integration ===")

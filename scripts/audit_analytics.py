@@ -4,10 +4,15 @@ audit_analytics.py — 审计日志驱动的洞察分析
 """
 
 import logging
+import sys
 from datetime import date, timedelta
 
 import psycopg2
 from pgcrypto_migration import get_credential
+
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+sys.path.insert(0, "/home/aileo/invest_system/scripts")
+from _shared_utils import _safe_num  # noqa: E402
 
 logger = logging.getLogger("invest_system.audit_analytics")
 
@@ -90,9 +95,9 @@ def analyze_trading_behavior(days: int = 30) -> dict:
             patterns.append(f"连续{max_consecutive}天修改AI计划（激进型投资者）")
         if success_rate < 0.6:
             patterns.append(f"AI计划采纳率仅{success_rate:.0%}（可能需要调整Prompt）")
-        if event_counts.get("SCHEDULED_MORNING_RUN", 0) >= 20:
+        if _safe_num(event_counts.get("SCHEDULED_MORNING_RUN")) >= 20:
             patterns.append("每日定时分析已成习惯（成熟投资者）")
-        if event_counts.get("SKILL_EXECUTED", 0) > 5:
+        if _safe_num(event_counts.get("SKILL_EXECUTED")) > 5:
             patterns.append(f"已使用{event_counts.get('SKILL_EXECUTED', 0)}次技能（技能驱动型）")
         if not patterns:
             patterns.append("行为模式稳定，以观察和学习为主")

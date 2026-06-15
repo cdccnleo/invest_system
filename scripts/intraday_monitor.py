@@ -8,10 +8,15 @@ import os
 import csv
 import time
 import logging
+import sys
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+sys.path.insert(0, "/home/aileo/invest_system/scripts")
+from _shared_utils import _safe_num  # noqa: E402
 
 import psycopg2
 
@@ -299,7 +304,7 @@ def detect_anomalies(quotes: list[dict], baseline: dict, name_map: dict = None) 
         # 涨跌幅异动 (用 per-asset 阈值)
         if change_pct >= price_threshold:
             alert_type = "PRICE_ALERT"
-            direction = "上涨" if q.get("change_pct", 0) > 0 else "下跌"
+            direction = "上涨" if _safe_num(q.get("change_pct")) > 0 else "下跌"
             reason = f"{direction}{change_pct:.1f}% (阈值{price_threshold}%/{asset_class})"
 
         # 成交量异动
@@ -336,9 +341,9 @@ def format_anomaly_message(anomalies: list[dict]) -> str:
     price_vol_anomalies = [a for a in anomalies if a.get("alert_type") in (
         "PRICE_ALERT", "PRICE_ALERT+VOLUME", "VOLUME_ALERT", "PRICE_ALERT+VOLUME+VOLUME",
         "PRICE_ALERT+VOLUME+VOLUME",  # extra VOLUME from combined
-    ) or (a.get("change_pct", 0) != 0 and a.get("alert_type", "") == "")]  # fallback
+    ) or (_safe_num(a.get("change_pct")) != 0 and a.get("alert_type", "") == "")]  # fallback
     # Simpler: split by whether change_pct != 0
-    price_vol_anomalies = [a for a in anomalies if a.get("change_pct", 0) != 0 or "VOLUME" in (a.get("alert_type") or "")]  # noqa: E501
+    price_vol_anomalies = [a for a in anomalies if _safe_num(a.get("change_pct")) != 0 or "VOLUME" in (a.get("alert_type") or "")]  # noqa: E501
     ma_cross_anomalies  = [a for a in anomalies if "CROSS" in (a.get("alert_type") or "")]
 
     lines = []

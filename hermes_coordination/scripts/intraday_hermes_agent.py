@@ -174,6 +174,12 @@ def load_skill_excerpt(code: str, max_chars: int = 2000) -> Optional[str]:
 # ============================================================
 # 复用 v2.1 补丁7 的 LLMFallbackChain
 sys.path.insert(0, str(HERMES_SCRIPTS_DIR))
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+try:
+    from _shared_utils import _safe_num  # noqa: E402
+except ImportError:
+    sys.path.insert(0, "/home/aileo/invest_system/scripts")
+    from _shared_utils import _safe_num  # noqa: E402
 try:
     from llm_fallback_chain import LLMFallbackChain  # noqa: E402
     _FALLBACK_CHAIN = LLMFallbackChain(
@@ -296,7 +302,7 @@ def _rule_based_explain(anomaly: Dict, skill_excerpt: Optional[str]) -> str:
     """
     code = anomaly.get("ts_code", "").split(".")[0]
     pct = abs(anomaly.get("change_pct", 0))
-    direction = "上涨" if anomaly.get("change_pct", 0) > 0 else "下跌"
+    direction = "上涨" if _safe_num(anomaly.get("change_pct")) > 0 else "下跌"
 
     if skill_excerpt:
         return f"{direction}{pct:.1f}%, 已在持仓知识库 (skill存在), 需人工分析"

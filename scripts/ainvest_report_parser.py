@@ -24,9 +24,14 @@ import re
 import json
 import logging
 import hashlib
+import sys
 from pathlib import Path
 from datetime import datetime, date
 from typing import Optional
+
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+sys.path.insert(0, "/home/aileo/invest_system/scripts")
+from _shared_utils import _safe_num  # noqa: E402
 
 from utils import read_file_with_encoding
 
@@ -305,7 +310,7 @@ def enrich_with_llm(report_data: dict, content: str) -> dict:
     # 如果已有充分的结构化数据，跳过 LLM 增强
     if (report_data.get("investment_signals")
             and report_data.get("key_judgments")
-            and report_data.get("confidence_score", 0) > 0.7):
+            and _safe_num(report_data.get("confidence_score")) > 0.7):
         return report_data
     
     # 构建精简 prompt

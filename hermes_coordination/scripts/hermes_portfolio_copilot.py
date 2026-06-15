@@ -67,6 +67,9 @@ for _p in [str(_SCRIPT_DIR), str(_INVEST_ROOT / "scripts")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+from _shared_utils import _safe_num  # noqa: E402
+
 # 真实依赖: PGPASSWORD 必须从 store.json 读 (PIT credentials 教训)
 import psycopg2
 import psycopg2.extras
@@ -214,7 +217,7 @@ class _DailyLLMQuota:
         if state.get("date") != str(date.today()):
             state = {"date": str(date.today()), "used": 0, "limit": self.daily_limit, "history": []}
             self.quota_file.write_text(json.dumps(state, ensure_ascii=False))
-        return state.get("used", 0) < self.daily_limit
+        return _safe_num(state.get("used")) < self.daily_limit
 
     def consume(self) -> int:
         state = self._load()

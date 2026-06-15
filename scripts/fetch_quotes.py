@@ -8,7 +8,12 @@ import re
 import logging
 import json
 import urllib.request
+import sys
 from datetime import date
+
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+sys.path.insert(0, "/home/aileo/invest_system/scripts")
+from _shared_utils import _safe_num  # noqa: E402
 
 
 logger = logging.getLogger("invest_system.fetch_quotes")
@@ -375,7 +380,9 @@ def collect_quotes(symbols: list[str]) -> tuple[list[dict], list[dict], list[dic
                 sym_raw = sym.split(".")[0]
                 if not any(q["ts_code"].split(".")[0] == sym_raw for q in quotes):
                     single = fetch_single_em(sym)
-                    if single and single.get("close", 0) > 0:
+                    # PIT #117 (6/15 实战): single.get("close", 0) 当 close 键存在但
+                    # 值为 None 时默认值 0 不生效, 改用 _safe_num 兜底.
+                    if single and _safe_num(single.get("close")) > 0:
                         quotes.append(single)
 
     indices = fetch_index_em()

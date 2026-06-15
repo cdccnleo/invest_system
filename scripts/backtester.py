@@ -24,6 +24,10 @@ import sys
 from pathlib import Path
 from datetime import date
 
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+sys.path.insert(0, "/home/aileo/invest_system/scripts")
+from _shared_utils import _safe_num  # noqa: E402
+
 import psycopg2
 import numpy as np
 from dotenv import load_dotenv
@@ -540,14 +544,14 @@ class BacktestEngine:
 
         # 胜负率
         sell_trades = [t for t in self.trades if t["action"] in ("SELL", "CLOSE")]
-        n_wins = sum(1 for t in sell_trades if t.get("pnl", 0) > 0)
+        n_wins = sum(1 for t in sell_trades if _safe_num(t.get("pnl")) > 0)
         win_rate = (n_wins / len(sell_trades) * 100) if sell_trades else 0.0
 
         # 总盈利/亏损
-        total_pnl = sum(t.get("pnl", 0) for t in sell_trades)
+        total_pnl = sum(_safe_num(t.get("pnl")) for t in sell_trades)
         profit_factor = 1.0
-        gross_profit = sum(t.get("pnl", 0) for t in sell_trades if t.get("pnl", 0) > 0)
-        gross_loss = abs(sum(t.get("pnl", 0) for t in sell_trades if t.get("pnl", 0) < 0))
+        gross_profit = sum(_safe_num(t.get("pnl")) for t in sell_trades if _safe_num(t.get("pnl")) > 0)
+        gross_loss = abs(sum(_safe_num(t.get("pnl")) for t in sell_trades if _safe_num(t.get("pnl")) < 0))
         if gross_loss > 0:
             profit_factor = round(gross_profit / gross_loss, 2)
 

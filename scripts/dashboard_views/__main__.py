@@ -12,6 +12,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 # 统一改用绝对导入（见各 _xxx.py），把 dashboard_views 目录加入 sys.path
 # 使 from _xxx import ... 能解析到同包内的兄弟模块。
 sys.path.insert(0, str(ROOT / "scripts" / "dashboard_views"))
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+from _shared_utils import _safe_num  # noqa: E402
 
 # ── Hermes Profile 加载器 (v2.1 补丁8 集成) ──────────────────────────────────
 # 在 sidebar 顶部提供 default / conservative / aggressive 切换
@@ -109,11 +111,13 @@ with st.sidebar:
             prof_cfg = _PROFILE_LOADER.load(sel_profile)
             prof_meta = prof_cfg.get("profile", {})
             alloc = prof_cfg.get("target_allocation", {})
+            # PIT #117 (6/15 实战): alloc.get('xxx', 0) 键存在值 None 时 * 100 会抛
+            # TypeError. 用 _safe_num 兜底.
             st.caption(
                 f"📌 {prof_meta.get('description', sel_profile)}\n"
-                f"仓位: AI算力 {alloc.get('ai_compute', 0)*100:.0f}% | "
-                f"防御 {alloc.get('defense', 0)*100:.0f}% | "
-                f"现金 {alloc.get('cash', 0)*100:.0f}%"
+                f"仓位: AI算力 {_safe_num(alloc.get('ai_compute'))*100:.0f}% | "
+                f"防御 {_safe_num(alloc.get('defense'))*100:.0f}% | "
+                f"现金 {_safe_num(alloc.get('cash'))*100:.0f}%"
             )
         except Exception:
             pass

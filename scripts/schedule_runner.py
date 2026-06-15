@@ -23,6 +23,8 @@ except ImportError:
 # ── 路径设置 ──────────────────────────────────────────────────────────────
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+from _shared_utils import _safe_num  # noqa: E402
 
 # ── 单实例锁（防止 watchdog 重启 / 误启导致双跑重复 job）────────────────
 import atexit
@@ -691,7 +693,7 @@ def job_report_summary_to_tamf():
             f"TAMF第6章同步完成: 更新{result['targets_updated']}只标的, "
             f"处理{result['processed']}篇研报, 跳过{result['skipped']}篇"
         )
-        if result.get("failed", 0) > 0:
+        if _safe_num(result.get("failed")) > 0:
             _safe_error_alert(
                 "⚠️ 研报摘要→TAMF部分失败",
                 f"更新{result['targets_updated']}只, 失败{result.get('failed', 0)}只",
@@ -819,8 +821,9 @@ def job_midday():
         portfolio_chg = (weighted_chg / total_mv) if total_mv > 0 else 0
 
         # 涨跌排行（change_pct 有效）
-        valid = [p for p in enriched if p.get("change_pct", 0) != 0]
-        sorted_pos = sorted(valid, key=lambda x: x.get("change_pct", 0), reverse=True)
+        # PIT #117 (6/15 实战): change_pct=None 时 _safe_num(None) = 0, != 0 为 False, 自动过滤
+        valid = [p for p in enriched if _safe_num(p.get("change_pct")) != 0]
+        sorted_pos = sorted(valid, key=lambda x: _safe_num(x.get("change_pct")), reverse=True)
         gainers = sorted_pos[:5]
         losers = sorted_pos[-5:] if len(sorted_pos) >= 5 else sorted_pos[::-1][:5]
         losers = sorted(losers, key=lambda x: x.get("change_pct", 0))
@@ -1225,7 +1228,7 @@ def job_merge_holdings():
             missed.append(f"{src}(无 CSV)")
         elif info.get("error"):
             missed.append(f"{src}({info['error']})")
-        elif info.get("count", 0) == 0:
+        elif _safe_num(info.get("count")) == 0:
             # CSV 存在但 0 行 — 解析失败或文件空
             zero_count.append(src)
 

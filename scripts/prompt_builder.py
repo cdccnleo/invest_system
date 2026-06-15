@@ -9,6 +9,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None 代入 f-string 抛错
+from _shared_utils import _safe_num  # noqa: E402
 TAMF_DIR = PROJECT_ROOT / "data" / "target_memories"
 
 
@@ -404,12 +406,16 @@ def simple_position_analysis(positions: list[dict], total_mv: float) -> str:
     for pos in positions:
         code = pos.get("code", "")
         name = pos.get("name", "")[:10]
-        cost = pos.get("cost", 0)
-        close = pos.get("close", cost)
-        mv = pos.get("market_value", 0)
+        # PIT #117 (6/15 实战): pos.get("cost", 0) 当 cost 键存在值 None 时, 默认值
+        # 0 不生效, 直接返 None. 后续 None 代入 f-string "{cost:>8.3f}" 抛 TypeError
+        # (unsupported format string passed to NoneType.__format__). 用 _safe_num 兜底.
+        cost = _safe_num(pos.get("cost"))
+        close = _safe_num(pos.get("close"), default=cost)  # close=None 时用 cost 兜底
+        mv = _safe_num(pos.get("market_value"))
+        shares = _safe_num(pos.get("shares"))
         pnl_pct = (close - cost) / cost * 100 if cost > 0 else 0
         weight = mv / total_mv * 100 if total_mv > 0 else 0
-        total_pnl += mv - cost * pos.get("shares", 0)
+        total_pnl += mv - cost * shares
 
         arrow = "🔴" if pnl_pct >= 0 else "🟢"
         lines.append(f"{name:<12} {code:<8} {cost:>8.3f} {close:>8.3f} "

@@ -44,6 +44,9 @@ from typing import Optional, List, Dict, Any
 _INVEST_ROOT = "/home/aileo/invest_system"
 sys.path.insert(0, f"{_INVEST_ROOT}/.venv/lib/python3.11/site-packages")
 sys.path.insert(0, f"{_INVEST_ROOT}/hermes_coordination/scripts")
+sys.path.insert(0, f"{_INVEST_ROOT}/scripts")
+# PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
+from _shared_utils import _safe_num  # noqa: E402
 
 import psycopg2
 import psycopg2.extras
@@ -467,7 +470,7 @@ def _check_llm_quota() -> bool:
         data = json.loads(quota_path.read_text())
         if data.get("date") != str(datetime.now().date()):
             data = {"date": str(datetime.now().date()), "used": 0, "history": []}
-        return data.get("used", 0) < LLM_DAILY_LIMIT
+        return _safe_num(data.get("used")) < LLM_DAILY_LIMIT
     except Exception:
         return False
 

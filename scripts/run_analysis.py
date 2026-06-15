@@ -92,6 +92,13 @@ def load_positions(csv_path: str) -> list[dict]:
     return positions
 
 
+# PIT #117 (6/15 实战): dict.get(key, 0) 当 key 存在但值为 None 时, 默认值 0 不生效
+# 直接返 None, 后续 None > 0 比较会抛 TypeError. 修复用 isinstance 兜底 None (亦覆盖
+# str/None 等非数值). 整个文件统一用此 helper 替代 dict.get(key, 0) 比较模式.
+def _safe_num(v):
+    return v if isinstance(v, (int, float)) and v is not None else 0
+
+
 def enrich_positions_with_quotes(positions: list[dict]) -> list[dict]:
     """
     采集实时行情并合并到持仓数据
@@ -149,7 +156,7 @@ def enrich_positions_with_quotes(positions: list[dict]) -> list[dict]:
         else:
             q = quote_map.get(code)
 
-        if q and q.get("close", 0) > 0:
+        if q and _safe_num(q.get("close")) > 0:
             pos["close"] = q["close"]
             pos["change_pct"] = q.get("change_pct", 0)
             pos["ts_code"] = q["ts_code"]
@@ -207,9 +214,9 @@ def run_analysis():
     # ── Step 4: 数据校验 ──────────────────────────────────────────────────
     print("\n📌 Step 4: 数据校验...")
     quotes_raw = [{"ts_code": p.get("ts_code", ""), "trade_date": date.today().strftime("%Y-%m-%d"),
-                   "close": p.get("close", 0), "volume": 0,  # 不写入持仓数量(≠成交量)，留空让ON CONFLICT保留历史真实均量  # noqa: E501
-                   "change_pct": p.get("change_pct", 0), "source": "run_analysis"}
-                  for p in positions if p.get("close", 0) > 0]
+                   "close": _safe_num(p.get("close")), "volume": 0,  # 不写入持仓数量(≠成交量)，留空让ON CONFLICT保留历史真实均量  # noqa: E501
+                   "change_pct": _safe_num(p.get("change_pct")), "source": "run_analysis"}
+                  for p in positions if _safe_num(p.get("close")) > 0]
     quotes_valid, quotes_err = validate_quotes_data(quotes_raw)
     positions_valid, positions_err = validate_positions_data(positions)
     news_valid, news_err = validate_news_data(news)
@@ -258,7 +265,7 @@ def run_analysis():
     # 用 enriched positions（含 close）重新计算
     enriched_for_sanit = []
     for p in positions_valid:
-        if p.get("close", 0) > 0:
+        if _safe_num(p.get("close")) > 0:
             enriched_for_sanit.append(p)
     sanitized, id_mapping = sanitize_snapshot(total_mv, enriched_for_sanit)
     print_sanitized_report(sanitized, total_mv)

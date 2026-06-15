@@ -267,62 +267,15 @@ def format_health_report(health: dict) -> str:
     return "\n".join(lines)
 
 
-@track_cron_task("每日健康报告 (08:30)")
-def job_health_report():
-    """08:30 每日健康报告"""
-    logger.info("每日健康报告开始")
-    try:
-        health = check_services_health()
-
-        # Determine overall status
-        if "critical" in str(health["db"]) or "critical" in str(health["watchdog"]):
-            status = "critical"
-        elif "warning" in str(health["db"]) or "warning" in str(health["streamlit"]):
-            status = "warning"
-        else:
-            status = "healthy"
-
-        report = format_health_report(health)
-        send_health_report(report, status=status)
-        logger.info(f"健康报告已发送 (状态: {status})")
-    except Exception as e:
-        logger.error(f"健康报告异常: {e}")
-        _safe_error_alert("🔴 健康报告生成失败", f"错误: {e}")
-
-
-# ── 工作流定义 ────────────────────────────────────────────────────────────
-from fetch_reports import collect_reports
-from skill_library import check_skill_triggers, generate_skill_draft, SkillLifecycle
-from skill_library import TRIGGER_DAYS, TRIGGER_MIN_CALLS
-from notification import send_notification, send_error_alert, send_health_report, send_job_failure
-from intraday_monitor import IntradayMonitor, format_anomaly_message
-from intraday_alert_correlator import job_intraday_linked_alert
-from fetch_financial import collect_financial_for_positions
-from fetch_announcements import fetch_all_positions_announcements
-from l3_dialog_engine import L3DialogEngine
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
-# 同时输出到 logs/schedule_runner.log (独立 FileHandler, 即便 watchdog 切断 stdout 也能保留)
-_LOG_FILE = ROOT / "logs" / "schedule_runner.log"
-try:
-    _fh = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
-    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
-    logging.getLogger().addHandler(_fh)
-except Exception:
-    pass
-logger = logging.getLogger("invest_system.scheduler")
-
-
 # ── PIT #119 (6/15 排查) cron_task_metrics 落库设计缺口 ──────────────────
 # 实战真相: schedule_runner 36 个 cron 任务从来就没有自动写 public.cron_task_metrics
 # V22 时期 design 时漏了, 表里只有 1 行 (6/11 hermes_event_analyst 手工 dry-run)
 # v22_monitoring.collect_cron_health 永远读到 0 行 → cron_task_health 指标永久 0%
 # 修复: @track_cron_task(name) decorator 透明包 36 个 job_*, 自动写 start/end/duration/status
 # 设计原则: 不改业务逻辑, 异常自动捕获, 失败仍触发飞书告警 (PIT #112 兼容)
+# 位置: 必须放在第一个 @track_cron_task 装饰的 def job_* 之前 (Python top-down 解析)
+# PIT #120 (6/15 22:39 实战): 原放在 logger 后 (line 326), job_health_report 在 line 271
+#       抛 NameError, 移到此处 (line 270 之前) 解决
 def track_cron_task(task_name: str):
     """
     PIT #119 (6/15 排查) decorator: 自动写 public.cron_task_metrics
@@ -409,6 +362,56 @@ def track_cron_task(task_name: str):
                     logger.debug(f"[{task_name}] cron_task_metrics 写入失败: {e_meta}")
         return wrapper
     return decorator
+
+
+@track_cron_task("每日健康报告 (08:30)")
+def job_health_report():
+    """08:30 每日健康报告"""
+    logger.info("每日健康报告开始")
+    try:
+        health = check_services_health()
+
+        # Determine overall status
+        if "critical" in str(health["db"]) or "critical" in str(health["watchdog"]):
+            status = "critical"
+        elif "warning" in str(health["db"]) or "warning" in str(health["streamlit"]):
+            status = "warning"
+        else:
+            status = "healthy"
+
+        report = format_health_report(health)
+        send_health_report(report, status=status)
+        logger.info(f"健康报告已发送 (状态: {status})")
+    except Exception as e:
+        logger.error(f"健康报告异常: {e}")
+        _safe_error_alert("🔴 健康报告生成失败", f"错误: {e}")
+
+
+# ── 工作流定义 ────────────────────────────────────────────────────────────
+from fetch_reports import collect_reports
+from skill_library import check_skill_triggers, generate_skill_draft, SkillLifecycle
+from skill_library import TRIGGER_DAYS, TRIGGER_MIN_CALLS
+from notification import send_notification, send_error_alert, send_health_report, send_job_failure
+from intraday_monitor import IntradayMonitor, format_anomaly_message
+from intraday_alert_correlator import job_intraday_linked_alert
+from fetch_financial import collect_financial_for_positions
+from fetch_announcements import fetch_all_positions_announcements
+from l3_dialog_engine import L3DialogEngine
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+# 同时输出到 logs/schedule_runner.log (独立 FileHandler, 即便 watchdog 切断 stdout 也能保留)
+_LOG_FILE = ROOT / "logs" / "schedule_runner.log"
+try:
+    _fh = logging.FileHandler(str(_LOG_FILE), encoding="utf-8")
+    _fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", "%H:%M:%S"))
+    logging.getLogger().addHandler(_fh)
+except Exception:
+    pass
+logger = logging.getLogger("invest_system.scheduler")
 
 
 # ── 推送报告组装 ──────────────────────────────────────────────────────────

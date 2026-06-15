@@ -124,19 +124,39 @@ def parse_invest_tm(tm_path: Path) -> Optional[Dict]:
     }
 
 
+def _strip_sync_metadata(content: str) -> str:
+    """
+    PIT #116 修复: 去除 content 末尾的 ## 同步元数据 块 (含前面的 --- 分隔符).
+    原因: 双向同步时, _skill_to_tm 和 _tm_to_skill 都会把对端的 ## 同步元数据
+    嵌入到自己的 body, 导致每天 18:00 同步时净叠加 +1 个块.
+    实战: 51 个 TM 文件 100% 命中, 平均 4 块/文件, 冗余 92KB.
+    """
+    if not content:
+        return content
+    # 模式 1: 末尾的 --- \n ## 同步元数据 块
+    pattern1 = re.compile(r"\n*---\s*\n+##\s*同步元数据.*\Z", re.DOTALL)
+    content = pattern1.sub("", content)
+    return content.rstrip() + "\n"
+
+
 def _skill_to_tm(skill: Dict, code: str) -> str:
-    """Hermes Skill body -> InvestPilot target_memory markdown 格式"""
+    """Hermes Skill body -> InvestPilot target_memory markdown 格式
+
+    PIT #116 修复: skill body 末尾的 ## 同步元数据 块 (如果有) 必先去除,
+    否则 h2i 同步时把旧元数据写进 TM, 下次 i2h 又把它写回 skill, 循环叠加.
+    """
     # 提取股票名称
     name_match = re.search(r"#\s*(.+)", skill.get("body", ""))
     name = name_match.group(1).strip().split("（")[0] if name_match else f"股票{code}"
     sync_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    clean_body = _strip_sync_metadata(skill.get("body", ""))
     return (
         f"# {name}（{code}）\n\n"
         f"> **同步来源**: Hermes Skill (stock-{code})\n"
         f"> **同步时间**: {sync_time}\n"
         f"> **Skill SHA256**: `{skill['sha256'][:16]}`\n\n"
         f"---\n\n"
-        f"{skill.get('body', '')}\n\n"
+        f"{clean_body}\n\n"
         f"---\n\n"
         f"## 同步元数据\n\n"
         f"- **Skill Name**: {skill.get('name', '')}\n"
@@ -146,7 +166,11 @@ def _skill_to_tm(skill: Dict, code: str) -> str:
 
 
 def _tm_to_skill(tm: Dict) -> str:
-    """InvestPilot target_memory -> Hermes Skill (YAML frontmatter + body)"""
+    """InvestPilot target_memory -> Hermes Skill (YAML frontmatter + body)
+
+    PIT #116 修复: tm['content'] 末尾的 ## 同步元数据 块 (如果有) 必先去除,
+    否则 i2h 同步时把旧元数据写进 skill body, 下次 h2i 又把它写回 TM, 循环叠加.
+    """
     name_match = re.search(r"^#\s*(.+)", tm["content"], re.MULTILINE)
     name = name_match.group(1) if name_match else f"股票{tm['code']}"
     code = tm["code"]
@@ -157,6 +181,7 @@ def _tm_to_skill(tm: Dict) -> str:
         "triggers": [code, short_name],
     }
     sync_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    clean_content = _strip_sync_metadata(tm["content"])
     return (
         f"---\n{yaml.dump(frontmatter, allow_unicode=True, sort_keys=False)}---\n\n"
         f"# {name}\n\n"
@@ -164,7 +189,7 @@ def _tm_to_skill(tm: Dict) -> str:
         f"> **同步时间**: {sync_time}\n"
         f"> **原文件**: `{tm['tm_path']}`\n\n"
         f"---\n\n"
-        f"{tm['content']}\n\n"
+        f"{clean_content}\n\n"
         f"---\n\n"
         f"## 同步元数据\n\n"
         f"- **TM SHA256**: `{tm['sha256'][:16]}`\n"

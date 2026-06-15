@@ -8,6 +8,8 @@ import sys
 import os
 import time
 import logging
+import functools
+import traceback as _tb
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
@@ -25,6 +27,16 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 # PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
 from _shared_utils import _safe_num  # noqa: E402
+
+# ── PIT #119 (6/15 排查) cron_task_metrics 落库设计缺口 ──────────────────
+# 实战真相: schedule_runner 36 个 cron 任务从来就没有自动写 public.cron_task_metrics
+# V22 时期 design 时漏了, 表里只有 1 行 (6/11 hermes_event_analyst 手工 dry-run)
+# v22_monitoring.collect_cron_health 永远读到 0 行 → cron_task_health 指标永久 0%
+# 修复: @track_cron_task(name) decorator 透明包 36 个 job_*, 自动写 start/end/duration/status
+# 设计原则: 不改业务逻辑, 异常自动捕获, 失败仍触发飞书告警 (PIT #112 兼容)
+# 注: track_cron_task 函数本身移到 line ~195 (logger + _safe_error_alert 定义后),
+#     这里只先 import functools + traceback (无副作用)
+
 
 # ── 单实例锁（防止 watchdog 重启 / 误启导致双跑重复 job）────────────────
 import atexit
@@ -255,6 +267,7 @@ def format_health_report(health: dict) -> str:
     return "\n".join(lines)
 
 
+@track_cron_task("每日健康报告 (08:30)")
 def job_health_report():
     """08:30 每日健康报告"""
     logger.info("每日健康报告开始")
@@ -302,6 +315,100 @@ try:
 except Exception:
     pass
 logger = logging.getLogger("invest_system.scheduler")
+
+
+# ── PIT #119 (6/15 排查) cron_task_metrics 落库设计缺口 ──────────────────
+# 实战真相: schedule_runner 36 个 cron 任务从来就没有自动写 public.cron_task_metrics
+# V22 时期 design 时漏了, 表里只有 1 行 (6/11 hermes_event_analyst 手工 dry-run)
+# v22_monitoring.collect_cron_health 永远读到 0 行 → cron_task_health 指标永久 0%
+# 修复: @track_cron_task(name) decorator 透明包 36 个 job_*, 自动写 start/end/duration/status
+# 设计原则: 不改业务逻辑, 异常自动捕获, 失败仍触发飞书告警 (PIT #112 兼容)
+def track_cron_task(task_name: str):
+    """
+    PIT #119 (6/15 排查) decorator: 自动写 public.cron_task_metrics
+    - 透明包, 不改函数签名
+    - 异常自动捕获, 写 status=failed + error_message
+    - 成功时如 return dict 含 processed/failed 字段自动写 items_processed/items_failed
+    - 失败时 (PIT #112 兼容) 调 _safe_error_alert 推飞书
+
+    Usage:
+        @track_cron_task("盘前工作流")
+        def job_morning():
+            ...
+
+    PIT 设计取舍:
+    - 不强制要求函数 return dict (绝大多数 job 是 None return, 自动 items=0)
+    - 返回 dict 形式: {"processed": N, "failed": M} 自动写指标
+    - 异常路径: traceback 截前 500 字符, 不影响原 _safe_error_alert 调用
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start_ts = time.time()
+            start_dt = datetime.now()
+            items_processed = 0
+            items_failed = 0
+            status = "success"
+            error_msg = None
+            try:
+                result = func(*args, **kwargs)
+                # 如 return dict 含 processed/failed 字段, 自动填
+                if isinstance(result, dict):
+                    items_processed = _safe_num(result.get("processed", 0))
+                    items_failed = _safe_num(result.get("failed", 0))
+                    # status 判定: 全失败 = failed, 部分失败 = success (因为任务本身跑完),
+                    #               完全没 processed = success (空场景)
+                    # 注: cron_task_metrics.status_check 约束仅允许
+                    #     [running/success/failed/timeout], 不能用 partial
+                    if items_processed == 0 and items_failed > 0:
+                        status = "failed"  # 完全没成功
+                return result
+            except Exception as e:
+                status = "failed"
+                # 截前 500 字符避免 DB 字段溢出 (PIT #115 jsonb 修复兼容)
+                error_msg = _tb.format_exc()[:500]
+                logger.error(f"[{task_name}] 任务异常: {e}")
+                # PIT #112 兼容: 失败时推飞书告警
+                try:
+                    _safe_error_alert(
+                        f"🔴 {task_name} 失败",
+                        f"错误: {e}\n{error_msg[:300]}"
+                    )
+                except Exception:
+                    pass  # _safe_error_alert 自身失败不递归
+                # 不 raise, 让 APScheduler 继续调度下个 job
+            finally:
+                duration = round(time.time() - start_ts, 2)
+                # 写 cron_task_metrics (非致命, 失败静默)
+                try:
+                    from backtester import get_db_conn
+                    _conn = get_db_conn()
+                    _cur = _conn.cursor()
+                    import json as _json_cron
+                    _cur.execute("""
+                        INSERT INTO public.cron_task_metrics
+                          (task_name, start_time, end_time, duration_seconds, status,
+                           items_processed, items_failed, error_code, error_message, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        task_name,
+                        start_dt,
+                        datetime.now(),
+                        duration,
+                        status,
+                        int(items_processed),
+                        int(items_failed),
+                        type(error_msg).__name__ if error_msg and not isinstance(error_msg, str) else None,
+                        error_msg,
+                        _json_cron.dumps({"duration_sec": duration})
+                    ))
+                    _conn.commit()
+                    _cur.close()
+                    _conn.close()
+                except Exception as e_meta:
+                    logger.debug(f"[{task_name}] cron_task_metrics 写入失败: {e_meta}")
+        return wrapper
+    return decorator
 
 
 # ── 推送报告组装 ──────────────────────────────────────────────────────────
@@ -385,6 +492,7 @@ def _build_closing_report() -> str:
 
 # ── 工作流定义 ────────────────────────────────────────────────────────────
 
+@track_cron_task("盘前工作流 (08:30)")
 def job_morning():
     """08:30 盘前工作流"""
     if not _guard_trading_day("job_morning"):
@@ -456,6 +564,7 @@ def _parallel_collect_close_data(stock_codes: list, anns_days_window: int = 30) 
     return results
 
 
+@track_cron_task("盘后工作流 (15:30)")
 def job_closing():
     """15:30 盘后工作流"""
     if not _guard_trading_day("job_closing"):
@@ -545,6 +654,7 @@ def job_closing():
             pass
 
 
+@track_cron_task("TAMF 增量更新")
 def job_tamf_update():
     """15:35 TAMF增量更新 — 盘后数据到达后更新所有持仓标的分析记忆文件"""
     if not _guard_trading_day("job_tamf_update"):
@@ -580,6 +690,7 @@ def job_tamf_update():
             pass
 
 
+@track_cron_task("权益曲线保存")
 def job_equity_curve_save():
     """15:40 持仓历史equity曲线保存 — 每日收盘后记录组合总市值"""
     if not _guard_trading_day("job_equity_curve_save"):
@@ -605,6 +716,7 @@ def job_equity_curve_save():
         _safe_error_alert("🔴 Equity Curve 保存异常", f"错误: {e}")
 
 
+@track_cron_task("深度分析 (周日)")
 def job_deep_analysis_weekly():
     """周日22:00 周频深度分析 — 强制重生成所有持仓标的的Agent段落"""
     logger.info("=" * 50)
@@ -628,6 +740,7 @@ def job_deep_analysis_weekly():
             pass
 
 
+@track_cron_task("研报采集")
 def job_reports_collection():
     """16:00 研报复盘工作流 — 采集当日研报（每日运行，非仅交易日）"""
     # 移除交易日守卫：研报发布后即入库，非交易日同样需要更新
@@ -678,6 +791,7 @@ def job_reports_collection():
             pass
 
 
+@track_cron_task("研报汇总入 TAMF")
 def job_report_summary_to_tamf():
     """
     16:05 研报摘要→TAMF第6章同步 — 将最新研报摘要写入持仓标的TAMF第六章。
@@ -756,6 +870,7 @@ def _detect_rating_changes():
         return 0
 
 
+@track_cron_task("晚间工作流 (18:00)")
 def job_evening():
     """21:00 晚间工作流（每日运行，非仅交易日）"""
     # 移除交易日守卫：新闻/研报在非交易日同样需要更新
@@ -793,6 +908,7 @@ def job_evening():
             logger.error(f"推送错误告警失败: {push_err}")
 
 
+@track_cron_task("午间快讯 (11:30)")
 def job_midday():
     """11:30 午间快讯工作流 — 持仓股上午涨跌排行 + 下午关注点"""
     if not _guard_trading_day("job_midday"):
@@ -888,6 +1004,7 @@ def job_midday():
             pass
 
 
+@track_cron_task("公告采集 (20:50)")
 def job_announcements_collection():
     """20:50 公告采集工作流 — 采集持仓股近30天公告（每日运行，非仅交易日）"""
     # 移除交易日守卫：公告在非交易日同样可能发布（如盘后重大事项）
@@ -960,6 +1077,7 @@ def job_announcements_collection():
             pass
 
 
+@track_cron_task("情绪因子更新 (21:05)")
 def job_sentiment_update():
     """
     21:00 情绪因子更新工作流（每日运行）
@@ -1091,6 +1209,7 @@ def job_sentiment_update():
             pass
 
 
+@track_cron_task("盘中异动监控")
 def job_intraday_monitoring():
     """
     每5分钟盘中异动监控 job（同步模式）—
@@ -1138,6 +1257,7 @@ def job_intraday_monitoring():
         send_job_failure("盘中异动监控", str(e))
 
 
+@track_cron_task("持仓合并/解密 (22:35)")
 def job_merge_holdings():
     """
     22:35 持仓文件汇总 —
@@ -1369,6 +1489,7 @@ def _log_merge_to_audit(total: int, sources: dict, result: str,
 #        Hermes 端补丁 → 自动回流 InvestPilot 文档)
 # 时间选 18:00 是因为: 15:30 收盘 + 15:35 TAMF 更新 + 16:00 研报采集 + 16:05 摘要同步,
 # 18:00 已是当日数据稳定时刻, 适合做跨系统对账.
+@track_cron_task("Hermes 双向同步 (18:00)")
 def job_hermes_sync():
     """
     18:00 Hermes Agent × InvestPilot 双向同步 —
@@ -1472,13 +1593,14 @@ def job_hermes_sync():
         )
 
 
+@track_cron_task("V26-A 行情拉取 (盘中 5min)")
 def job_quote_streamer_5min():
     """
     5min 行情拉取 — V26-A (方案B 行情API集成, 2026-06-14 实战)
 
     1. 子进程调 hermes_coordination/scripts/quote_streamer.py
     2. 解析 stdout 拿 success/failed/cached/persisted/elapsed_sec
-    3. 写 cron_task_metrics (任务: quote_streamer_5min)
+    3. 写 cron_task_metrics 由 @track_cron_task 装饰器接管 (PIT #119 修复)
     4. 告警分级:
        - failed > 0 → WARNING 推飞书
        - 全部缓存/全失败 → INFO 静默
@@ -1489,6 +1611,8 @@ def job_quote_streamer_5min():
     实战数据 (6/14 第一次跑):
     - 45 持仓: 28 stock × 3.6s = 100s + 17 fund × 0.3s = 5s ≈ 105s
     - 缓存命中: 后续触发 ~10s (缓存 TTL 300s, PIT #108)
+
+    PIT #119 (6/15 排查): 改用 return dict 让装饰器接管, 避免重复写
     """
     import json
     import subprocess as _sp_qs
@@ -1496,7 +1620,6 @@ def job_quote_streamer_5min():
     logger.info("=" * 50)
     logger.info("5min 行情拉取 (V26-A) 启动")
     start_ts = time.time()
-    task_name = "quote_streamer_5min"
 
     # ── 1. 跑 quote_streamer.py 子进程 ─────────────────────────────────
     root = Path(str(ROOT)).resolve()
@@ -1506,12 +1629,12 @@ def job_quote_streamer_5min():
         msg = f"quote_streamer.py 不存在: {qs_script}"
         logger.error(msg)
         _safe_error_alert("🔴 行情拉取脚本缺失", msg)
-        return
+        return {"processed": 0, "failed": 1, "error": "script_missing"}
     if not venv_py.exists():
         msg = f"venv python 不存在: {venv_py}"
         logger.error(msg)
         _safe_error_alert("🔴 venv 缺失", msg)
-        return
+        return {"processed": 0, "failed": 1, "error": "venv_missing"}
 
     try:
         proc = _sp_qs.run(
@@ -1522,14 +1645,14 @@ def job_quote_streamer_5min():
         logger.error(f"quote_streamer 子进程启动失败: {e}")
         _safe_error_alert("🔴 行情拉取启动失败", f"无法执行 quote_streamer.py: {e}")
         send_job_failure("行情拉取 (5min)", str(e))
-        return
+        return {"processed": 0, "failed": 1, "error": f"start_failed: {e}"}
 
     if proc.returncode != 0:
         msg = f"quote_streamer 异常退出 rc={proc.returncode}: {proc.stderr[:200]}"
         logger.error(msg)
         _safe_error_alert("🔴 行情拉取脚本失败", proc.stderr[:200] or f"rc={proc.returncode}")
         send_job_failure("行情拉取 (5min)", msg)
-        return
+        return {"processed": 0, "failed": 1, "error": f"rc={proc.returncode}"}
 
     # ── 2. 解析 stdout (找 JSON 行, 兼容 self-test 模式) ──────────────────
     total = success = failed = cached = persisted = 0
@@ -1566,35 +1689,9 @@ def job_quote_streamer_5min():
         f"缓存 {cached} 持久化 {persisted} 解析耗时 {elapsed_sec}s"
     )
 
-    # ── 3. 写 cron_task_metrics ─────────────────────────────────────
-    try:
-        import psycopg2 as _psy
-        import json as _json
-        from psycopg2.extras import Json as _Json
-        conn = _psy.connect(host="localhost", port=5432, dbname="investpilot",
-                            user="invest_admin",
-                            password=os.environ.get("PGPASSWORD", ""))
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO public.cron_task_metrics
-              (task_name, start_time, end_time, duration_seconds, status,
-               items_processed, items_failed, metadata)
-            VALUES (%s, NOW() - INTERVAL '%s seconds', NOW(), %s, %s, %s, %s, %s)
-            """,
-            (task_name, elapsed, elapsed, "success" if failed == 0 else "partial",
-             persisted, failed, _Json({
-                 "total": total, "success": success, "failed": failed,
-                 "cached": cached, "persisted": persisted,
-                 "elapsed_sec_script": elapsed_sec,
-                 "summary_raw": summary[:200],
-             }))
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.warning(f"cron_task_metrics 写入失败 (非致命): {e}")
+    # PIT #119 (6/15 排查): 不再手写 INSERT, 由 @track_cron_task 装饰器接管
+    # 原 30 行手写 INSERT/conn.commit/cur.close/conn.close 全部删除
+    # 失败时推飞书 (保留原 PIT #112 兼容告警)
 
     # ── 4. 告警分级 ─────────────────────────────────────────────────
     if failed > 0 and failed >= total // 2:  # 一半以上失败 = WARNING
@@ -1608,7 +1705,18 @@ def job_quote_streamer_5min():
             f"行情拉取: 成功 {success}/{total} 持久化 {persisted} (i2h={persisted})"
         )
 
+    # PIT #119: return dict 让装饰器写 processed/failed + 自动算 status
+    return {
+        "processed": persisted,  # 实际持久化数 (i2h 写 l3.quote_snapshot)
+        "failed": failed,        # 子进程拉取失败数
+        "total": total,
+        "success": success,
+        "cached": cached,
+        "elapsed_sec": elapsed_sec,
+    }
 
+
+@track_cron_task("技能固化")
 def job_skill_solidification():
     """
     22:00 技能固化工作流 —
@@ -1706,6 +1814,7 @@ def job_skill_solidification():
             pass
 
 
+@track_cron_task("LLM 成本报告")
 def job_llm_cost_report():
     """
     22:30 LLM 成本日报 —
@@ -1753,6 +1862,7 @@ def job_llm_cost_report():
             pass
 
 
+@track_cron_task("技能质量抽查 (周日 21:00)")
 def job_skill_spot_check():
     """
     每周日 21:00 自动抽查已批准技能的静默退化。
@@ -1856,6 +1966,7 @@ def job_skill_spot_check():
             pass
 
 
+@track_cron_task("行为画像更新")
 def job_behavior_profile_update():
     """
     每日 15:40 收盘后行为画像更新
@@ -1964,6 +2075,7 @@ def _build_profile_rows(profile: dict) -> list[tuple]:
     return rows
 
 
+@track_cron_task("每周行为洞察 (周日 20:00)")
 def job_behavior_insights():
     """
     每周日 20:00 行为洞察周报
@@ -1988,6 +2100,7 @@ def job_behavior_insights():
             pass
 
 
+@track_cron_task("用户情绪感知")
 def job_user_emotion_sensing():
     """
     每日 21:30 用户情绪感知（高频操作检测 → 情绪推断）
@@ -2105,6 +2218,7 @@ def _infer_emotion(mod_count, view_pos_count, analysis_count,
     return ("平静", "当前行为模式稳定，情绪平稳", "normal")
 
 
+@track_cron_task("每周压力测试 (周五 22:00)")
 def job_stress_test():
     """
     每周五 22:00 收盘后压力测试
@@ -2267,6 +2381,7 @@ def job_stress_test():
         send_job_failure("压力测试", str(e))
 
 
+@track_cron_task("周线回测报告 (周一 07:00)")
 def job_weekly_backtest():
     """
     每周五 22:00 周线回测报告
@@ -2361,6 +2476,7 @@ def job_weekly_backtest():
         send_job_failure("周线回测", str(e))
 
 
+@track_cron_task("V24-C4 策略调优 (周日 22:00)")
 def job_strategy_optimization():
     """
     V24-C4-T3: 每周日 22:00 策略自动调优 (Walk-Forward 网格搜索)
@@ -2417,6 +2533,7 @@ def job_strategy_optimization():
         send_job_failure("V24-C4 策略调优", str(e))
 
 
+@track_cron_task("V24-C6 大模型首席分析师 (一/三/五 11:30)")
 def job_chief_event_analyst():
     """
     V24-C6-T3: 大模型事件首席分析师 (每周一/三/五 11:30 盘中)
@@ -2474,6 +2591,7 @@ def job_chief_event_analyst():
         send_job_failure("V24-C6 首席分析师", str(e))
 
 
+@track_cron_task("持仓风险告警 (周一 09:00 周报)")
 def job_position_risk_alert():
     """
     盘前 09:25 + 盘后 15:05 持仓风险告警 (V24-C1-T4 集成, 2026-06-13)
@@ -2517,6 +2635,7 @@ def job_position_risk_alert():
         logger.error(f"position_risk_triggers 启动失败: {e}")
 
 
+@track_cron_task("v2.2 监控数据收集 (18:30)")
 def job_v22_monitoring_collect():
     """
     每日 18:30 v2.2 监控数据收集 (V23-R3-T2 集成, 2026-06-12)
@@ -2537,7 +2656,7 @@ def job_v22_monitoring_collect():
         msg = f"v22_monitoring.py 不存在: {monitor_script}"
         logger.error(msg)
         _safe_error_alert("🔴 v22 监控脚本缺失", msg)
-        return
+        return {"processed": 0, "failed": 1, "error": "script_missing"}
     if not venv_py.exists():
         # 退而求其次: 用 system python
         venv_py = Path("/home/aileo/.hermes/hermes-agent/venv/bin/python3")
@@ -2552,14 +2671,14 @@ def job_v22_monitoring_collect():
         logger.error(f"v22_monitoring 子进程启动失败: {e}")
         _safe_error_alert("🔴 v22 监控启动失败", f"无法执行 v22_monitoring.py: {e}")
         send_job_failure("v22 监控 (18:30)", str(e))
-        return
+        return {"processed": 0, "failed": 1, "error": f"start_failed: {e}"}
 
     if proc.returncode != 0:
         msg = f"v22_monitoring 异常退出 rc={proc.returncode}: {proc.stderr[:200]}"
         logger.error(msg)
         _safe_error_alert("🔴 v22 监控脚本失败", proc.stderr[:200] or f"rc={proc.returncode}")
         send_job_failure("v22 监控 (18:30)", msg)
-        return
+        return {"processed": 0, "failed": 1, "error": f"rc={proc.returncode}"}
 
     # ── 2. 解析 stdout (找模式 11 测试结果) ─────────────────────────
     passed = total = elapsed = 0
@@ -2587,6 +2706,8 @@ def job_v22_monitoring_collect():
     )
 
     # ── 3. 报告持久化 (cron_task_metrics) ──────────────────────────
+    metric_count = 0
+    alert_count = 0
     try:
         from backtester import get_db_conn
         _conn = get_db_conn()
@@ -2603,22 +2724,37 @@ def job_v22_monitoring_collect():
         metric_count = _row[0] or 0
         alert_count = _row[1] or 0
         _conn.commit()
+        _cur.close()
         _conn.close()
         logger.info(f"今日 v22 监控: {metric_count} 指标, {alert_count} 告警")
     except Exception as e:
         logger.warning(f"v22 监控报告查询失败: {e}")
-        alert_count = 0
+
+    # PIT #119 (6/15 排查): return dict 让装饰器接管
+    # 注: alert_count 已在上面 try/except 中定义 (无 except fallback 时为 0)
+    # 这里先做告警推送, 然后 return dict
+    alert_count_for_return = _safe_num(alert_count)
+    passed_for_return = _safe_num(passed)
+    total_for_return = _safe_num(total)
 
     # ── 4. 推送告警 (如 health != healthy) ────────────────────────
-    if alert_count > 0:
+    if alert_count_for_return > 0:
         try:
-            msg = f"📊 v2.2 监控告警: 今日 {alert_count} 项指标需关注\n"
-            msg += f"模式 11 测试: {passed}/{total} 通过\n"
+            msg = f"📊 v2.2 监控告警: 今日 {alert_count_for_return} 项指标需关注\n"
+            msg += f"模式 11 测试: {passed_for_return}/{total_for_return} 通过\n"
             msg += f"耗时: {elapsed}s\n"
             msg += f"查看详情: http://localhost:8648/#/hermes/session 调 l3.v22_monitoring"
             send_notification("🟡 v2.2 监控告警", msg)
         except Exception as e:
             logger.warning(f"v22 监控告警推送失败: {e}")
+
+    return {
+        "processed": passed_for_return,
+        "failed": total_for_return - passed_for_return,
+        "metric_count": _safe_num(metric_count),
+        "alert_count": alert_count_for_return,
+        "elapsed_sec_script": elapsed,
+    }
 
 
 def _get_recent_skill_calls(task_pattern: str, limit: int = 10) -> list[dict]:

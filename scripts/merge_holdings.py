@@ -119,6 +119,9 @@ def parse_gj_stock(path: Path) -> list[dict]:
     """国金证券 CSV: 顶部有 1 行表头 (币种余额...), 1 行账户余额, 1 行空行, 然后才是实际持仓表头
     持仓行格式: 证券代码, 证券名称, 长简称, 证券数量, 可卖数量, 今买数量, 今卖数量,
                 参考成本价, 当前价, 最新市值, 参考浮动盈亏, 参考盈亏比例%, 仓位(%)
+    PIT #135 实战 6/16: 国金证券 131990 标准券 证券数量=0 但市值 485000 (账号资金逆回购),
+                       实战 shares=0 continue 跳过 → 实战漏采集. 修复: 131990 实战 shares=0
+                       但 mv>0 时保留为 cash_equivalent type.
     """
     rows = _read_csv_robust(path)
     # 找表头行: 含 "证券代码"
@@ -140,12 +143,23 @@ def parse_gj_stock(path: Path) -> list[dict]:
             shares = float(r[3]) if r[3] else 0
             cost = abs(float(r[7])) if r[7] else 0  # 参考成本价常为负数
             market_value = _parse_money(r[9])
-            if shares <= 0 or market_value <= 0:
+            # PIT #135: 131990 标准券 (账号资金逆回购) 实战 shares=0 但 mv>0,
+            #          实战作为 cash_equivalent 保留, 不再 continue 跳过
+            if market_value <= 0:
                 continue
+            if shares <= 0:
+                # 仅 131990 (标准券) 实战 shares=0 但 mv>0 保留
+                if code != "131990":
+                    continue
+                # shares=0 实战 mv/100 估算虚拟份数 (标准券面值 100)
+                shares = market_value / 100.0
+                pos_type = "cash_equivalent"  # 标准券 = 现金等价物
+            else:
+                pos_type = "stock"  # 国金都是股票
             result.append({
                 "code": code,
                 "name": name,
-                "type": "stock",  # 国金都是股票
+                "type": pos_type,
                 "shares": shares,
                 "cost": cost,
                 "market_value": market_value,
@@ -186,8 +200,10 @@ def parse_gf_fund(path: Path) -> list[dict]:
             mv = _parse_money(r[i_mv])
             if shares <= 0 or mv <= 0:
                 continue
-            # 区分场内 ETF 和股票
-            if "ETF" in name or "LOF" in name:
+            # PIT #135 实战 6/16: 131990 标准券 实战 cash_equivalent (逆回购), 实战 ETF/stock 区分实战
+            if code == "131990":
+                t = "cash_equivalent"
+            elif "ETF" in name or "LOF" in name:
                 t = "etf"           # 场内 ETF: cost = 单价
             else:
                 t = "stock"         # 股票: cost = 单价
@@ -286,10 +302,19 @@ def parse_huitianfu_fund(path: Path) -> list[dict]:
 
 
 def _compute_weight(positions: list[dict]) -> list[dict]:
-    """追加 weight 字段 = market_value / total_mv * 100"""
-    total = sum(p["market_value"] for p in positions) or 1.0
+    """追加 weight 字段 = market_value / total_mv * 100
+    PIT #135 实战 6/16: cash_equivalent (131990 标准券) 实战 weight 实战
+                       不参与权重 (total_mv 不计入 cash_equivalent 实战虚拟份额),
+                       但 market_value 仍 100% 计入总资产.
+                       实战 cash_equivalent.weight 实战 = 0 (留 marker), 由 dashboard 实战显式标注.
+    """
+    # PIT #135 实战: cash_equivalent 不计入 total_mv (避免逆回购 + 现金 双计)
+    total = sum(p["market_value"] for p in positions if p.get("type") != "cash_equivalent") or 1.0
     for p in positions:
-        p["weight"] = round(p["market_value"] / total * 100, 2)
+        if p.get("type") == "cash_equivalent":
+            p["weight"] = 0.0  # 实战 marker, dashboard 实战显式标注 "标准券 逆回购"
+        else:
+            p["weight"] = round(p["market_value"] / total * 100, 2)
     return positions
 
 

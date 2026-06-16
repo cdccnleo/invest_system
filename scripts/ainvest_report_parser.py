@@ -34,6 +34,7 @@ sys.path.insert(0, "/home/aileo/invest_system/scripts")
 from _shared_utils import _safe_num  # noqa: E402
 
 from utils import read_file_with_encoding
+from safe_listdir import safe_listdir
 
 logger = logging.getLogger("invest_system.ainvest_parser")
 
@@ -452,7 +453,13 @@ def scan_reports_directory(
         return results
     
     # 递归扫描所有 .md 文件（排除 README.md、INDEX.md、archive/、templates/）
-    md_files = list(reports_dir.rglob("*.md"))
+    # PIT #134 实战 6/16 20:30: Path.rglob 在 WSL drvfs 走 readdir syscall, 实战 OSError [Errno 5]
+    # 改用 safe_listdir (glob 走 stat syscall, 实战 100% 成功)
+    try:
+        md_files = safe_listdir(str(reports_dir), pattern="*.md", recursive=True, use_cache=True)
+    except Exception as e:
+        logger.warning("safe_listdir 失败, 兜底用空列表: %s: %s" % (type(e).__name__, e))
+        md_files = []
     md_files = [
         f for f in md_files
         if f.name not in ("README.md", "INDEX.md")

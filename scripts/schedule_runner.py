@@ -1642,8 +1642,13 @@ def job_quote_streamer_5min():
     try:
         proc = _sp_qs.run(
             [str(venv_py), str(qs_script)],
-            capture_output=True, text=True, timeout=300,  # 45 持仓最坏 105s + buffer
+            capture_output=True, text=True, timeout=600,  # PIT #132 6/16 实战: baostock hang 304s, 300s 不够, 5min cron 周期 + buffer
         )
+    except _sp_qs.TimeoutExpired as e:
+        logger.error(f"quote_streamer 超时 600s: {e}")
+        _safe_error_alert("🔴 行情拉取超时", f"quote_streamer 跑 600s 还没结束, baostock hang")
+        send_job_failure("行情拉取 (5min)", "timeout 600s")
+        return {"processed": 0, "failed": 1, "error": f"timeout_600s: {e}"}
     except Exception as e:
         logger.error(f"quote_streamer 子进程启动失败: {e}")
         _safe_error_alert("🔴 行情拉取启动失败", f"无法执行 quote_streamer.py: {e}")

@@ -331,42 +331,43 @@ def run_analysis():
     except Exception as e:
         logger.warning(f"国际投行研究采集异常: {e}")
 
-    # ── Step 6.7: 持仓股重要公告（从 DB 读取近7天）──────────────────────
+    # ── Step 6.7: 持仓股重要公告（从 DB 读取近7天）───────────────────────
     print("\n📌 Step 6.7: 读取持仓股重要公告...")
     announcements_for_prompt = []
     try:
-        import psycopg2
-        ann_conn = psycopg2.connect(
-            host='localhost', port=5432, database='investpilot',
-            user='invest_admin', password=get_credential("DB_PASSWORD"))
-        ann_cur = ann_conn.cursor()
-        ann_cur.execute("""
-            SELECT ts_code, notice_date::text, title, ann_type
-            FROM research.announcements
-            WHERE notice_date >= CURRENT_DATE - INTERVAL '7 days'
-              AND ann_type IN (
-                  '年度报告', '半年度报告', '季报', '业绩预告',
-                  '董事会决议', '股东大会', '分红公告', '回购公告',
-                  '增持公告', '减持公告', '股权激励', '审计报告',
-                  '监管措施', '退市风险'
-              )
-            ORDER BY notice_date DESC
-            LIMIT 20
-        """)
-        for row in ann_cur.fetchall():
-            ts_code, notice_date, title, ann_type = row
-            announcements_for_prompt.append({
-                'ts_code': ts_code,
-                'notice_date': notice_date,
-                'title': title,
-                'ann_type': ann_type,
-                'is_major': True,  # 上述类型均为重大公告
-            })
-        ann_cur.close()
-        ann_conn.close()
+        # PIT #139 (6/17 22:40 实战): 原 psycopg2.connect() 直连绕开连接池,
+        # 一次 run_analysis 多 1 个独立 conn, 长期累积耗尽 PG max_connections.
+        # 修复: 用 storage_factory.pg_cursor() 上下文管理器走连接池, 借/还自动平衡.
+        from storage_factory import pg_cursor
+        with pg_cursor() as (ann_conn, ann_cur):
+            if ann_cur is None:
+                raise RuntimeError("pg_cursor() 返回 None (PG 不可用)")
+            ann_cur.execute("""
+                SELECT ts_code, notice_date::text, title, ann_type
+                FROM research.announcements
+                WHERE notice_date >= CURRENT_DATE - INTERVAL '7 days'
+                  AND ann_type IN (
+                      '年度报告', '半年度报告', '季报', '业绩预告',
+                      '董事会决议', '股东大会', '分红公告', '回购公告',
+                      '增持公告', '减持公告', '股权激励', '审计报告',
+                      '监管措施', '退市风险'
+                  )
+                ORDER BY notice_date DESC
+                LIMIT 20
+            """)
+            for row in ann_cur.fetchall():
+                ts_code, notice_date, title, ann_type = row
+                announcements_for_prompt.append({
+                    'ts_code': ts_code,
+                    'notice_date': notice_date,
+                    'title': title,
+                    'ann_type': ann_type,
+                    'is_major': True,  # 上述类型均为重大公告
+                })
         logger.info(f"持仓重要公告: {len(announcements_for_prompt)} 条")
     except Exception as e:
         logger.warning(f"读取公告失败: {e}")
+        # 失败时保持 [] (fallback), PIT #139 不会让 run_analysis 中断
 
     # ── Step 7: 组装 Prompt 并调用 LLM ────────────────────────────────────
     print("\n📌 Step 7: 生成分析（调用 LLM）...")

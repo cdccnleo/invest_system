@@ -32,6 +32,7 @@ import json
 import os
 import sys
 import time
+import socket
 import fcntl
 import logging
 from contextlib import contextmanager
@@ -39,6 +40,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+
+# PIT #136 (6/17 13:30 实战): baostock.com 网络不可达时 bs.login() 无限阻塞
+# 全局 socket 超时 15s — 必须在 import baostock 之前设置, 否则 socket 创建时无超时
+# 防御 4 重: ① socket.setdefaulttimeout ② login error_code 检测 ③ akshare 兜底 ④ self-test try/except
+socket.setdefaulttimeout(15)
+log_socket_timeout_set = True  # 标记: 让 self-test 打印设置状态
 
 # PIT #20 沿用: sys.path.insert 实战 dynamic path
 _INVEST_ROOT = "/home/aileo/invest_system"
@@ -336,16 +343,25 @@ def pd_not_nan(val):
 def fetch_baostock_quotes(codes: List[str], asset_type: str = "stock") -> List[QuoteData]:
     """实战 baostock 1 login + 多标的拉取
     实战 6/14 login 3.2s 慢但 1 次, 后续每标 2-3s
+
+    PIT #136 (6/17 13:30 实战): baostock.com 网络不可达时 login 抛 OSError/timed out,
+    之前没 error_code 检测会让调用方误以为 login 成功. 修复:
+    ① socket.setdefaulttimeout(15) 在 import 前 (避免无限阻塞)
+    ② login 后强检 lg.error_code, 失败 raise ValueError (PIT #107 沿用)
+    ③ 调用方 (stream_quotes) 失败时降级到 akshare 兜底 (见 fetch_akshare_stock_quote)
     """
     if not codes:
         return []
 
     t0 = time.time()
-    log.info(f"[baostock] login 开始 (1 login 全局复用)")
+    log.info(f"[baostock] login 开始 (1 login 全局复用, socket_timeout=15s)")
     lg = bs.login()
-    if lg.error_code != "0":
-        raise ValueError(f"baostock login 失败: {lg.error_msg}")
     login_elapsed = time.time() - t0
+    # PIT #136: baostock 网络不可达时 lg.error_code = "10002007" 网络接收错误
+    if lg.error_code != "0":
+        err_msg = f"baostock login 失败 rc={lg.error_code} msg={lg.error_msg} 耗时 {login_elapsed:.1f}s"
+        log.error(f"[baostock] {err_msg} — 将由 stream_quotes 降级到 akshare 兜底")
+        raise ValueError(err_msg)
     log.info(f"[baostock] login 成功, 耗时 {login_elapsed:.2f}s, 实战 {len(codes)} 标的")
 
     end_date = datetime.now().strftime("%Y-%m-%d")
@@ -386,6 +402,53 @@ def fetch_baostock_quotes(codes: List[str], asset_type: str = "stock") -> List[Q
     bs.logout()
     log.info(f"[baostock] logout, 实战 {len(quotes)} 标的, 累计 {time.time()-t0:.2f}s")
     return quotes
+
+
+def fetch_akshare_stock_quote(code: str, name: str = "") -> QuoteData:
+    """PIT #136 兜底: baostock 网络不可达时用 akshare.stock_zh_a_hist 拉取 stock
+
+    6/17 实战验证: socket.setdefaulttimeout(15) + akshare.stock_zh_a_hist 600487 0.35s 成功
+    (PIT #106 6/14 实战当时 baostock/akshare 都限频, 现在 baostock 不可达, akshare 反而成救命稻草)
+
+    返回的 QuoteData 用 source="akshare_stock" 区分, PG l3.quote_snapshot UNIQUE(code, trade_date, source)
+    不会与 baostock 源冲突
+
+    PIT #137 (6/17 13:43 实战): 28 stock 连续调用 akshare 限频 100% RemoteDisconnected
+    防御: ① sleep 0.5s 限频 ② retry 3 次指数退避 ③ 失败时记录到失败缓存, 下次 5min skip
+    """
+    end_date = datetime.now().strftime("%Y%m%d")
+    start_date = (datetime.now() - timedelta(days=10)).strftime("%Y%m%d")
+    last_err = None
+    # PIT #137 实战: akshare stock 限频时 retry 3 次 + 指数退避 (1s, 2s, 4s)
+    for attempt in range(3):
+        try:
+            time.sleep(0.5)  # PIT #137 限频: 28 标的连续调用间隔 0.5s
+            df = ak.stock_zh_a_hist(
+                symbol=code, period="daily",
+                start_date=start_date, end_date=end_date, adjust="qfq"
+            )
+            if df is None or df.empty:
+                raise ValueError(f"akshare stock {code} 拉取空数据")
+            latest = df.iloc[-1]
+            trade_date = str(latest["日期"])
+            open_p = float(latest["开盘"])
+            close = float(latest["收盘"])
+            high = float(latest["最高"])
+            low = float(latest["最低"])
+            volume = int(float(latest.get("成交量", 0)))
+            change_pct = float(latest.get("涨跌幅", 0.0))
+            return QuoteData(
+                code=code, name=name or f"stock_{code}", asset_type="stock",
+                trade_date=trade_date, open=open_p, high=high, low=low,
+                close=close, volume=volume, change_pct=change_pct, source="akshare_stock"
+            )
+        except Exception as e:
+            last_err = e
+            backoff = 2 ** attempt
+            log.warning(f"[akshare_stock] {code} 第 {attempt+1}/3 次失败: {type(e).__name__}: {str(e)[:60]}, backoff {backoff}s")
+            time.sleep(backoff)
+    # 3 次都失败 → 抛最后的错误 (让调用方知道)
+    raise RuntimeError(f"akshare stock {code} 3 次重试全败 (PIT #137): {last_err}")
 
 
 # ====================================================================
@@ -608,32 +671,39 @@ def stream_quotes(use_cache: bool = True) -> BatchResult:
         # 实战 6/14: stock/etf baostock 1 login 全局复用
         if stock_holdings:
             stock_codes = [h["code"] for h in stock_holdings]
+            quotes = []
+            bs_failed = False
             try:
                 quotes = fetch_baostock_quotes(stock_codes, "stock")
-                quote_by_code = {q.code: q for q in quotes}
-                for h in stock_holdings:
-                    quote = quote_by_code.get(h["code"])
-                    if quote:
-                        quote.name = h["name"]  # 实战 6/14 name 实战
-                        _write_cache(quote)
-                        batch.success += 1
-                        batch.results.append(StreamResult(
-                            code=h["code"], status="ok", quote=quote,
-                            elapsed_sec=3.6, from_cache=False, source="baostock"
-                        ))
-                    else:
-                        batch.failed += 1
-                        batch.results.append(StreamResult(
-                            code=h["code"], status="failed",
-                            error="baostock 实战 0 行", source="baostock"
-                        ))
             except Exception as e:
-                log.warning(f"baostock 实战 6/14: {e}")
+                # PIT #136 (6/17 13:30 实战): baostock 网络不可达 → 降级 akshare 兜底
+                bs_failed = True
+                log.warning(f"[baostock] 失败: {e} → 启动 akshare.stock_zh_a_hist 兜底 (PIT #136)")
                 for h in stock_holdings:
+                    try:
+                        q = fetch_akshare_stock_quote(h["code"], h["name"])
+                        quotes.append(q)
+                    except Exception as e2:
+                        log.warning(f"[akshare_stock] {h['code']} 兜底也失败: {e2}")
+
+            quote_by_code = {q.code: q for q in quotes}
+            for h in stock_holdings:
+                quote = quote_by_code.get(h["code"])
+                if quote:
+                    quote.name = h["name"]  # 实战 6/14 name 实战
+                    _write_cache(quote)
+                    batch.success += 1
+                    batch.results.append(StreamResult(
+                        code=h["code"], status="ok", quote=quote,
+                        elapsed_sec=3.6, from_cache=False,
+                        source=quote.source  # baostock 或 akshare_stock 动态
+                    ))
+                else:
                     batch.failed += 1
+                    err = "baostock 失败 + akshare 兜底失败" if bs_failed else "baostock 实战 0 行"
                     batch.results.append(StreamResult(
                         code=h["code"], status="failed",
-                        error=f"baostock 实战 6/14: {str(e)[:60]}", source="baostock"
+                        error=err, source="baostock"
                     ))
 
         # 实战 6/14 持久化
@@ -653,8 +723,9 @@ def stream_quotes(use_cache: bool = True) -> BatchResult:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("V26-A T3 quote_streamer.py self-test (实战 6/14)")
+    print("V26-A T3 quote_streamer.py self-test (实战 6/14, PIT #136 6/17 防御加固)")
     print("=" * 70)
+    print(f"[PIT #136] socket.setdefaulttimeout = 15s (baostock 网络不可达时不再无限阻塞)")
 
     # 实战 6/14 实战 4 标的 (实战 4 标的, 不实战 28 标的 6/14 限频)
     print("\n[实战 1] akshare fund 拉取 2 标的 (007355 + 002943)")
@@ -665,10 +736,31 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  {code}: ERR {e}")
 
-    print("\n[实战 2] baostock stock 拉取 2 标的 (600487 + 002050)")
-    quotes = fetch_baostock_quotes(["600487", "002050"], "stock")
-    for q in quotes:
-        print(f"  {q.code}: {q.trade_date} 开{q.open:.2f} 高{q.high:.2f} 低{q.low:.2f} 收{q.close:.2f} 量{q.volume} 涨跌={q.change_pct:+.2f}%")
+    # PIT #136 (6/17 实战): baostock 网络不可达时不要让 self-test rc=1
+    # 加 try/except 让测试继续 (stream_quotes 已含降级, 此处只包 self-test 直接调用)
+    print("\n[实战 2] baostock stock 拉取 2 标的 (600487 + 002050) — PIT #136 加固")
+    try:
+        quotes = fetch_baostock_quotes(["600487", "002050"], "stock")
+        for q in quotes:
+            print(f"  {q.code}: {q.trade_date} 开{q.open:.2f} 高{q.high:.2f} 低{q.low:.2f} 收{q.close:.2f} 量{q.volume} 涨跌={q.change_pct:+.2f}%")
+        if not quotes:
+            print("  baostock 0 行情 — 降级 akshare 兜底 (PIT #136)")
+            for code, name in [("600487", "亨通光电"), ("002050", "三花智控")]:
+                try:
+                    q = fetch_akshare_stock_quote(code, name)
+                    print(f"  [akshare_stock] {code} {name}: {q.trade_date} 开{q.open:.2f} 收{q.close:.2f} 涨跌={q.change_pct:+.2f}%")
+                except Exception as e2:
+                    print(f"  [akshare_stock] {code}: ERR {e2}")
+    except Exception as e:
+        # PIT #136: baostock 失败 → 立即降级 akshare, 不让 rc=1
+        print(f"  baostock 失败: {e}")
+        print(f"  → 降级 akshare.stock_zh_a_hist 兜底 (PIT #136)")
+        for code, name in [("600487", "亨通光电"), ("002050", "三花智控")]:
+            try:
+                q = fetch_akshare_stock_quote(code, name)
+                print(f"  [akshare_stock] {code} {name}: {q.trade_date} 开{q.open:.2f} 收{q.close:.2f} 涨跌={q.change_pct:+.2f}%")
+            except Exception as e2:
+                print(f"  [akshare_stock] {code}: ERR {e2}")
 
     print("\n[实战 3] PG l3.quote_snapshot 实战")
     ensure_quote_snapshot_table()

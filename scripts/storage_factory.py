@@ -121,19 +121,38 @@ def get_pg_connection():
         return None
 
 
+# PIT #140 (6/17 V2.8): pg_cursor 内部转 PoolManager.get_cursor, 向后兼容.
+# 老的 _get_pool/_get_pg_conn 函数保留 (其他模块可能直引), 但实现已委托 PoolManager.
 @contextmanager
 def pg_cursor():
-    """PostgreSQL 游标上下文管理器（使用连接池）"""
-    conn = _get_pg_conn()
-    if conn is None:
-        yield None, None
-        return
+    """PostgreSQL 游标上下文管理器（使用连接池）
+
+    PIT #140 (6/17 V2.8): 内部转 PoolManager.get_cursor, 提供:
+    - 自动借/还 (上下文管理器强制)
+    - 异常路径自动 rollback (避免半事务状态)
+    - 健康度可观测 (PoolManager.health_check)
+    - 池满自动拒绝 (maxconn=10)
+    """
+    # PIT #140: 懒加载 PoolManager (避免循环 import)
     try:
-        cursor = conn.cursor()
-        yield conn, cursor
-    finally:
-        cursor.close()
-        _get_pool().putconn(conn)
+        from pool_manager import get_pool
+        with get_pool().get_cursor() as (conn, cur):
+            if conn is None:
+                yield None, None
+                return
+            yield conn, cur
+    except ImportError:
+        # PoolManager 不可用 (罕见, 如旧部署), 走老实现
+        conn = _get_pg_conn()
+        if conn is None:
+            yield None, None
+            return
+        try:
+            cursor = conn.cursor()
+            yield conn, cursor
+        finally:
+            cursor.close()
+            _get_pool().putconn(conn)
 
 
 # ─── SQLite 降级 ────────────────────────────────────────────────────────────

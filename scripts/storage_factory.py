@@ -180,11 +180,19 @@ class StorageBackend:
         self._pool = None
 
     def _ensure_pg(self):
+        """获取 PG 连接（复用 self._pg_conn, 避免每次 getconn 漏还耗尽池）
+
+        PIT #138 (6/17 21:00 飞书🔴实战): 旧版每次 _ensure_pg() 都 _get_pg_conn() 拿新连接,
+        旧的 self._pg_conn 直接覆盖 → 永久漏还 → pool maxconn=10, 几次 cron 就 PoolError.
+        实战 6/17 21:00 晚间工作流异常: connection pool exhausted.
+        修复: 复用 self._pg_conn, 只有 None / closed 才重新 getconn.
+        """
         if not self.pg_available:
             return False
-        self._pool = _get_pool()
-        self._pg_conn = _get_pg_conn()
-        return self._pg_conn is not None
+        if self._pg_conn is None or self._pg_conn.closed:
+            self._pool = _get_pool()
+            self._pg_conn = _get_pg_conn()
+        return self._pg_conn is not None and not self._pg_conn.closed
 
     # ── 行情数据写入 ────────────────────────────────────────────────────────
 

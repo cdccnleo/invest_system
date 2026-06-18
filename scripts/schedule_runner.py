@@ -397,6 +397,8 @@ from intraday_alert_correlator import job_intraday_linked_alert
 from fetch_financial import collect_financial_for_positions
 from fetch_announcements import fetch_all_positions_announcements
 from l3_dialog_engine import L3DialogEngine
+# PIT #141 (6/17 P0-T2): pool 主动监控 + 飞书告警, V2.8 cron 接入
+from pool_monitor import run_pool_health_check
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1210,6 +1212,34 @@ def job_sentiment_update():
             send_job_failure("情绪因子更新", str(e))
         except Exception:
             pass
+
+
+@track_cron_task("PG 池健康监控 (5min)")
+def job_pool_health():
+    """
+    PIT #141 (6/17 P0-T2): PG 池主动健康监控 + 阈值告警 + 飞书推送
+
+    触发: APScheduler 每 5 分钟调一次 (IntervalTrigger)
+    阈值:
+      🔴 CRITICAL: in_use > 80% maxconn 或 invariant != OK 或 peak > 95% maxconn
+      🟡 WARNING:  in_use > 50% maxconn 或 peak > 90% maxconn
+      🟢 HEALTHY:  其他
+    冷却: 同级别告警 cooldown 30min 防 spam
+    落库: audit.pool_health_metrics 便于 dashboard 趋势分析
+    飞书: 仅 CRITICAL 级别推飞书, WARNING 写日志
+    """
+    try:
+        result = run_pool_health_check()
+        # debug 日志便于排查 (健康场景不在 ERROR 出现)
+        logger.debug(
+            f"[pool_health] level={result['level']}, "
+            f"in_use={result['in_use']}/{result['maxconn']}, "
+            f"peak={result['peak_in_use']}"
+        )
+        return result
+    except Exception as e:
+        logger.error(f"[pool_health] 监控异常: {e}")
+        # 自身异常不破坏 cron (track_cron_task 装饰器兜底推飞书)
 
 
 @track_cron_task("盘中异动监控")
@@ -3116,6 +3146,17 @@ def start_scheduler():
         IntervalTrigger(minutes=5, timezone="Asia/Shanghai"),
         id="intraday_monitoring",
         name="盘中异动监控 (每5分钟)",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+
+    # PIT #141 (6/17 P0-T2): PG 池主动健康监控, 7×24 每 5min
+    # 不限交易时段 (池泄漏可能在盘后发生, e.g. PIT #138 21:00 晚间工作流🔴)
+    _scheduler.add_job(
+        job_pool_health,
+        IntervalTrigger(minutes=5, timezone="Asia/Shanghai"),
+        id="pool_health_monitor",
+        name="PG 池健康监控 (每5分钟)",
         replace_existing=True,
         misfire_grace_time=60,
     )

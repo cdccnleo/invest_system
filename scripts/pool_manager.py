@@ -84,6 +84,12 @@ class PoolManager:
         self._put_count = 0  # 累计 putconn 次数
         self._peak_in_use = 0  # 历史峰值并发 (健康检查参考)
 
+        # PIT #142 (6/17 P1-T2): 内部 invariant hook, 累加违反次数
+        # 不 raise (不破坏调用方), 仅 logger.critical + 累计 _invariant_violations
+        # PIT #141 cron 通过 health_check()['invariant_violations'] 检测 → 飞书推
+        self._invariant_violations = 0
+        self._last_violation_msg: Optional[str] = None
+
     def _ensure_pool(self):
         """懒初始化连接池 (线程安全)"""
         if self._pool is not None:
@@ -106,7 +112,13 @@ class PoolManager:
             logger.info(f"[PoolManager] 池初始化: minconn={self.minconn} maxconn={self.maxconn}")
 
     def getconn(self):
-        """从池借一个连接 (手动归还, 用 get_cursor 更安全)"""
+        """从池借一个连接 (手动归还, 用 get_cursor 更安全)
+
+        PIT #142 (6/17 P1-T2): 内部 invariant hook
+        - 借后 _check_invariant() 验证 in_use = get - put (泄漏检测)
+        - 违反时不 raise (不破坏调用方), 仅 logger.critical + 记 _invariant_violations
+        - PIT #141 cron 通过 health_check()['invariant_violations'] 检测 → 飞书推
+        """
         self._ensure_pool()
         try:
             conn = self._pool.getconn()
@@ -117,10 +129,17 @@ class PoolManager:
         in_use = self._get_count - self._put_count
         if in_use > self._peak_in_use:
             self._peak_in_use = in_use
+        # PIT #142: in-line invariant check (借后立刻验证, 不等 cron 5min)
+        self._check_invariant()
         return conn
 
     def putconn(self, conn):
-        """归还连接到池 (手动模式)"""
+        """归还连接到池 (手动模式)
+
+        PIT #142 (6/17 P1-T2): 内部 invariant hook
+        - 还后 _check_invariant() 验证 put <= get (重复 put 检测)
+        - 违反时不 raise (不破坏调用方), 仅 logger.critical + 记 _invariant_violations
+        """
         if self._pool is None:
             return
         # 检查 conn 是否还活着 (PIT #138 修复: PG idle timeout 兜底)
@@ -135,6 +154,8 @@ class PoolManager:
                 logger.warning(f"[PoolManager] 归还了已关闭的 conn (PG idle timeout/异常断开), 池会清掉")
         except Exception as e:
             logger.error(f"[PoolManager] putconn 异常: {e}")
+        # PIT #142: in-line invariant check (还后立刻验证)
+        self._check_invariant()
 
     @contextmanager
     def get_cursor(self):
@@ -167,6 +188,49 @@ class PoolManager:
     def _in_use_count(self) -> int:
         """当前在用 (不变量: in_use = get_count - put_count)"""
         return self._get_count - self._put_count
+
+    def _check_invariant(self):
+        """PIT #142 (6/17 P1-T2): 内部 invariant check hook
+
+        检查项:
+          1. in_use >= 0 (put_count > get_count = 重复 put, 异常)
+          2. in_use <= maxconn (借了不还 = 泄漏, 异常; 但池满时 raise, 这里不会发生)
+          3. psycopg2 池内部 _used 跟我们的 in_use 一致 (PIT #140 不变量)
+
+        违反时不 raise (不破坏调用方), 仅 logger.critical + 累加 _invariant_violations
+        PIT #141 cron 通过 health_check()['invariant_violations'] 检测 → 飞书推
+        """
+        in_use = self._in_use_count()
+        violations = []
+
+        # 检查 1: put_count > get_count (重复 put)
+        if self._put_count > self._get_count:
+            violations.append(
+                f"put_count({self._put_count}) > get_count({self._get_count}) 重复 put"
+            )
+
+        # 检查 2: in_use 超 maxconn (逻辑上池满会 raise, 但保险起见)
+        if in_use > self.maxconn:
+            violations.append(
+                f"in_use({in_use}) > maxconn({self.maxconn}) 泄漏超限"
+            )
+
+        # 检查 3: psycopg2 池内部 _used 跟我们的 in_use 一致 (PIT #140 不变量)
+        if self._pool is not None:
+            try:
+                pool_used = len(self._pool._used)  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                pool_used = -1
+            if pool_used >= 0 and in_use != pool_used:
+                violations.append(
+                    f"in_use({in_use}) != pool._used({pool_used}) 绕过或泄漏"
+                )
+
+        if violations:
+            self._invariant_violations += 1
+            msg = " | ".join(violations)
+            self._last_violation_msg = msg
+            logger.critical(f"[PoolManager] 不变量违反 #{self._invariant_violations}: {msg}")
 
     def get_count(self) -> int:
         return self._get_count
@@ -222,6 +286,9 @@ class PoolManager:
             "pool_internal_used": pool_used,
             "healthy": healthy,
             "invariant": invariant,
+            # PIT #142 (6/17 P1-T2): 暴露 invariant hook 状态
+            "invariant_violations": self._invariant_violations,
+            "last_violation_msg": self._last_violation_msg,
         }
 
     def close(self):

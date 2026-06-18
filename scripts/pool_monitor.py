@@ -173,6 +173,16 @@ class PoolMonitor:
                 f"peak={peak}/{maxconn}"
             )
 
+        # PIT #142 (6/17 P1-T2): 内部 invariant hook 检测
+        # _invariant_violations > 0 = getconn/putconn 路径已记录不变量违反 (重复put/泄漏超限/绕过池)
+        inv_violations = health.get("invariant_violations", 0)
+        if inv_violations > 0:
+            last_msg = health.get("last_violation_msg", "unknown")
+            return AlertLevel.CRITICAL, (
+                f"🔴 PG 池不变量违反 #{inv_violations}: {last_msg} "
+                f"(get_count={health.get('get_count')}, put_count={health.get('put_count')})"
+            )
+
         # 紧急: 历史峰值超 95% (容量预警, 即使当前 in_use=0)
         if peak > maxconn * THRESHOLD_CRITICAL_PEAK:
             return AlertLevel.CRITICAL, (

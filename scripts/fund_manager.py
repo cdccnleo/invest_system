@@ -9,6 +9,7 @@ import logging
 
 import psycopg2
 from pgcrypto_migration import get_credential
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 logger = logging.getLogger("invest_system.fund_manager")
 
@@ -24,7 +25,6 @@ POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positio
 def _get_password():
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = _get_password()
     return psycopg2.connect(**cfg)

@@ -13,6 +13,9 @@ from typing import Optional
 
 from utils import chunk_text
 
+# PIT #143 (6/17 P1-T1): 改用 storage_factory 的 get_db_conn 走连接池 + release_db_conn 归还
+from storage_factory import get_db_conn, release_db_conn  # noqa: E402
+
 logger = logging.getLogger("invest_system.embedding")
 
 OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
@@ -30,10 +33,9 @@ def _get_password():
     from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
-    cfg = dict(DB_CONFIG)
-    cfg["password"] = _get_password()
-    return psycopg2.connect(**cfg)
+# PIT #143 (6/17 P1-T1): get_db_conn 已抽到 storage_factory.py 走连接池
+# 这里删掉本地 def get_db_conn(), 改用 from storage_factory import get_db_conn, release_db_conn
+# release_db_conn(conn) → release_db_conn(conn) (PIT #138 实战教训: close 是物理关闭, putconn 是归还池)
 
 
 def get_embedding(text: str, model: str = EMBED_MODEL) -> Optional[list[float]]:
@@ -77,7 +79,7 @@ def init_vector_tables():
     """)
     conn.commit()
     logger.info("向量表 research.news_embeddings 初始化完成")
-    conn.close()
+    release_db_conn(conn)
 
 
 def embed_news_articles(article_ids: list[int] = None, limit: int = 50):
@@ -133,7 +135,7 @@ def embed_news_articles(article_ids: list[int] = None, limit: int = 50):
 
     conn.commit()
     logger.info(f"嵌入完成: {embedded} 条 chunks")
-    conn.close()
+    release_db_conn(conn)
     return embedded
 
 
@@ -177,7 +179,7 @@ def search_similar_news(query: str, top_k: int = 5, min_score: float = 0.5) -> l
             logger.warning(f"向量搜索失败: {e}")
             return []
         finally:
-            conn.close()
+            release_db_conn(conn)
 
 
 def get_news_context_for_prompt(query: str, top_k: int = 8) -> str:
@@ -247,7 +249,7 @@ def embed_research_report(report_id: int, text: str = None) -> bool:
         return False
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 def embed_reports_batch(limit: int = 50) -> int:
@@ -278,7 +280,7 @@ def embed_reports_batch(limit: int = 50) -> int:
         return success
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 def search_similar_reports(query: str, top_k: int = 5, min_score: float = 0.5) -> list[dict]:
@@ -324,7 +326,7 @@ def search_similar_reports(query: str, top_k: int = 5, min_score: float = 0.5) -
         logger.warning(f"研报向量搜索失败: {e}")
         return []
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 # ─── 每日 Embedding 任务（供 APScheduler 调用） ───────────────────────────

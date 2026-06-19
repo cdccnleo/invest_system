@@ -71,7 +71,15 @@ import threading
 _thread_local = threading.local()
 
 def _get_thread_conn():
-    """获取当前线程专属连接（线程内复用，避免ThreadedConnectionPool的unkeyed错误）"""
+    """PIT #143 (6/17 P1-T1): 保留线程本地连接模式, 不强行切池
+
+    实战真相: tamf_updater.py 是线程本地连接模式 (注释: "避免 ThreadedConnectionPool 的 unkeyed 错误"),
+    整个 cron job 跑 20+ 次 DB 调用, 用线程本地连接更稳, 不破坏当前稳定性
+    但跟 PoolManager 池不共享 (池监控看不到了), PIT #144 TODO: 改造为 PoolManager 长生命周期对象模式
+
+    这里: 保持线程本地, 但确保本文件的 get_db_conn / release_db_conn 不影响其他文件
+    (其他文件 import storage_factory.get_db_conn 走池, 跟这里独立)
+    """
     if not hasattr(_thread_local, 'conn') or _thread_local.conn is None:
         from pgcrypto_migration import get_credential
         _thread_local.conn = psycopg2.connect(
@@ -82,11 +90,11 @@ def _get_thread_conn():
     return _thread_local.conn
 
 def get_db_conn():
-    """兼容旧接口：返回当前线程专属连接"""
+    """兼容旧接口：返回当前线程专属连接 (线程本地模式, PIT #143 保留)"""
     return _get_thread_conn()
 
 def release_db_conn(conn):
-    """兼容旧接口：连接由线程自己持有，不放回池（no-op）"""
+    """兼容旧接口：连接由线程自己持有，不放回池（no-op, PIT #143 保留）"""
     pass
 
 def close_db_pool():

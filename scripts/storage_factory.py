@@ -98,6 +98,66 @@ def _get_db_connection_params() -> Optional[dict]:
 
 # ─── PostgreSQL 连接 ────────────────────────────────────────────────────────
 
+# PIT #143 (6/17 P1-T1): 重导出 get_db_conn + release_db_conn 走连接池, 兼容 14 个老脚本
+# 实战真相: 14 个 scripts/*.py 文件里都重复 def get_db_conn(): return psycopg2.connect(**cfg),
+# 然后 conn.close() 物理关闭 → 完全绕开池监控, PIT #138+#141+#142 防御对它们无效
+# 修复: 在 storage_factory.py 提供 get_db_conn + release_db_conn 走 PoolManager 池,
+# 老脚本改成 from storage_factory import get_db_conn, release_db_conn + conn.close() → release_db_conn(conn)
+# 设计取舍 (跟 PIT #140 pg_cursor 委托同一思路):
+#   ① 重导出统一入口, 不动业务逻辑 (PIT #140 pg_cursor 重导出)
+#   ② 重复定义抽统一 (跟 PIT #138 StorageBackend 跨文件统一抽同一思路)
+#   ③ 向后兼容: 提供 release_db_conn 兼容老 close() 语义 (实际调 pool.putconn)
+# 跨项目铁律 (db-pool 重导出模式, PIT #140+#143 联合):
+#   ① 重导出统一入口, 不动业务逻辑
+#   ② 重复定义抽统一
+#   ③ conn.close() 跟 pool.putconn() 语义不同: 前者物理关闭 (泄漏池), 后者归还池
+#   ④ 必须配套: 改 get_db_conn 必同步改 close → release_db_conn (否则池泄漏)
+def get_db_conn():
+    """PIT #143 (6/17 P1-T1): 走连接池的 DB 连接获取 (重导出)
+
+    替代 14 个 scripts/*.py 里的本地 def get_db_conn(): return psycopg2.connect(**cfg)
+    内部走 PoolManager 池 (PIT #140 抽的统一池), PIT #141 cron 监控覆盖率 100%
+
+    用法 (老调用方改造):
+        from storage_factory import get_db_conn, release_db_conn
+        conn = get_db_conn()        # 走池
+        try:
+            ...
+        finally:
+            release_db_conn(conn)   # 归还池 (不是 conn.close()!)
+
+    注意: 千万别用 conn.close() (会物理关闭 + 池泄漏, PIT #138 实战教训)
+    """
+    # 走池 (PIT #140 抽的 PoolManager)
+    # 注: 直接用 get_pool().getconn(), 不用 _get_pg_conn (后者走老池)
+    from pool_manager import get_pool
+    return get_pool().getconn()
+
+
+def release_db_conn(conn):
+    """PIT #143 (6/17 P1-T1): 归还连接到池 (重导出, 替代 conn.close())
+
+    替代 14 个老脚本里的 conn.close() (会物理关闭 + 池泄漏)
+    实际调 PoolManager.putconn(), 触发 _check_invariant hook (PIT #142)
+
+    用法:
+        from storage_factory import release_db_conn
+        try:
+            ...
+        finally:
+            release_db_conn(conn)   # 替代 conn.close()
+    """
+    if conn is None:
+        return
+    try:
+        from pool_manager import get_pool
+        get_pool().putconn(conn)
+    except Exception as e:
+        # PIT #112 兼容: 异常路径不递归 (释放失败静默)
+        import logging
+        logging.getLogger(__name__).debug(f"[storage_factory] release_db_conn 异常: {e}")
+
+
 def get_pg_connection():
     """建立 PostgreSQL 连接，失败则降级到 SQLite"""
     params = _get_db_connection_params()

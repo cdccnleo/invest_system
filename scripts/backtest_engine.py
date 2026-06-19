@@ -19,17 +19,9 @@ logger = logging.getLogger("invest_system.backtest")
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
 
 
-def get_db_conn():
-    try:
-        from credentials import get_credential
-        pwd = get_credential("DB_PASSWORD")
-        if pwd:
-            return psycopg2.connect(host="localhost", database="investpilot",
-                                    user="invest_admin", password=pwd)
-    except ImportError:
-        pass
-    return psycopg2.connect(host="localhost", database="investpilot",
-                            user="invest_admin", password=os.environ.get("DB_PASSWORD", ""))
+# PIT #143 (6/17 P1-T1): get_db_conn 已抽到 storage_factory.py 走连接池
+# 这里删掉本地 def get_db_conn(), 改用 from storage_factory import get_db_conn, release_db_conn
+# release_db_conn(conn) → release_db_conn(conn) (PIT #138 实战教训: close 是物理关闭, putconn 是归还池)
 
 
 # ── 历史行情数据 ──────────────────────────────────────────────────────
@@ -55,7 +47,7 @@ def get_price_history(ts_code: str, start_date: str, end_date: str) -> list[dict
             for r in rows
         ]
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 def get_multiple_price_history(ts_codes: list[str], start_date: str, end_date: str) -> dict:
@@ -80,7 +72,7 @@ def get_multiple_price_history(ts_codes: list[str], start_date: str, end_date: s
             result[ts].append({"date": r[1], "close": float(r[2]), "volume": int(r[3])})
         return result
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 # ── 回测核心 ────────────────────────────────────────────────────────
@@ -394,6 +386,7 @@ def print_comparison_table(comparison_table: list[dict]) -> None:
 
 import math
 import statistics
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 class TechnicalIndicators:
     """
@@ -727,7 +720,7 @@ class StressTestEngine:
         except Exception:
             return self.DEFAULT_VOLATILITY
         finally:
-            conn.close()
+            release_db_conn(conn)
 
     # ── 核心压力测试 ─────────────────────────────────────────────────────
 
@@ -909,7 +902,7 @@ def validate_skill(skill_name: str, ts_codes: list[str], params: dict) -> dict:
         ))
         conn.commit()
     finally:
-        conn.close()
+        release_db_conn(conn)
 
     return result
 

@@ -13,6 +13,8 @@ from pgcrypto_migration import get_credential
 # PIT #117 (6/15 实战): 跨模块复用 _safe_num 防御 None > 0 比较错误
 sys.path.insert(0, "/home/aileo/invest_system/scripts")
 from _shared_utils import _safe_num  # noqa: E402
+# PIT #143 (6/17 P1-T1): 改用 storage_factory 的 get_db_conn 走连接池 + release_db_conn 归还
+from storage_factory import get_db_conn, release_db_conn  # noqa: E402
 
 logger = logging.getLogger("invest_system.audit_analytics")
 
@@ -27,10 +29,10 @@ DB_CONFIG = {
 def _get_password():
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
-    cfg = dict(DB_CONFIG)
-    cfg["password"] = _get_password()
-    return psycopg2.connect(**cfg)
+
+# PIT #143 (6/17 P1-T1): get_db_conn 已抽到 storage_factory.py 走连接池
+# 这里删掉本地 def get_db_conn(), 改用 from storage_factory import get_db_conn, release_db_conn
+# release_db_conn(conn) → release_db_conn(conn) (PIT #138 实战教训: close 是物理关闭, putconn 是归还池)
 
 
 # ── 行为模式挖掘 ──────────────────────────────────────────────────────
@@ -114,7 +116,7 @@ def analyze_trading_behavior(days: int = 30) -> dict:
         }
 
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 def _generate_recommendations(patterns: list, success_rate: float) -> list[str]:
@@ -181,7 +183,7 @@ def monthly_report(year_month: str = None) -> dict:
             ),
         }
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 # ── 投资行为年度报告 ──────────────────────────────────────────────────
@@ -245,7 +247,7 @@ def annual_report(year: int = None) -> dict:
             "maturity_score": _calc_maturity_score(total_runs, total_mods, row[2] or 0, row[4] or 0),  # noqa: E501
         }
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 def _calc_maturity_score(runs: int, mods: int, skills: int, reflections: int) -> float:

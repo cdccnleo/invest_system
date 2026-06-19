@@ -13,6 +13,7 @@ from datetime import datetime
 
 import psycopg2
 from dotenv import load_dotenv
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 load_dotenv(str(Path(__file__).parent.parent / ".env"))  # 仅用于非凭据路径变量（若有）
 
 logger = logging.getLogger("invest_system.skill_library")
@@ -24,31 +25,10 @@ APPROVED_DIR = SKILLS_DIR / "approved"
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
-def get_db_conn():
-    """优先使用 credentials 模块（支持 WCM / 本地文件），降级为环境变量"""
-    try:
-        from credentials import get_credential
-        db_url = get_credential("DATABASE_URL")
-        if db_url and "***" not in db_url:
-            return psycopg2.connect(db_url)
-        # 尝试只传密码
-        db_pass = get_credential("DB_PASSWORD")
-        if db_pass:
-            return psycopg2.connect(
-                host="localhost", user="invest_admin",
-                database="investpilot", password=db_pass,
-            )
-    except ImportError:
-        pass
-    # 降级：环境变量
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url and "***" not in db_url:
-        return psycopg2.connect(db_url)
-    return psycopg2.connect(
-        host="localhost", user="invest_admin",
-        database="investpilot",
-        password=os.environ.get("DB_PASSWORD", "") or os.environ.get("POSTGRES_PASSWORD", ""),
-    )
+# PIT #143 (6/17 P1-T1): get_db_conn 已抽到 storage_factory.py 走连接池
+# 这里删掉本地 def get_db_conn(), 改用 from storage_factory import get_db_conn, release_db_conn
+# release_db_conn(conn) → release_db_conn(conn) (PIT #138 实战教训: close 是物理关闭, putconn 是归还池)
+
 
 # ── 固化触发条件 ──────────────────────────────────────────────────────────
 TRIGGER_DAYS = 5          # 5 个交易日内
@@ -249,7 +229,7 @@ class SkillLifecycle:
             """, (json.dumps({"draft": draft_name, "reason": reason}),))
             conn.commit()
         finally:
-            conn.close()
+            release_db_conn(conn)
 
         logger.info(f"技能草案已拒绝: {draft_name}, 原因: {reason}")
         return True
@@ -293,7 +273,7 @@ class SkillLifecycle:
                 for r in cur.fetchall()
             ]
         finally:
-            conn.close()
+            release_db_conn(conn)
 
     def rollback_skill(self, skill_name: str, to_version: int = None) -> bool:
         """
@@ -348,7 +328,7 @@ class SkillLifecycle:
             """, (skill_name, json.dumps({"from": str(backup_path.name)}, ensure_ascii=False)))
             conn.commit()
         finally:
-            conn.close()
+            release_db_conn(conn)
 
         logger.info(f"技能已回滚: {skill_name}")
         return True
@@ -404,7 +384,7 @@ class SkillLifecycle:
             ))
             conn.commit()
         finally:
-            conn.close()
+            release_db_conn(conn)
 
 
 # ── 技能执行 ──────────────────────────────────────────────────────────
@@ -459,7 +439,7 @@ def _log_skill_execution(skill_name: str, query: str, result: dict):
         ))
         conn.commit()
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 # ── 技能合规检查 ──────────────────────────────────────────────────────
@@ -514,7 +494,7 @@ def spot_check_skill_result(skill_name: str, result: dict, expected: dict) -> di
         ))
         conn.commit()
     finally:
-        conn.close()
+        release_db_conn(conn)
 
     return {
         "suspicious": _is_result_suspicious(result, expected),
@@ -563,7 +543,7 @@ def check_skill_triggers() -> list[dict]:
             })
         return triggered
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 if __name__ == "__main__":

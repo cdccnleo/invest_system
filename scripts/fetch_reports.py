@@ -11,6 +11,7 @@ from datetime import datetime, date
 
 import requests
 import psycopg2
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 logger = logging.getLogger("invest_system.fetch_reports")
 
@@ -34,7 +35,6 @@ def _get_password():
     from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = _get_password()
     return psycopg2.connect(**cfg)
@@ -54,7 +54,7 @@ def is_duplicate(info_code: str, title: str, report_dt: date) -> bool:
         return cur.fetchone() is not None
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 def save_report(report: dict) -> bool:
@@ -87,7 +87,7 @@ def save_report(report: dict) -> bool:
         return False
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 # ─── 研报抓取 ──────────────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ def embed_reports(report_ids: list[int] = None):
                 logger.info(f"  研报{id} 向量化: {'成功' if vec else '失败'}")
         finally:
             cur.close()
-            conn.close()
+            release_db_conn(conn)
     except Exception as e:
         logger.warning(f"向量化失败: {e}")
 

@@ -11,6 +11,7 @@ from datetime import date, datetime
 from typing import Optional
 
 import psycopg2
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 try:
     from credentials import get_credential
@@ -27,10 +28,6 @@ DB_CONFIG = {
     "password": get_credential("DB_PASSWORD") if _HAS_CRED else os.environ.get("DB_PASSWORD", ""),
 }
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
-
-
-def get_db_conn():
-    return psycopg2.connect(**DB_CONFIG)
 
 
 # ── 熔断规则配置 ──────────────────────────────────────────────────────────
@@ -145,7 +142,7 @@ class CircuitBreaker:
                 WHERE q.trade_date = CURRENT_DATE
             """)
             row = cur.fetchone()
-            conn.close()
+            release_db_conn(conn)
             if row and row[0] is not None:
                 return float(row[0])
             return 0.0
@@ -174,7 +171,7 @@ class CircuitBreaker:
         except Exception:
             return False
         finally:
-            conn.close()
+            release_db_conn(conn)
 
     def is_buy_allowed(self, ts_code: str = None) -> tuple[bool, str]:
         """

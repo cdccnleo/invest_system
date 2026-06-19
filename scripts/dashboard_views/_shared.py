@@ -35,33 +35,13 @@ def load_positions() -> list[dict]:
     ]
 
 
-def get_db_connection():
-    """获取 PostgreSQL 连接（每次新建，避免缓存的连接被 PG 服务器关闭）
+# PIT #143 (6/17 P1-T1): get_db_connection 已抽到 storage_factory.py 走连接池
+# 这里删掉本地 def get_db_connection(), 改用 from storage_factory import get_db_conn, release_db_conn
+# 注释: 老代码注释 "每次新建更安全" 是 PIT #138 之前的认知错误, 池复用才是对的
+# release_db_conn(conn) → release_db_conn(conn) (PIT #138 实战教训)
 
-    早期版本用 @st.cache_resource(ttl=3600) 缓存连接，但 cron job
-    / PG idle timeout / 服务重启会导致缓存的连接对象已关闭，
-    下次使用抛 'connection already closed' 异常。
-    psycopg2.connect() 本身开销小（~10ms），用每次新建更安全。
-    """
-    import psycopg2
-    try:
-        from credentials import get_credential
-        pwd = get_credential("DB_PASSWORD")
-        if pwd:
-            return psycopg2.connect(
-                host="localhost",
-                user="invest_admin",
-                database="investpilot",
-                password=pwd,
-            )
-    except ImportError:
-        pass
-    return psycopg2.connect(
-        host="localhost",
-        user="invest_admin",
-        database="investpilot",
-        password=os.environ.get("DB_PASSWORD", ""),
-    )
+# PIT #143: get_db_connection 别名, 兼容 dashboard_views/_news.py / _settings.py / _tamf.py 调用方
+from storage_factory import get_db_conn as get_db_connection, release_db_conn  # noqa: E402,F401
 
 
 @st.cache_data(ttl=60)
@@ -98,7 +78,7 @@ def get_latest_quotes_from_db(codes: list[str]) -> dict:
             finally:
                 cur.close()
         finally:
-            conn.close()
+            release_db_conn(conn)
     except Exception:
         return {}
 

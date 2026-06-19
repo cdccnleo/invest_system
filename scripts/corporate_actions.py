@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 import psycopg2
 import urllib.request
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 logger = logging.getLogger("invest_system.corp_actions")
 
@@ -29,7 +30,6 @@ def _get_password():
     from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = _get_password()
     return psycopg2.connect(**cfg)

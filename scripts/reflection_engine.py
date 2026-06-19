@@ -20,6 +20,7 @@ DB_CONFIG = {
 }
 POSITIONS_CSV = os.environ.get("POSITIONS_CSV", "/mnt/d/Hold/invest-data/positions.csv")
 from pathlib import Path
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 USER_MD_PATH = os.environ.get("USER_MD_PATH", str(PROJECT_ROOT / "USER.md"))
 
@@ -28,7 +29,6 @@ def _get_password():
     from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = _get_password()
     return psycopg2.connect(**cfg)
@@ -83,7 +83,7 @@ def daily_reflection(trade_date: str = None) -> dict:
         quotes_map = {r[0]: {"close": float(r[1]), "change_pct": float(r[2] or 0)} for r in quote_rows}  # noqa: E501
 
     finally:
-        conn.close()
+        release_db_conn(conn)
 
     # 组装复盘数据
     plan_detail = {}
@@ -252,7 +252,7 @@ def _log_reflection(trade_date: str, plan: dict, modifications: list, attributio
         ))
         conn.commit()
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 # ── 定时复盘任务 ──────────────────────────────────────────────────────
@@ -357,7 +357,7 @@ def log_quality_to_audit(result: dict, quality: dict, agent_type: str = ""):
     except Exception as e:
         logger.warning(f"质量评估日志写入失败: {e}")
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 if __name__ == "__main__":

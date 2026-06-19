@@ -11,6 +11,7 @@ from datetime import datetime
 
 import requests
 import psycopg2
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 logger = logging.getLogger("invest_system.fetch_financial")
 
@@ -57,7 +58,6 @@ def _get_password():
     from pgcrypto_migration import get_credential
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = _get_password()
     return psycopg2.connect(**cfg)
@@ -97,7 +97,7 @@ def ensure_table():
         logger.info("market.financial_indicators 表就绪")
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 def fetch_financial_data(em_code: str) -> list[dict]:
@@ -219,7 +219,7 @@ def save_financial_data(ts_code: str, records: list[dict]) -> int:
         return saved
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 def collect_financial_for_positions(ts_codes: list[str]) -> dict:
@@ -281,7 +281,7 @@ def get_latest_financial(ts_code: str, n: int = 4) -> list[dict]:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
     finally:
         cur.close()
-        conn.close()
+        release_db_conn(conn)
 
 
 def format_financial_summary(ts_code: str, n: int = 4) -> str:

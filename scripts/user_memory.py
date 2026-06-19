@@ -11,6 +11,7 @@ from pathlib import Path
 
 import psycopg2
 from pgcrypto_migration import get_credential
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 USER_MD_PATH = os.environ.get("USER_MD_PATH", str(PROJECT_ROOT / "USER.md"))
@@ -28,7 +29,6 @@ DB_CONFIG = {
 def _get_password():
     return get_credential("DB_PASSWORD")
 
-def get_db_conn():
     cfg = dict(DB_CONFIG)
     cfg["password"] = _get_password()
     return psycopg2.connect(**cfg)
@@ -56,7 +56,7 @@ def generate_user_profile_summary() -> str:
         logger.warning(f"读取 user_profile 失败: {e}")
         row = None
     finally:
-        conn.close()
+        release_db_conn(conn)
 
     if not row:
         return _default_user_md()
@@ -123,7 +123,7 @@ def _get_positions_summary() -> str:
         logger.warning(f"持仓摘要读取失败: {e}")
         return "- 暂无数据"
     finally:
-        conn.close()
+        release_db_conn(conn)
 
 
 def _default_user_md() -> str:
@@ -176,7 +176,7 @@ def generate_meta_memories() -> str:
         logger.warning(f"读取 audit_log 失败: {e}")
         audit_rows = []
     finally:
-        conn.close()
+        release_db_conn(conn)
 
     # 按月份分组
     by_month = {}

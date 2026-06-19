@@ -31,6 +31,7 @@ from _shared_utils import _safe_num  # noqa: E402
 import psycopg2
 import numpy as np
 from dotenv import load_dotenv
+from storage_factory import get_db_conn, release_db_conn  # PIT #143
 
 logging.basicConfig(
     level=logging.INFO,
@@ -71,24 +72,9 @@ class BacktestConfig:
 
 # ── 数据库 ───────────────────────────────────────────────────────────────────
 
-def get_db_conn():
-    """获取数据库连接"""
-    try:
-        from credentials import get_credential
-        db_pass = get_credential("DB_PASSWORD")
-        if db_pass:
-            return psycopg2.connect(
-                host="localhost", user="invest_admin",
-                database="investpilot", password=db_pass,
-            )
-    except ImportError:
-        pass
-
-    return psycopg2.connect(
-        host="localhost", user="invest_admin",
-        database="investpilot",
-        password=os.environ.get("DB_PASSWORD", os.environ.get("POSTGRES_PASSWORD", "")),
-    )
+# PIT #143 (6/17 P1-T1): get_db_conn 已抽到 storage_factory.py 走连接池
+# 这里删掉本地 def get_db_conn(), 改用 from storage_factory import get_db_conn, release_db_conn
+# conn.close() → release_db_conn(conn) (PIT #138 实战教训: close 是物理关闭, putconn 是归还池)
 
 
 def load_quotes(
@@ -117,7 +103,7 @@ def load_quotes(
         (ts_code, start_date, end_date),
     )
     rows = cur.fetchall()
-    conn.close()
+    release_db_conn(conn)
 
     quotes = []
     for r in rows:

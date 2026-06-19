@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -69,7 +70,7 @@ class PoolManager:
     - in_use = get_count - put_count (不变量)
     """
 
-    def __init__(self, minconn: int = 2, maxconn: int = 10, host: str = "localhost",
+    def __init__(self, minconn: int = 2, maxconn: int = 20, host: str = "localhost",
                  user: str = "invest_admin", database: str = "investpilot"):
         self.minconn = minconn
         self.maxconn = maxconn
@@ -89,6 +90,13 @@ class PoolManager:
         # PIT #141 cron 通过 health_check()['invariant_violations'] 检测 → 飞书推
         self._invariant_violations = 0
         self._last_violation_msg: Optional[str] = None
+
+        # PIT #148 (6/19 17:39 实战升级): 池满持续时长跟踪
+        # 实战教训: 17:34-17:39 in_use 从 0 涨到 10/10 (5min), 5min 间隔观察确认是临时并发占满
+        # 真正泄漏标志: in_use == maxconn 持续 > 10min (e.g. 异常 conn 永远不还)
+        # 临时并发占满: in_use == maxconn 但 < 5min 就恢复 (cron 跑完归还)
+        # 用 maxconn_saturated_since 字段暴露给 PIT #141 cron: 持续 > 10min 才推 CRITICAL
+        self._maxconn_saturated_since: Optional[float] = None  # time.time() when first hit maxconn
 
     def _ensure_pool(self):
         """懒初始化连接池 (线程安全)"""
@@ -129,6 +137,13 @@ class PoolManager:
         in_use = self._get_count - self._put_count
         if in_use > self._peak_in_use:
             self._peak_in_use = in_use
+        # PIT #148: 池满持续时长跟踪 (区分临时并发 vs 真泄漏)
+        if in_use >= self.maxconn and self._maxconn_saturated_since is None:
+            self._maxconn_saturated_since = time.time()
+        elif in_use < self.maxconn and self._maxconn_saturated_since is not None:
+            duration_s = time.time() - self._maxconn_saturated_since
+            logger.info(f"[PoolManager] 池满解除, 持续 {duration_s:.1f}s (PIT #148)")
+            self._maxconn_saturated_since = None
         # PIT #142: in-line invariant check (借后立刻验证, 不等 cron 5min)
         self._check_invariant()
         return conn
@@ -191,14 +206,21 @@ class PoolManager:
 
     def _check_invariant(self):
         """PIT #142 (6/17 P1-T2): 内部 invariant check hook
+        PIT #148 (6/19 17:39 实战升级): 增加池满持续时长跟踪 (区分临时并发 vs 真泄漏)
 
         检查项:
           1. in_use >= 0 (put_count > get_count = 重复 put, 异常)
           2. in_use <= maxconn (借了不还 = 泄漏, 异常; 但池满时 raise, 这里不会发生)
           3. psycopg2 池内部 _used 跟我们的 in_use 一致 (PIT #140 不变量)
 
-        违反时不 raise (不破坏调用方), 仅 logger.critical + 累加 _invariant_violations
+        不 raise (不破坏调用方), 仅 logger.critical + 累加 _invariant_violations
         PIT #141 cron 通过 health_check()['invariant_violations'] 检测 → 飞书推
+
+        PIT #148 实战教训 (17:39 in_use=10/10 实战):
+        - 原本以为 conn.close() 泄漏, 实际验证: get=18 put=8 diff=10, 但 in_use=10 diff=10 一致, 池满状态
+        - 真正根因: 多个 cron 并发跑 (17:34 盘中异动 + 盘中异动关联扫描 同时触发) 临时占满
+        - PIT #142 检查 2 "in_use > maxconn" 漏报 (in_use==maxconn 永远 false)
+        - 修复: health_check() 新增 maxconn_saturated_since 字段, PIT #141 cron 检测"持续池满"
         """
         in_use = self._in_use_count()
         violations = []
@@ -276,6 +298,13 @@ class PoolManager:
 
         healthy = (pool_used < 0) or ((in_use == pool_used) and (in_use <= self.maxconn))
 
+        # PIT #148 (6/19 17:39 实战升级): 池满持续时长暴露
+        # 区分临时并发占满 (e.g. 17:34-17:39 5min 临时并发) vs 真泄漏 (持续 > 10min)
+        # PIT #141 cron 检测 maxconn_saturated_duration_s > 600 (10min) 才推 CRITICAL
+        maxconn_saturated_duration_s = None
+        if self._maxconn_saturated_since is not None:
+            maxconn_saturated_duration_s = time.time() - self._maxconn_saturated_since
+
         return {
             "get_count": self._get_count,
             "put_count": self._put_count,
@@ -289,6 +318,9 @@ class PoolManager:
             # PIT #142 (6/17 P1-T2): 暴露 invariant hook 状态
             "invariant_violations": self._invariant_violations,
             "last_violation_msg": self._last_violation_msg,
+            # PIT #148 (6/19 17:39 实战): 池满持续时长
+            "maxconn_saturated_since": self._maxconn_saturated_since,
+            "maxconn_saturated_duration_s": maxconn_saturated_duration_s,
         }
 
     def close(self):

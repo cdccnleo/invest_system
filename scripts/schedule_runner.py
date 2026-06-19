@@ -399,6 +399,11 @@ from fetch_announcements import fetch_all_positions_announcements
 from l3_dialog_engine import L3DialogEngine
 # PIT #141 (6/17 P0-T2): pool 主动监控 + 飞书告警, V2.8 cron 接入
 from pool_monitor import run_pool_health_check
+# PIT #145 (6/19 P0-T2 升级): 长生命周期进程新鲜度监控 + 飞书告警, V2.8.5
+# 实战教训 PIT #144: schedule_runner / streamlit / watchdog 等长生命周期进程不会 reload .py
+# 模块级 API 变更 (e.g. PIT #143 storage_factory 加 get_db_conn) 必 kill 重启, 否则 19h 后 cron 才报错
+# 主动监控: 进程 etime vs 关键模块 mtime, 不一致 → CRITICAL 飞书
+from process_freshness_monitor import run_process_freshness_check
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1240,6 +1245,187 @@ def job_pool_health():
     except Exception as e:
         logger.error(f"[pool_health] 监控异常: {e}")
         # 自身异常不破坏 cron (track_cron_task 装饰器兜底推飞书)
+
+
+@track_cron_task("长生命周期进程新鲜度监控 (10min)")
+def job_process_freshness():
+    """
+    PIT #145 (6/19 P0-T2 升级, V2.8.5): 长生命周期进程新鲜度监控
+
+    实战教训 PIT #144 (6/19 15:40 行为画像 cron 失败):
+    - Python 进程不 reload .py 文件, 模块级 API 变更后必须 kill 重启
+    - 实战: storage_factory.py 15:01 加 get_db_conn → schedule_runner PID 31736 加载老版本 → 19h 后 15:40 cron 报 ImportError 🔴
+
+    PIT #145 升级: 主动监控 schedule_runner / streamlit / watchdog 进程 etime vs 关键模块 mtime
+    阈值 (PIT #141+#142 三级模式扩展):
+      🔴 CRITICAL: 任意关键模块 mtime > 进程启动时间 + 60s grace = stale (模块变更后未重启)
+      🟡 WARNING:  进程启动时间 10min 内 = transitional (刚启动 cron 未充分验证)
+      🟢 HEALTHY:  进程启动时间 > 所有关键模块 mtime + 60s grace
+
+    触发: APScheduler 每 10min (跟 pool_health 5min 错开, 避免同秒 + 减低监控开销)
+    冷却: 同级别告警 cooldown 30min 防 spam
+    落库: audit.process_freshness_log 便于 dashboard 趋势分析
+    飞书: 仅 CRITICAL 推飞书, WARNING 写日志, HEALTHY 静默
+
+    跨项目适用: 任何长生命周期 Python 进程 (Django / FastAPI / Celery Worker)
+    """
+    try:
+        report = run_process_freshness_check()
+
+        # 落库 audit.process_freshness_log (PIT #141 模式: 业务表 + 索引)
+        _persist_freshness_to_db(report)
+
+        # 飞书推 CRITICAL (跟 pool_health 同款阈值 + 冷却)
+        _maybe_alert_freshness(report)
+
+        # debug 日志 (健康场景不在 ERROR 出现)
+        logger.debug(
+            f"[process_freshness] level={report['level']}, "
+            f"processes={len(report['processes'])}, "
+            f"summary={report['summary']}"
+        )
+        return report
+    except Exception as e:
+        logger.error(f"[process_freshness] 监控异常: {e}")
+        # 自身异常不破坏 cron (track_cron_task 装饰器兜底推飞书)
+
+
+def _persist_freshness_to_db(report: dict) -> None:
+    """
+    PIT #145: 落库 audit.process_freshness_log (类比 PIT #141 pool_health_metrics)
+    表 schema (若不存在则自动创建):
+      id, timestamp, level, summary, detail jsonb, total_processes, critical_count, warning_count, healthy_count
+    索引: timestamp DESC + level
+
+    PIT #146 (PIT #145 实战踩坑): pg_cursor() 上下文管理器不显式 commit,
+    CREATE TABLE IF NOT EXISTS 在事务里 rollback, 表建不出来.
+    修复: 用 get_db_conn + release_db_conn 显式控制事务 (psycopg2 autocommit=False 时 DDL auto-rollback)
+    + conn.autocommit = True for DDL (CREATE TABLE IF NOT EXISTS 不需要事务)
+    """
+    try:
+        from storage_factory import get_db_conn, release_db_conn
+
+        # PIT #146 修复: 用显式 conn + autocommit=True 跑 DDL (CREATE TABLE 在事务里会回滚!)
+        conn = get_db_conn()
+        try:
+            conn.autocommit = True  # DDL auto-commit, 不需要事务包裹
+            cur = conn.cursor()
+
+            # 自动建表 (幂等 CREATE TABLE IF NOT EXISTS)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS audit.process_freshness_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    "timestamp" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    level TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    detail JSONB NOT NULL,
+                    total_processes INTEGER NOT NULL DEFAULT 0,
+                    critical_count INTEGER NOT NULL DEFAULT 0,
+                    warning_count INTEGER NOT NULL DEFAULT 0,
+                    healthy_count INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_process_freshness_ts ON audit.process_freshness_log (\"timestamp\" DESC)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_process_freshness_level ON audit.process_freshness_log (level)")
+            cur.close()
+        finally:
+            # 关键: autocommit=True 也要 release 归还池
+            release_db_conn(conn)
+
+        # 第二步: 单独连接 INSERT 数据 (用事务保证 atomicity)
+        conn2 = get_db_conn()
+        try:
+            cur2 = conn2.cursor()
+
+            processes = report.get("processes", [])
+            critical_count = sum(1 for p in processes if p.get("level") == "stale_critical")
+            warning_count = sum(1 for p in processes if p.get("level") == "stale_warn")
+            healthy_count = sum(1 for p in processes if p.get("level") == "fresh")
+
+            cur2.execute("""
+                INSERT INTO audit.process_freshness_log
+                    (level, summary, detail, total_processes, critical_count, warning_count, healthy_count)
+                VALUES (%s, %s, %s::jsonb, %s, %s, %s, %s)
+            """, (
+                report["level"],
+                report["summary"],
+                json.dumps(report, ensure_ascii=False),
+                len(processes),
+                critical_count,
+                warning_count,
+                healthy_count,
+            ))
+            conn2.commit()
+            cur2.close()
+        finally:
+            release_db_conn(conn2)
+
+        logger.debug(f"[process_freshness] 落库: level={report['level']}, total={len(processes)}")
+    except Exception as e:
+        logger.error(f"[process_freshness] 落库失败: {e}")
+        # 落库失败不影响 cron (不抛)
+
+
+def _maybe_alert_freshness(report: dict) -> None:
+    """
+    PIT #145: 飞书推 CRITICAL (跟 PIT #141 _maybe_alert_pool 同款阈值 + 30min cooldown)
+
+    冷却机制:
+    - 状态文件: logs/alert_cooldown.json (key=process_freshness, value=last_alert_ts + level)
+    - 同级别 cooldown 30min (避免 10min 间隔连发)
+    - 升级告警 (warning → critical) 不冷却 (用户偏好)
+    """
+    from notification import send_via_feishu
+
+    level = report.get("level", "fresh")
+    if level not in ("stale_warn", "stale_critical"):
+        return  # healthy 静默
+
+    # 冷却检查
+    cooldown_path = ROOT / "logs" / "alert_cooldown.json"
+    cooldown_path.parent.mkdir(parents=True, exist_ok=True)
+    cooldown_data = {}
+    if cooldown_path.exists():
+        try:
+            cooldown_data = json.loads(cooldown_path.read_text())
+        except Exception:
+            cooldown_data = {}
+
+    key = "process_freshness"
+    now_ts = time.time()
+    last = cooldown_data.get(key, {})
+    last_ts = last.get("ts", 0)
+    last_level = last.get("level", "")
+
+    # 同级别 + 30min 内 → 跳过 (PIT #141 模式)
+    COOLDOWN_SECONDS = 30 * 60
+    if last_level == level and (now_ts - last_ts) < COOLDOWN_SECONDS:
+        logger.debug(f"[process_freshness] 告警冷却中 (level={level}, age={now_ts-last_ts:.0f}s)")
+        return
+
+    # 升级 (warning → critical) 或新告警 → 推飞书
+    title = "🔴 长生命周期进程 stale" if level == "stale_critical" else "🟡 进程新鲜度告警"
+    content_parts = [f"⏰ {report['timestamp']}", f"📊 {report['summary']}", ""]
+
+    for proc in report.get("processes", []):
+        icon = {"stale_critical": "🔴", "stale_warn": "🟡", "fresh": "🟢"}.get(proc["level"], "❓")
+        content_parts.append(f"{icon} {proc['name']} (PID={proc.get('pid')}): {proc['reason']}")
+        if proc.get("stale_modules"):
+            content_parts.append(f"   ⚠️ Stale 模块: {[m[0] for m in proc['stale_modules']]}")
+    content_parts.append("")
+    content_parts.append("💡 建议: kill <PID> 后 watchdog 自动启新, 加载最新模块")
+
+    content = "\n".join(content_parts)
+    feishu_level = "ERROR" if level == "stale_critical" else "WARNING"
+
+    success = send_via_feishu(title, content, feishu_level)
+    if success:
+        # 更新冷却记录
+        cooldown_data[key] = {"ts": now_ts, "level": level}
+        cooldown_path.write_text(json.dumps(cooldown_data, ensure_ascii=False, indent=2))
+        logger.warning(f"[process_freshness] 飞书推成功 level={level}")
+    else:
+        logger.error(f"[process_freshness] 飞书推失败 level={level}")
 
 
 @track_cron_task("盘中异动监控")
@@ -3157,6 +3343,19 @@ def start_scheduler():
         IntervalTrigger(minutes=5, timezone="Asia/Shanghai"),
         id="pool_health_monitor",
         name="PG 池健康监控 (每5分钟)",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+
+    # PIT #145 (6/19 P0-T2 升级): 长生命周期进程新鲜度监控, 7×24 每 10min
+    # 实战教训 PIT #144: 模块级 API 变更后必须 kill 重启, 否则 19h 后 cron 才报错
+    # 主动监控 schedule_runner / streamlit / watchdog 进程 etime vs 关键模块 mtime
+    # 错开 5min pool_health 避免同秒触发 (减低监控开销 + 不在飞书同秒刷两条)
+    _scheduler.add_job(
+        job_process_freshness,
+        IntervalTrigger(minutes=10, timezone="Asia/Shanghai"),
+        id="process_freshness_monitor",
+        name="长生命周期进程新鲜度监控 (每10分钟)",
         replace_existing=True,
         misfire_grace_time=60,
     )

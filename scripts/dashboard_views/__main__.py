@@ -56,12 +56,13 @@ from _tamf import render_tamf_memory, render_history
 from _l3_status import render_l3_status
 from _settings import render_plan_review, render_settings
 from _ainvest_kb import render_ainvest_kb
+from _pool_health import render_pool_health  # PIT #148 池健康监控页
 from _shared import load_positions, get_news_count
 
 # ── Navigation Config ───────────────────────────────────────────────────────
 PAGES = ["📈 行情", "📊 分析", "📋 研报", "📋 持仓仪表板", "📰 新闻摘要",
          "📢 公告", "📅 决策日历", "📝 计划审核", "📊 TAMF分析记忆",
-         "📚 AInvest知识库", "🤖 L3 投资伙伴", "⚙️ 设置"]
+         "📚 AInvest知识库", "🤖 L3 投资伙伴", "🏊 池健康监控", "⚙️ 设置"]
 
 VIEW_MAP = {
     "📈 行情": render_market, "📊 分析": render_analysis, "📋 研报": render_report,
@@ -69,6 +70,7 @@ VIEW_MAP = {
     "📢 公告": render_announcements, "📅 决策日历": render_history,
     "📝 计划审核": render_plan_review, "📊 TAMF分析记忆": render_tamf_memory,
     "📚 AInvest知识库": render_ainvest_kb, "🤖 L3 投资伙伴": render_l3_status,
+    "🏊 池健康监控": render_pool_health,  # PIT #148
     "⚙️ 设置": render_settings,
 }
 

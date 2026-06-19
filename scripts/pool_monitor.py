@@ -1,14 +1,18 @@
 """
 pool_monitor.py — PG 连接池健康监控 + 主动告警 (PIT #141, 6/17 P0-T2)
 
-跨项目铁律 (PIT #138+#139+#140+#141 实战链, 6/17 V2.8):
+跨项目铁律 (PIT #138+#139+#140+#141+#148 实战链, 6/17 V2.8 + 6/19 PIT #148):
 - 多个池入口分散 + 无 health_check = 等到 PoolError 才知道泄漏 (被动)
 - 抽 PoolManager 单例 + health_check + cron 监控 = 主动告警, 不等 PoolError
 - PIT #141 升级: 加阈值告警 + 冷却防 spam + cron 落库 + 飞书推送
+- PIT #148 升级 (6/19 17:39 实战): 加 maxconn_saturated_duration_s 字段
+  - 区分临时并发占满 (5min) vs 真泄漏 (持续 > 10min)
+  - 临时并发: WARNING 写日志, 不推飞书
+  - 持续 10min+: CRITICAL 推飞书
 
 设计:
-- 三级告警: 🔴 CRITICAL (in_use > 80% maxconn 或 invariant != OK)
-              🟡 WARNING  (in_use > 50% maxconn 或 peak > 90% maxconn)
+- 三级告警: 🔴 CRITICAL (in_use > 80% maxconn 或 invariant != OK 或 池满持续 > 10min)
+              🟡 WARNING  (in_use > 50% maxconn 或 peak > 90% maxconn 或 池满 < 10min)
               🟢 HEALTHY  (其他)
 - 冷却防 spam: 同级别告警 cooldown 30min (避免 5min 间隔连发)
 - 数据库落库: 写 audit.pool_health_metrics (新建表) 便于 dashboard 趋势
@@ -45,11 +49,18 @@ class AlertLevel:
     CRITICAL = "critical"  # 推飞书
 
 
-# 阈值 (基于 maxconn 比例, 默认 maxconn=10)
+# 阈值 (基于 maxconn 比例, 默认 maxconn=20, 6/19 PIT #148 调高)
 THRESHOLD_CRITICAL_USAGE = 0.80   # in_use > 80% maxconn → 🔴 CRITICAL
 THRESHOLD_WARNING_USAGE = 0.50    # in_use > 50% maxconn → 🟡 WARNING
 THRESHOLD_CRITICAL_PEAK = 0.95    # peak > 95% maxconn → 🔴 CRITICAL (历史峰值过高预警)
 THRESHOLD_WARNING_PEAK = 0.90     # peak > 90% maxconn → 🟡 WARNING
+
+# PIT #148 (6/19 17:39 实战升级): 池满持续时长阈值
+# 区分临时并发占满 (5min) vs 真泄漏 (持续 > 10min)
+THRESHOLD_SATURATED_WARNING_SEC = 60     # 池满 ≥ 1min → 🟡 WARNING (写日志, 不推飞书)
+THRESHOLD_SATURATED_CRITICAL_SEC = 600   # 池满 ≥ 10min → 🔴 CRITICAL (推飞书, 真泄漏)
+# 实战数据: 17:34-17:39 in_use=10/10 持续 5min → 临时并发 (cron 跑完归还)
+# 真泄漏预期: 异常 conn 永远不还, in_use=maxconn 持续 10min+ → 立即 CRITICAL
 
 # 冷却时间 (秒): 同级别告警 cooldown, 防 spam
 COOLDOWN_SECONDS = 30 * 60  # 30 min
@@ -158,12 +169,46 @@ class PoolMonitor:
         """根据 health_check 结果判断告警级别 + 摘要
 
         返回: (level, message)
+
+        PIT #148 (6/19 17:39 实战升级): 加 maxconn_saturated_duration_s 检查
+        - in_use >= maxconn 且持续 >= 10min → CRITICAL (推飞书, 真泄漏)
+        - in_use >= maxconn 且持续 < 10min → WARNING (写日志, 临时并发)
+        - in_use < maxconn → 走原阈值逻辑
         """
         in_use = health.get("in_use", 0)
         maxconn = health.get("maxconn", 10)
         peak = health.get("peak_in_use", 0)
         invariant = health.get("invariant", "OK")
         healthy = health.get("healthy", True)
+
+        # PIT #148 池满持续时长检查 (最高优先级, 区分临时并发 vs 真泄漏)
+        # 实战数据: 17:34-17:39 in_use=10/10 (maxconn=10) 持续 5min → 临时并发, 不应推飞书
+        # in_use == maxconn 100% 永远 > 80% 触发 CRITICAL, 但实战只是临时并发
+        # 用 maxconn_saturated_duration_s 区分:
+        #   - 持续 < 60s: WARNING (不推飞书, 不持久化飞书告警, 仅日志+落库)
+        #   - 持续 ≥ 600s: CRITICAL (推飞书, 真泄漏)
+        # 注意: 只有 in_use == maxconn (真正占满) 才走此分支
+        saturated_duration = health.get("maxconn_saturated_duration_s")
+        saturated_since_ts = health.get("maxconn_saturated_since")
+        in_use = health.get("in_use", 0)
+        maxconn = health.get("maxconn", 10)
+        if in_use >= maxconn and saturated_duration is not None:
+            if saturated_duration >= THRESHOLD_SATURATED_CRITICAL_SEC:
+                since_str = (
+                    datetime.fromtimestamp(float(saturated_since_ts)).strftime("%H:%M:%S")
+                    if saturated_since_ts else "unknown"
+                )
+                return AlertLevel.CRITICAL, (
+                    f"🔴 PG 池满持续 {saturated_duration:.0f}s >= {THRESHOLD_SATURATED_CRITICAL_SEC}s "
+                    f"(≥ {THRESHOLD_SATURATED_CRITICAL_SEC/60:.0f}min, 真泄漏预警!) "
+                    f"in_use={in_use}/{maxconn}, peak={peak}/{maxconn}, "
+                    f"since={since_str}"
+                )
+            # 池满但持续 < 600s → WARNING (临时并发, 不推飞书)
+            return AlertLevel.WARNING, (
+                f"🟡 PG 池满持续 {saturated_duration:.0f}s < {THRESHOLD_SATURATED_CRITICAL_SEC}s "
+                f"(临时并发) in_use={in_use}/{maxconn}, peak={peak}/{maxconn}"
+            )
 
         # 紧急: invariant 违反 (泄漏或绕过) 或 in_use 超 80%
         if invariant != "OK" or in_use > maxconn * THRESHOLD_CRITICAL_USAGE:
@@ -240,7 +285,8 @@ class PoolMonitor:
                     f"• invariant: {health.get('invariant')}\n"
                     f"• time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                     f"**PIT #141 主动告警** (threshold: critical={THRESHOLD_CRITICAL_USAGE:.0%}, "
-                    f"peak_critical={THRESHOLD_CRITICAL_PEAK:.0%})"
+                    f"peak_critical={THRESHOLD_CRITICAL_PEAK:.0%}, "
+                    f"saturated_critical={THRESHOLD_SATURATED_CRITICAL_SEC}s)"
                 )
                 send_error_alert(f"PG 池健康告警 ({level})", detail)
             except Exception as e:
@@ -253,7 +299,7 @@ class PoolMonitor:
         """写 audit.pool_health_metrics 表 (新建)
 
         PIT #12 铁律: 写 SQL 前必查 information_schema.columns 确认真实列名
-        表结构 (PIT #141 实战设计, 6/17 23:00 创建):
+        表结构 (PIT #141 实战设计, 6/17 23:00 创建, 6/19 PIT #148 加列):
             CREATE TABLE IF NOT EXISTS audit.pool_health_metrics (
                 id BIGSERIAL PRIMARY KEY,
                 timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -263,12 +309,16 @@ class PoolMonitor:
                 in_use INT,
                 peak_in_use INT,
                 maxconn INT,
-                invariant TEXT
+                invariant TEXT,
+                saturated_duration_s FLOAT  -- PIT #148 (6/19): 池满持续时长, 方便 SQL 趋势分析
             );
             CREATE INDEX IF NOT EXISTS idx_pool_health_timestamp
                 ON audit.pool_health_metrics (timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_pool_health_level
                 ON audit.pool_health_metrics (level);
+            CREATE INDEX IF NOT EXISTS idx_pool_health_saturated
+                ON audit.pool_health_metrics (saturated_duration_s)
+                WHERE saturated_duration_s IS NOT NULL;  -- PIT #148 部分索引
 
         落库失败不致命 (PIT #119 兼容), 失败静默写日志
         """
@@ -283,8 +333,9 @@ class PoolMonitor:
                 cur.execute(
                     """
                     INSERT INTO audit.pool_health_metrics
-                      (level, message, detail, in_use, peak_in_use, maxconn, invariant)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                      (level, message, detail, in_use, peak_in_use, maxconn, invariant,
+                       saturated_duration_s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         report.level,
@@ -294,6 +345,7 @@ class PoolMonitor:
                         report.detail.get("peak_in_use"),
                         report.detail.get("maxconn"),
                         report.detail.get("invariant"),
+                        report.detail.get("maxconn_saturated_duration_s"),  # PIT #148
                     ),
                 )
                 conn.commit()
@@ -339,6 +391,7 @@ def run_pool_health_check() -> dict:
         "peak_in_use": report.detail.get("peak_in_use"),
         "maxconn": report.detail.get("maxconn"),
         "invariant": report.detail.get("invariant"),
+        "saturated_duration_s": report.detail.get("maxconn_saturated_duration_s"),  # PIT #148
     }
 
 
@@ -384,6 +437,56 @@ if __name__ == "__main__":
     # 测试 4: 统计
     print("\n--- 测试 4: 监控器统计 ---")
     print(f"  stats: {monitor.stats()}")
+
+    # 测试 5: PIT #148 池满持续时长模拟 (临时并发 vs 真泄漏)
+    print("\n--- 测试 5: PIT #148 池满持续时长 (临时并发 vs 真泄漏) ---")
+    # 还原基线 + 让 invariant 检查通过 (借出 conn 让 _used 跟 in_use 一致)
+    pool._get_count = original_get
+    pool._put_count = original_get  # 同步让 in_use = 0
+    pool._invariant_violations = 0  # 清零不变量违反计数
+    # 借 20 个 conn 真实占满池, 让 _used=20 == in_use=20, invariant 通过
+    held_conns = []
+    try:
+        for _ in range(20):
+            held_conns.append(pool.getconn())
+    except Exception as e:
+        print(f"  借 conn 失败 (可能 maxconn 不够): {e}")
+    print(f"  借出 conn={len(held_conns)}, in_use={pool.health_check()['in_use']}, _used={pool.health_check()['pool_internal_used']}")
+
+    monitor3 = PoolMonitor(cooldown_seconds=5)  # 短冷却方便测试
+
+    # 5a: 模拟临时并发 (持续 30s, < 10min 阈值)
+    print("\n  5a: 临时并发 (持续 30s < 600s 阈值)")
+    pool._maxconn_saturated_since = time.time() - 30
+    h = pool.health_check()
+    print(f"    health.in_use={h['in_use']}, health.saturated_duration_s={h['maxconn_saturated_duration_s']:.1f}")
+    report5a = monitor3._evaluate(h)
+    print(f"    level: {report5a[0]} (期望 WARNING)")
+    print(f"    message: {report5a[1][:80]}...")
+
+    # 5b: 模拟真泄漏 (持续 700s > 600s 阈值)
+    print("\n  5b: 真泄漏 (持续 700s > 600s 阈值)")
+    pool._maxconn_saturated_since = time.time() - 700
+    h = pool.health_check()
+    print(f"    health.saturated_duration_s={h['maxconn_saturated_duration_s']:.1f}")
+    report5b = monitor3._evaluate(h)
+    print(f"    level: {report5b[0]} (期望 CRITICAL)")
+    print(f"    message: {report5b[1][:80]}...")
+
+    # 5c: 刚池满 (持续 10s, < 60s WARNING 阈值, in_use == maxconn)
+    print("\n  5c: 刚池满 (持续 10s < 60s WARNING 阈值)")
+    pool._maxconn_saturated_since = time.time() - 10
+    h = pool.health_check()
+    print(f"    health.saturated_duration_s={h['maxconn_saturated_duration_s']:.1f}")
+    report5c = monitor3._evaluate(h)
+    print(f"    level: {report5c[0]} (期望 WARNING)")
+    print(f"    message: {report5c[1][:80]}...")
+
+    # 还原: 还 conn + 清状态
+    for c in held_conns:
+        pool.putconn(c)
+    pool._maxconn_saturated_since = None
+    pool._invariant_violations = 0
 
     print("\n=== 自检完成 ===")
     sys.exit(0)

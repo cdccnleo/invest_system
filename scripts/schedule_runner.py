@@ -14,6 +14,12 @@ import traceback as _tb
 from pathlib import Path
 from datetime import datetime, date, timedelta
 
+# PIT #148 (6/19 17:39 实战): schedule_runner.py 自身 9 处 conn.close() 违反 PIT #138+#143 教训
+# conn.close() 物理关闭 conn 但池 _used 字典不减, 每次调用泄漏 1 个 conn
+# 实战: 17:19→17:39 in_use 从 0 涨到 10/10 (5min 涨 2-3, 跟 cron 任务数匹配), get=18 put=8 差 10
+# 修复: 全文件 conn.close() → release_db_conn(conn), 模块顶部预 import 避免每个函数重复
+from storage_factory import release_db_conn  # PIT #148 顶部预 import (9 处 conn.close 复用)
+
 # APScheduler
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -358,7 +364,7 @@ def track_cron_task(task_name: str):
                     ))
                     _conn.commit()
                     _cur.close()
-                    _conn.close()
+                    release_db_conn(_conn)  # PIT #148: conn.close() → release_db_conn (归还池, 不物理关闭)
                 except Exception as e_meta:
                     logger.debug(f"[{task_name}] cron_task_metrics 写入失败: {e_meta}")
         return wrapper
@@ -855,7 +861,7 @@ def _detect_rating_changes():
             ORDER BY ts_code, report_date DESC
         """)
         rows = cur.fetchall()
-        conn.close()
+        release_db_conn(conn)  # PIT #148: conn.close() → release_db_conn (归还池)
 
         # 按ts_code分组
         by_code = {}
@@ -2121,7 +2127,7 @@ def job_skill_spot_check():
         """)
         executed_skills = [r[0] for r in cur.fetchall() if r[0]]
 
-        conn.close()
+        release_db_conn(conn)  # PIT #148: conn.close() → release_db_conn (归还池)
 
         # 只抽查有执行的技能，随机选最多 3 个
         candidates = [s for s in approved if s['skill_name'] in executed_skills]
@@ -2229,7 +2235,7 @@ def job_behavior_profile_update():
             """, row)
         pg_conn.commit()
         cur.close()
-        pg_conn.close()
+        release_db_conn(pg_conn)  # PIT #148: pg_conn.close() → release_db_conn (归还池)
         logger.info(f"行为画像已写入 {len(rows)} 条行记录")
 
         # ── 异常检测 → 飞书预警 ───────────────────────────────────────────────────
@@ -2413,7 +2419,7 @@ def job_user_emotion_sensing():
             send_notification("🧠 L3 情绪感知", f"当前情绪: **{emotion}**\n{emotion_desc}")
 
         cur.close()
-        pg_conn.close()
+        release_db_conn(pg_conn)  # PIT #148: pg_conn.close() → release_db_conn (归还池)
 
     except Exception as e:
         logger.error(f"用户情绪感知异常: {e}")
@@ -2461,41 +2467,61 @@ def job_stress_test():
     try:
         from backtest_engine import StressTestEngine, get_db_conn
         from storage_factory import get_pg_connection
+        from pgcrypto_migration import load_positions_from_db  # PIT #149: 复用 PIT #112 容错解密函数
 
         # ── 1. 加载持仓 ──────────────────────────────────────────────────────
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT code, name, shares, cost, market_value
-            FROM holdings.encrypted_positions
-            WHERE is_current = TRUE
-        """)
-        raw_positions = cur.fetchall()
-
-        cur.execute("""
-            SELECT COALESCE(SUM(market_value), 0) as total_mv
-            FROM holdings.encrypted_positions
-            WHERE is_current = TRUE
-        """)
-        total_mv_row = cur.fetchone()
-        total_mv = float(total_mv_row[0]) if total_mv_row else 0.0
-        conn.close()
-
-        if not raw_positions or total_mv <= 0:
-            logger.warning("无持仓数据，跳过压力测试")
+        # PIT #149 (6/20 实战): 原 SQL `SELECT code, name, shares, cost, market_value` 实战失败
+        #   - 实战错误: column "shares" does not exist (LINE 2)
+        #   - 根因: holdings.encrypted_positions 列名是 shares_enc/cost_enc (pgcrypto bytea), 非 shares/cost
+        #   - PIT #12 铁律: information_schema.columns 验证 17 列, 无 shares/cost 明文列
+        #   - 修复: 复用 load_positions_from_db (PIT #112 容错: 逐行 decrypt, 单行坏不让 cron 死)
+        positions = load_positions_from_db()
+        if not positions:
+            logger.warning("无持仓数据 (load_positions_from_db 返回空), 跳过压力测试")
             return
 
-        positions = [
-            {
-                "code": str(r[0]),
-                "name": r[1],
-                "shares": float(r[2]),
-                "avg_cost": float(r[3]),
-                "current_price": float(r[4]) / float(r[2]) if float(r[2]) > 0 else 0,
-                "market_value": float(r[4]),
-            }
-            for r in raw_positions
-        ]
+        # 从 positions 推导 total_mv (聚合 market_value, None 跳过)
+        total_mv = sum(
+            float(p.get("market_value") or 0)
+            for p in positions
+            if p.get("market_value") is not None
+        )
+        if total_mv <= 0:
+            logger.warning(f"持仓市值总和 = {total_mv}, 跳过压力测试")
+            return
+
+        # 标准化字段名 (stress_test engine 需要 shares/avg_cost/current_price/market_value)
+        # PIT #149 (6/20): 实战发现 43/47 条 shares=None (PIT #112 密钥不匹配, 老持仓 ciphertext 未重加密)
+        #   - 容错策略: shares=None 跳过该行 (不放进 stress_test), 只统计能 decrypt 的行
+        #   - 这跟公告采集 fetch_announcements.py 容错模式一致 (PIT #112 设计)
+        valid_positions = []
+        skipped_no_shares = 0
+        for p in positions:
+            shares_val = p.get("shares")
+            if shares_val is None or float(shares_val) <= 0:
+                skipped_no_shares += 1
+                continue
+            valid_positions.append({
+                "code": str(p.get("code") or "").zfill(6),
+                "name": p.get("name") or "",
+                "shares": float(shares_val),
+                "avg_cost": float(p.get("cost") or 0),  # PIT #149: load_positions 用 'cost' 不是 'avg_cost'
+                "current_price": (
+                    float(p.get("market_value") or 0) / float(shares_val)
+                    if float(shares_val) > 0
+                    else float(p.get("close") or 0)  # PIT #149: load_positions 返回 'close' 不是 'close_price'
+                ),
+                "market_value": float(p.get("market_value") or 0),
+            })
+        if skipped_no_shares > 0:
+            logger.warning(
+                f"PIT #149 容错: {skipped_no_shares}/{len(positions)} 条持仓 shares=None "
+                f"(PIT #112 密钥不匹配), 跳过 stress_test"
+            )
+        if not valid_positions:
+            logger.warning("无有效持仓 (全部 shares=None), 跳过压力测试")
+            return
+        positions = valid_positions
 
         # ── 2. 执行压力测试 ───────────────────────────────────────────────────
         engine = StressTestEngine(db_conn_func=get_db_conn)
@@ -2569,7 +2595,7 @@ def job_stress_test():
                 ))
             pg_conn.commit()
             cur2.close()
-            pg_conn.close()
+            release_db_conn(pg_conn)  # PIT #148: pg_conn.close() → release_db_conn (归还池)
             logger.info(f"压力测试结果已写入 {len(result['scenarios'])} 条记录 (run_id={run_id})")
         else:
             logger.warning("无法连接数据库，跳过结果写入")
@@ -2638,7 +2664,7 @@ def job_weekly_backtest():
         cur.execute("SELECT MAX(trade_date) FROM market.daily_quotes")
         max_date_row = cur.fetchone()
         max_date = max_date_row[0] if max_date_row and max_date_row[0] else None
-        conn.close()
+        release_db_conn(conn)  # PIT #148: conn.close() → release_db_conn (归还池)
 
         if not max_date:
             logger.warning("市场行情表无数据，跳过回测")
@@ -2950,7 +2976,7 @@ def job_v22_monitoring_collect():
         alert_count = _row[1] or 0
         _conn.commit()
         _cur.close()
-        _conn.close()
+        release_db_conn(_conn)  # PIT #148: _conn.close() → release_db_conn (归还池)
         logger.info(f"今日 v22 监控: {metric_count} 指标, {alert_count} 告警")
     except Exception as e:
         logger.warning(f"v22 监控报告查询失败: {e}")
